@@ -1,0 +1,61 @@
+name: deploy
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build the api
+        working-directory: backend
+        run: |
+          mkdir -p "$RUNNER_TEMP/release"
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+            -trimpath -ldflags="-s -w" \
+            -o "$RUNNER_TEMP/release/downradar-api" ./cmd/server
+
+      - name: Build the web bundle
+        working-directory: frontend
+        env:
+          NUXT_PAGE_CACHE_SECONDS: "60"
+        run: |
+          npm ci --no-audit --no-fund
+          npx nuxt build
+          mkdir -p "$RUNNER_TEMP/release/web"
+          cp -r .output/. "$RUNNER_TEMP/release/web/"
+
+      - name: Stage the vendor registry
+        run: cp services.yaml "$RUNNER_TEMP/release/services.yaml"
+
+      - name: Install the deploy key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Ship the release
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
+          RELEASE_NAME: ${{ github.ref_name }}
+        run: ./deploy/ship.sh "$RUNNER_TEMP/release"
