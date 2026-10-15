@@ -13,10 +13,15 @@ import (
 )
 
 type Store struct {
-	pool *pgxpool.Pool
+	pool                  *pgxpool.Pool
+	rawPayloadMinInterval time.Duration
 }
 
-func New(ctx context.Context, dsn string) (*Store, error) {
+type Options struct {
+	RawPayloadMinInterval time.Duration
+}
+
+func New(ctx context.Context, dsn string, opts Options) (*Store, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("store: parse dsn: %w", err)
@@ -34,7 +39,12 @@ func New(ctx context.Context, dsn string) (*Store, error) {
 		pool.Close()
 		return nil, fmt.Errorf("store: ping: %w", err)
 	}
-	return &Store{pool: pool}, nil
+
+	interval := opts.RawPayloadMinInterval
+	if interval <= 0 {
+		interval = time.Hour
+	}
+	return &Store{pool: pool, rawPayloadMinInterval: interval}, nil
 }
 
 func (s *Store) Close() { s.pool.Close() }

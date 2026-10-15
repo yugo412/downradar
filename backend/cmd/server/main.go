@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -43,7 +44,9 @@ func run() error {
 	}
 	log.Info("catalog loaded", "vendors", len(targets), "file", cfg.ServicesFile)
 
-	st, err := store.New(ctx, cfg.DatabaseURL)
+	st, err := store.New(ctx, cfg.DatabaseURL, store.Options{
+		RawPayloadMinInterval: cfg.RawPayloadMinInterval,
+	})
 	if err != nil {
 		return err
 	}
@@ -62,6 +65,10 @@ func run() error {
 
 	p := poller.New(st, ids, targets, cfg.PollConcurrency, cfg.PollTick, log)
 	go p.Run(ctx)
+
+	if cfg.RawPayloadDays > 0 {
+		go runRawPayloadCleanup(ctx, st, time.Duration(cfg.RawPayloadDays)*24*time.Hour, log)
+	}
 
 	go catalog.Watch(ctx, cfg.ServicesFile, cfg.RegistryWatch, func() {
 		newTargets, err := catalog.Load(cfg.ServicesFile)
@@ -114,4 +121,31 @@ func run() error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+func runRawPayloadCleanup(ctx context.Context, st *store.Store, age time.Duration, log *slog.Logger) {
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			removed, err := st.DeleteRawPayloadsOlderThan(ctx, age)
+			if err != nil {
+				log.Error("raw payload cleanup failed", "error", err)
+				continue
+			}
+			if removed > 0 {
+				rows, bytes, err := st.RawPayloadStats(ctx)
+				if err != nil {
+					log.Info("raw payload cleanup", "removed", removed)
+					continue
+				}
+				log.Info("raw payload cleanup",
+					"removed", removed, "kept", rows, "size", fmt.Sprintf("%.1f MB", float64(bytes)/(1<<20)))
+			}
+		}
+	}
 }

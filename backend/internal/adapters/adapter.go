@@ -63,6 +63,7 @@ type Report struct {
 	Global          Health
 	Components      []ComponentStatus
 	Incidents       []Incident
+	PageID          string
 	FetchedAt       time.Time
 	SourceUpdatedAt time.Time
 	HTTPStatus      int
@@ -79,6 +80,7 @@ type Target struct {
 	Endpoint              string
 	Include               []string
 	Aliases               []string
+	AllowSharedPage       bool
 	PollIntervalSeconds   int
 	ActiveIntervalSeconds int
 	Spec                  map[string]any

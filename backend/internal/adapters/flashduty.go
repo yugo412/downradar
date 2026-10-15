@@ -150,6 +150,7 @@ func (f *FlashDuty) Fetch(ctx context.Context, t Target) (Report, error) {
 
 	rep := Report{
 		FetchedAt:  time.Now().UTC(),
+		PageID:     strconv.FormatInt(page.PageID, 10),
 		HTTPStatus: resp.StatusCode,
 		Raw:        []byte(payload),
 	}

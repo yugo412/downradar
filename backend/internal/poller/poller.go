@@ -141,6 +141,9 @@ func (p *Poller) pollOne(ctx context.Context, t adapters.Target) {
 	changed, err := p.store.ApplyReport(ctx, serviceID, rep)
 	if err != nil {
 		p.log.Error("failed to store poll result", "vendor", t.Slug, "error", err)
+		if recErr := p.store.RecordFailure(ctx, serviceID, rep.HTTPStatus, err.Error(), int(elapsed.Milliseconds())); recErr != nil {
+			p.log.Error("failed to record the rejected poll", "vendor", t.Slug, "error", recErr)
+		}
 		return
 	}
 

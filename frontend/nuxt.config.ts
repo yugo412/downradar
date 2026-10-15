@@ -11,11 +11,20 @@ export default defineNuxtConfig({
     plugins: [tailwindcss()],
   },
 
-  // The frontend always calls /api/v1/... (relative) and Nitro forwards it to
-  // the Go API, so SSR and the browser use the same path and no CORS is needed
-  // internally. The proxy lives in server/middleware/api-proxy.ts rather than
-  // in a route rule, because a route rule replaces the handler and would skip
-  // the middleware that adds the internal token.
+  // Rendered pages are cached for 60 seconds. The underlying data is polled
+  // every 5 minutes at best, so this adds no meaningful staleness, and it keeps
+  // a crawler sweep from turning into thousands of server renders and database
+  // queries. The API proxy runs as middleware before route rules, so /api/v1/**
+  // is unaffected.
+  routeRules: {
+    '/**': { swr: 60 },
+  },
+
+  // The frontend calls /api/v1/... (relative) and Nitro forwards it to the Go
+  // API, so SSR and the browser use the same path and no CORS is needed
+  // internally. The proxy lives in server/middleware/api-proxy.ts rather than in
+  // a route rule, because a route rule replaces the handler and would skip the
+  // middleware that adds the internal token.
   runtimeConfig: {
     apiBase,
     internalToken: process.env.INTERNAL_TOKEN ?? '',

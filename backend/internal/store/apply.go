@@ -23,6 +23,13 @@ func (s *Store) ApplyReport(ctx context.Context, serviceID int64, rep adapters.R
 		changedAt = time.Now().UTC()
 	}
 
+	if err := s.guardPageIdentity(ctx, tx, serviceID, rep.PageID); err != nil {
+		return false, err
+	}
+	if err := s.storeRawPayload(ctx, tx, serviceID, changedAt, rep); err != nil {
+		return false, err
+	}
+
 	changed := false
 	seen := make([]string, 0, len(rep.Components))
 	unknownStatuses := make([]string, 0)

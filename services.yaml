@@ -14,6 +14,11 @@
 # generic placeholder rather than the vendor's mark. Vendors without one fall
 # back to a generated globe placeholder on the site.
 #
+# shared_page marks a vendor that intentionally points at the same status page
+# as another one, which happens when one company owns both brands. It must be
+# set on BOTH vendors; an undeclared shared page is refused by the poller, and
+# so is a vendor whose status page suddenly changes to a different one.
+#
 # Each vendor's `profile` picks an adapter together with its polling
 # intervals. The available kinds are the ones declared under `profiles`.
 
@@ -291,6 +296,7 @@ vendors:
     url: https://status.sendgrid.com
     category: email
     profile: statuspage-v2
+    shared_page: true
     logo_url: https://dka575ofm4ao0.cloudfront.net/pages-favicon_logos/original/9076/Lvl41W6wTWmcFxbqzmDa
 
   - slug: twilio
@@ -298,6 +304,7 @@ vendors:
     url: https://status.twilio.com
     category: communication
     profile: statuspage-v2
+    shared_page: true
     logo_url: https://dka575ofm4ao0.cloudfront.net/pages-favicon_logos/original/9076/Lvl41W6wTWmcFxbqzmDa
 
   - slug: plaid

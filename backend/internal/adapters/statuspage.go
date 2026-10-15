@@ -127,6 +127,7 @@ func (s *Statuspage) Fetch(ctx context.Context, t Target) (Report, error) {
 	rep := Report{
 		FetchedAt:       time.Now().UTC(),
 		SourceUpdatedAt: sum.Page.UpdatedAt.UTC(),
+		PageID:          sum.Page.ID,
 		HTTPStatus:      resp.StatusCode,
 		Raw:             body,
 	}

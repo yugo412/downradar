@@ -21,20 +21,21 @@ func (s *Store) SyncServices(ctx context.Context, targets []adapters.Target) (ma
 	for _, t := range targets {
 		var id int64
 		err := tx.QueryRow(ctx, `
-			insert into services (slug, name, url, category, logo_url, active,
+			insert into services (slug, name, url, category, logo_url, allow_shared_page, active,
 			                      poll_interval_seconds, active_interval_seconds, updated_at)
-			values ($1, $2, $3, $4, $5, true, $6, $7, now())
+			values ($1, $2, $3, $4, $5, $6, true, $7, $8, now())
 			on conflict (slug) do update set
 				name                    = excluded.name,
 				url                     = excluded.url,
 				category                = excluded.category,
 				logo_url                = excluded.logo_url,
+				allow_shared_page       = excluded.allow_shared_page,
 				active                  = true,
 				poll_interval_seconds   = excluded.poll_interval_seconds,
 				active_interval_seconds = excluded.active_interval_seconds,
 				updated_at              = now()
 			returning id`,
-			t.Slug, t.Name, t.URL, nullify(t.Category), nullify(t.LogoURL),
+			t.Slug, t.Name, t.URL, nullify(t.Category), nullify(t.LogoURL), t.AllowSharedPage,
 			t.PollIntervalSeconds, t.ActiveIntervalSeconds,
 		).Scan(&id)
 		if err != nil {

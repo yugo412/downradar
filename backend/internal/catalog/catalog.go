@@ -35,6 +35,7 @@ type vendorYAML struct {
 	ActiveIntervalSeconds *int           `yaml:"active_interval_seconds"`
 	Spec                  map[string]any `yaml:"spec"`
 	Enabled               *bool          `yaml:"enabled"`
+	SharedPage            bool           `yaml:"shared_page"`
 }
 
 type fileYAML struct {
@@ -98,6 +99,7 @@ func Load(path string) ([]adapters.Target, error) {
 			Endpoint:              v.Endpoint,
 			Include:               v.Include,
 			Aliases:               v.Aliases,
+			AllowSharedPage:       v.SharedPage,
 			PollIntervalSeconds:   defaultPollInterval,
 			ActiveIntervalSeconds: defaultActiveInterval,
 			Spec:                  v.Spec,
