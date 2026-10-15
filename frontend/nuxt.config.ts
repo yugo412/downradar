@@ -1,6 +1,7 @@
 import tailwindcss from '@tailwindcss/vite'
 
 const apiBase = process.env.NUXT_API_BASE ?? 'http://localhost:8080'
+const pageCacheSeconds = Number(process.env.NUXT_PAGE_CACHE_SECONDS ?? '60')
 
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
@@ -16,9 +17,10 @@ export default defineNuxtConfig({
   // a crawler sweep from turning into thousands of server renders and database
   // queries. The API proxy runs as middleware before route rules, so /api/v1/**
   // is unaffected.
-  routeRules: {
-    '/**': { swr: 60 },
-  },
+  //
+  // Caching also means an edit can take up to a minute to show up in the
+  // browser, so set NUXT_PAGE_CACHE_SECONDS=0 while working on the UI.
+  routeRules: pageCacheSeconds > 0 ? { '/**': { swr: pageCacheSeconds } } : {},
 
   // The frontend calls /api/v1/... (relative) and Nitro forwards it to the Go
   // API, so SSR and the browser use the same path and no CORS is needed

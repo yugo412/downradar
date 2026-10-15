@@ -95,6 +95,7 @@ services:
       NUXT_API_BASE: http://api:8080
       NUXT_TELEMETRY_DISABLED: "1"
       NUXT_PUBLIC_SITE_URL: ${NUXT_PUBLIC_SITE_URL:-http://localhost:3000}
+      NUXT_PAGE_CACHE_SECONDS: ${NUXT_PAGE_CACHE_SECONDS:-60}
       # Sent as X-Internal-Token by the proxy, so the API knows this traffic is
       # ours.
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}

@@ -62,7 +62,7 @@ useSeoMeta({
 </script>
 
 <template>
-  <div class="mx-auto max-w-4xl px-4 py-8">
+  <div class="mx-auto max-w-6xl px-4 py-8">
     <h1 class="text-3xl font-bold tracking-tight">Public API</h1>
     <p class="mt-2 opacity-70">
       Free, read-only JSON endpoints with the current status of every monitored
