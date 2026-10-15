@@ -1,0 +1,22 @@
+FROM golang:1.26-alpine
+
+RUN apk add --no-cache git ca-certificates tzdata
+
+WORKDIR /app
+
+# air watches the source tree and rebuilds on change.
+RUN go install github.com/air-verse/air@latest
+
+# Dependencies are copied first so they stay in their own layer and are only
+# re-downloaded when go.mod or go.sum changes.
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+# services.yaml lives at the repository root and is bind-mounted at runtime
+# by compose.dev.yml, so it is intentionally not copied into the image here.
+
+EXPOSE 8080
+
+CMD ["air", "-c", ".air.toml"]

@@ -1,0 +1,42 @@
+import tailwindcss from '@tailwindcss/vite'
+
+const apiBase = process.env.NUXT_API_BASE ?? 'http://localhost:8080'
+
+export default defineNuxtConfig({
+  compatibilityDate: '2025-07-15',
+  devtools: { enabled: false },
+
+  css: ['~/assets/css/main.css'],
+  vite: {
+    plugins: [tailwindcss()],
+  },
+
+  // The frontend always calls /api/v1/... (relative) and Nitro forwards it to
+  // the Go API, so SSR and the browser use the same path and no CORS is needed
+  // internally. The proxy lives in server/middleware/api-proxy.ts rather than
+  // in a route rule, because a route rule replaces the handler and would skip
+  // the middleware that adds the internal token.
+  runtimeConfig: {
+    apiBase,
+    internalToken: process.env.INTERNAL_TOKEN ?? '',
+    public: {
+      siteName: 'DownRadar',
+      siteUrl: process.env.NUXT_PUBLIC_SITE_URL ?? 'http://localhost:3000',
+      // Public on purpose: it is rendered as a link in the header.
+      githubRepo: process.env.GITHUB_REPO ?? '',
+    },
+  },
+
+  app: {
+    head: {
+      htmlAttrs: { lang: 'en' },
+      titleTemplate: '%s | DownRadar',
+      meta: [
+        { charset: 'utf-8' },
+        { name: 'viewport', content: 'width=device-width, initial-scale=1' },
+        { name: 'theme-color', content: '#1d232a' },
+      ],
+      link: [{ rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
+    },
+  },
+})

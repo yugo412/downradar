@@ -1,0 +1,88 @@
+[
+  {
+    "id": 1581,
+    "title": "Single Sign On errors",
+    "type": "incident",
+    "status": "resolved",
+    "url": "https://slack-status.com/2026-10/6aeafd6248f59a8a",
+    "date_created": "2026-10-13T17:23:07-07:00",
+    "date_updated": "2026-10-13T17:28:54-07:00",
+    "notes": [
+      {
+        "body": "<p>Some users may have experienced trouble logging into Slack. We identified the trigger and resolved the issue and restored access. We\u2019re sorry for the disruption.</p>",
+        "date_created": "2026-10-13T17:23:07-07:00"
+      }
+    ],
+    "services": [
+      "Login/SSO"
+    ]
+  },
+  {
+    "id": 1580,
+    "title": "Slack for iOS closing unexpectedly when opening channels",
+    "type": "incident",
+    "status": "resolved",
+    "url": "https://slack-status.com/2026-10/a0cfb0208a1d2032",
+    "date_created": "2026-10-09T08:35:31-07:00",
+    "date_updated": "2026-10-12T10:03:32-07:00",
+    "notes": [
+      {
+        "body": "<p>Users may experience iOS closing unexpectedly when opening channels.&nbsp; We're actively looking in to this, and we'll share another update as soon as we have more information. We appreciate your patience in the meantime.</p>",
+        "date_created": "2026-10-09T08:35:31-07:00"
+      },
+      {
+        "body": "<p>We've developed a fix for the iOS app issue and are working to validate it before releasing it to customers.&nbsp;</p><p>We'll share another update as soon as we have more information.</p><p><br></p>",
+        "date_created": "2026-10-09T09:20:04-07:00"
+      },
+      {
+        "body": "<p>An updated version of the Slack iOS app that fixes the crash was approved and began rolling out gradually. Customers who download the updated version from the app store can now open channels without the app closing unexpectedly. We'll provide an update once additional information becomes available.</p>",
+        "date_created": "2026-10-09T16:58:33-07:00"
+      },
+      {
+        "body": "<p>We've rolled out an updated version of the Slack iOS app to all impacted customers. Channels now open without the app closing unexpectedly. Users who are still experiencing this issue should update the Slack IOS app from the app store Store to resolve it.</p><p><br></p><p>We apologize for the inconvenience and thank you for your patience.</p>",
+        "date_created": "2026-10-12T10:03:31-07:00"
+      }
+    ],
+    "services": [
+      "Connectivity"
+    ]
+  },
+  {
+    "id": 1579,
+    "title": "Free Plan Customers Are Experiencing Message Failures",
+    "type": "incident",
+    "status": "resolved",
+    "url": "https://slack-status.com/2026-10/6c28dfb7b670dc02",
+    "date_created": "2026-10-01T05:39:35-07:00",
+    "date_updated": "2026-10-01T11:59:35-07:00",
+    "notes": [
+      {
+        "body": "<p>We're aware that some customers on our free plan are experiencing message-sending limit blocks in an unusual spike pattern, which is preventing them from sending messages. We're investigating why this message limit was triggered unexpectedly for some teams. If you're affected, you may be temporarily unable to send messages until this is resolved.&nbsp;<br><br>We'll provide an update in 30 minutes or sooner if additional information becomes available.</p>",
+        "date_created": "2026-10-01T05:39:35-07:00"
+      },
+      {
+        "body": "<p>We identified that a third-party app is stuck in a loop that has triggered billions of messages. This is causing free plan users to exceed messaging limits.&nbsp;<br><br>We apologize for the inconvenience and will provide another update as soon as we have more details to share.&nbsp;</p>",
+        "date_created": "2026-10-01T05:56:59-07:00"
+      },
+      {
+        "body": "<p>A feature toggle ramp-up caused an app integration to repeatedly post messages in a processing loop. This pushed free plan customers over the message volume threshold, triggering the sending block. We're working to restore access and are actively working on remediation options for impacted Workspaces.&nbsp;<br><br>We apologize for the inconvenience and will provide another update as soon as we have more details to share.&nbsp;</p>",
+        "date_created": "2026-10-01T06:58:40-07:00"
+      },
+      {
+        "body": "<p>We\u2019ve identified a potential fix for this issue and we\u2019re working on getting this out to users as quickly as possible. We\u2019ll be back once we have another update to share.<br><br>Thank you for your continued patience as we work towards a solution.</p>",
+        "date_created": "2026-10-01T07:31:24-07:00"
+      },
+      {
+        "body": "<p>Deployment of the fix is underway to restore access for impacted free plan workspaces, and we are actively monitoring the environment. More information will follow as we progress through this stage of remediation.&nbsp;</p>",
+        "date_created": "2026-10-01T11:52:01-07:00"
+      },
+      {
+        "body": "<p>A messaging integration briefly caused some free-plan workspaces to exceed their daily messaging limit, blocking them from sending messages. We took action to lift the sending block for all affected free-plan workspaces, and have confirmed messaging is now restored. We apologize for how this incident affected you and your business. We will undertake a full investigation of the incident, establishing the technical trigger, the underlying cause, and preventive action to avoid a repeat in the future.</p>",
+        "date_created": "2026-10-01T11:59:35-07:00"
+      }
+    ],
+    "services": [
+      "Messaging"
+    ]
+  }
+]

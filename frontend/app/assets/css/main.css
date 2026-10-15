@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+@plugin "daisyui" {
+  themes: light --default, dark;
+}
+
+@layer base {
+  html[data-theme="light"] {
+    color-scheme: light;
+  }
+
+  html[data-theme="dark"] {
+    color-scheme: dark;
+  }
+}

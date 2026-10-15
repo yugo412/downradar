@@ -1,0 +1,116 @@
+# Development stack for downradar.info.
+#
+# Everything runs in Docker: Postgres, Mailpit, the Go API with hot reload,
+# and the Nuxt dev server with HMR. `make dev` starts all of it.
+
+name: downradar
+
+services:
+  db:
+    image: postgres:18
+    container_name: downradar-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-downradar}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-downradar}
+      POSTGRES_DB: ${POSTGRES_DB:-downradar}
+    ports:
+      - "5433:5432"
+    volumes:
+      # postgres:18 sets PGDATA=/var/lib/postgresql/18/docker and declares
+      # VOLUME /var/lib/postgresql. Mounting at /var/lib/postgresql/data
+      # (as in older images) creates an anonymous volume instead, and the
+      # data is lost on `docker compose down`.
+      - db-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U downradar -d downradar"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: downradar-mailpit
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+    ports:
+      - "1026:1025"   # SMTP
+      - "8026:8025"   # web UI at http://localhost:8026
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: downradar-api
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-downradar}:${POSTGRES_PASSWORD:-downradar}@db:5432/${POSTGRES_DB:-downradar}?sslmode=disable
+      HTTP_ADDR: ":8080"
+      SERVICES_FILE: /etc/downradar/services.yaml
+      POLL_CONCURRENCY: "8"
+      POLL_TICK: 5s
+      LOG_LEVEL: info
+      # Both API endpoints are public, so anonymous callers are rate limited per
+      # IP. The frontend proves it is not a third party by sending this token,
+      # which the Nitro proxy adds to every /api/v1/** request it forwards.
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-120}
+      RATE_LIMIT_BURST: ${RATE_LIMIT_BURST:-30}
+      SUGGEST_RATE_LIMIT_PER_HOUR: ${SUGGEST_RATE_LIMIT_PER_HOUR:-6}
+      SUGGEST_RATE_LIMIT_BURST: ${SUGGEST_RATE_LIMIT_BURST:-5}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_REPO: ${GITHUB_REPO:-}
+      GITHUB_API_BASE: ${GITHUB_API_BASE:-https://api.github.com}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./backend:/app
+      # The vendor registry lives at the repository root so it is easy to
+      # find. It is mounted OUTSIDE /app on purpose: mounting it inside the
+      # backend bind mount makes Docker create the mountpoint on the host,
+      # which leaves a stray empty backend/services.yaml behind. The API
+      # watches the file and reloads itself, so editing it needs no restart.
+      - ./services.yaml:/etc/downradar/services.yaml:ro
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: downradar-web
+    depends_on:
+      - api
+    environment:
+      # The proxy target for /api/v1/**, see server/middleware/api-proxy.ts.
+      NUXT_API_BASE: http://api:8080
+      NUXT_TELEMETRY_DISABLED: "1"
+      NUXT_PUBLIC_SITE_URL: ${NUXT_PUBLIC_SITE_URL:-http://localhost:3000}
+      # Sent as X-Internal-Token by the proxy, so the API knows this traffic is
+      # ours.
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
+      # Not a secret: used to render the repository link in the header.
+      GITHUB_REPO: ${GITHUB_REPO:-}
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      # Named volumes keep dependencies and build output out of the host
+      # filesystem, which avoids permission and performance surprises on
+      # bind mounts.
+      - web-node-modules:/app/node_modules
+      - web-nuxt:/app/.nuxt
+
+volumes:
+  db-data:
+  go-mod-cache:
+  go-build-cache:
+  web-node-modules:
+  web-nuxt:

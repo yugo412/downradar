@@ -1,0 +1,27 @@
+# Go
+backend/tmp/
+backend/bin/
+*.test
+*.out
+
+# Node
+node_modules/
+.nuxt/
+.output/
+dist/
+.npm/
+*.log
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local overrides
+compose.override.yml

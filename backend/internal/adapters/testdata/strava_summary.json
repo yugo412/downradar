@@ -1,0 +1,75 @@
+{
+  "page": {
+    "id": "frsctv3lx5sn",
+    "name": "Strava",
+    "url": "https://status.strava.com",
+    "time_zone": "America/Los_Angeles",
+    "updated_at": "2026-10-15T01:59:28.827-07:00"
+  },
+  "status": {
+    "indicator": "minor",
+    "description": "Partially Degraded Service"
+  },
+  "components": [
+    {
+      "id": "349lzpcsx0x4",
+      "name": "Mobile applications",
+      "status": "operational",
+      "position": 1,
+      "group_id": null,
+      "group": false
+    },
+    {
+      "id": "mjc1ndtyvhhr",
+      "name": "Strava.com",
+      "status": "degraded_performance",
+      "position": 2,
+      "group_id": null,
+      "group": false
+    },
+    {
+      "id": "qn6htp8sqpdm",
+      "name": "API",
+      "status": "partial_outage",
+      "position": 3,
+      "group_id": null,
+      "group": false
+    },
+    {
+      "id": "grp0001",
+      "name": "Group row",
+      "status": "operational",
+      "position": 4,
+      "group_id": null,
+      "group": true
+    },
+    {
+      "id": "weird001",
+      "name": "Something New",
+      "status": "brand_new_vocabulary",
+      "position": 5,
+      "group_id": null,
+      "group": false
+    }
+  ],
+  "incidents": [
+    {
+      "id": "inc-1",
+      "name": "Elevated error rates on API",
+      "status": "identified",
+      "impact": "major",
+      "created_at": "2026-10-15T01:10:00.000-07:00",
+      "resolved_at": null,
+      "shortlink": "https://stspg.io/abc123"
+    },
+    {
+      "id": "inc-2",
+      "name": "Upload delays",
+      "status": "resolved",
+      "impact": "minor",
+      "created_at": "2026-10-14T20:00:00.000-07:00",
+      "resolved_at": "2026-10-14T21:30:00.000-07:00",
+      "shortlink": "https://stspg.io/def456"
+    }
+  ]
+}
