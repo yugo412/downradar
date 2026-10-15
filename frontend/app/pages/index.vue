@@ -6,13 +6,32 @@ const { data: stats } = await useFetch<Stats>('/api/v1/stats')
 
 const route = useRoute()
 
-const query = computed({
-  get: () => String(route.query.q ?? ''),
-  set: (value: string) => {
+// The inputs are bound to a local ref, not to the route query. navigateTo is
+// asynchronous, so reading the value back from the URL while typing re-renders
+// the field with a stale value and swallows keystrokes. The URL is updated
+// separately and debounced, so a search is still shareable.
+const queryInput = ref(String(route.query.q ?? ''))
+const query = computed(() => queryInput.value)
+
+let urlSyncTimer: ReturnType<typeof setTimeout> | undefined
+watch(queryInput, (value) => {
+  clearTimeout(urlSyncTimer)
+  urlSyncTimer = setTimeout(() => {
     const trimmed = value.trim()
+    if (trimmed === String(route.query.q ?? '')) return
     navigateTo({ query: trimmed ? { q: trimmed } : {} }, { replace: true })
-  },
+  }, 250)
 })
+
+// Follow the URL when it changes from somewhere else, such as the back button
+// or a shared link, without fighting the typing above.
+watch(
+  () => route.query.q,
+  (value) => {
+    const next = String(value ?? '')
+    if (next !== queryInput.value.trim()) queryInput.value = next
+  },
+)
 
 const worstFirst = ref(true)
 
@@ -44,9 +63,9 @@ const suggestMessage = ref('')
 const suggestLink = ref('')
 
 const suggestName = computed({
-  get: () => query.value,
+  get: () => queryInput.value,
   set: (value: string) => {
-    query.value = value
+    queryInput.value = value
   },
 })
 
@@ -137,7 +156,7 @@ useSeoMeta({
 
     <section class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center">
       <input
-        v-model="query"
+        v-model="queryInput"
         type="search"
         placeholder="Search a service, e.g. strava"
         class="input input-bordered w-full sm:max-w-sm"
@@ -261,10 +280,10 @@ useSeoMeta({
               <VendorLogo :src="v.logoUrl" :name="v.name" :size="40" />
               <div class="min-w-0 flex-1">
                 <div class="flex items-center justify-between gap-2">
-                  <h2 class="text-lg font-semibold leading-snug truncate">{{ v.name }}</h2>
+                  <h2 class="text-lg font-semibold leading-snug">{{ v.name }}</h2>
                   <StatusBadge :status="v.status" size="sm" class="shrink-0" />
                 </div>
-                <p class="text-xs opacity-60 truncate">{{ v.category || 'service' }}</p>
+                <p class="text-xs opacity-60">{{ v.category || 'service' }}</p>
               </div>
             </div>
 

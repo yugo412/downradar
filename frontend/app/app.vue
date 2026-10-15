@@ -15,7 +15,7 @@ useTheme()
           </span>
           <span class="flex items-center gap-2.5 min-w-0">
             <span class="inline-block size-[0.72em] shrink-0" aria-hidden="true" />
-            <span class="text-xs opacity-60 truncate">Official status pages, aggregated</span>
+            <span class="text-xs opacity-60">Official status pages, aggregated</span>
           </span>
         </NuxtLink>
         <nav class="flex items-center gap-1 shrink-0">
