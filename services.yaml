@@ -404,7 +404,6 @@ vendors:
     url: https://status.schedules.run
     category: developer
     profile: cronjob-statuspage
-    logo_url: https://status.schedules.run/favicon.ico
 
   - slug: slack
     name: Slack
