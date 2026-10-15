@@ -62,7 +62,7 @@ func (s *Store) ListVendors(ctx context.Context) ([]VendorSummary, error) {
 	rows, err := s.pool.Query(ctx, `
 		select s.slug,
 		       s.name,
-		       s.url,
+		       coalesce(s.url, ''),
 		       coalesce(s.category, ''),
 		       coalesce(s.logo_url, ''),
 		       coalesce(ss.status, 'unknown'),
@@ -79,7 +79,7 @@ func (s *Store) ListVendors(ctx context.Context) ([]VendorSummary, error) {
 			join component_state cs on cs.component_id = c.id
 			where c.service_id = s.id and c.active
 		) agg on true
-		where s.active
+		where s.active and s.status = 'published'
 		order by s.name`)
 	if err != nil {
 		return nil, fmt.Errorf("read: list vendors: %w", err)
@@ -103,11 +103,11 @@ func (s *Store) GetVendor(ctx context.Context, slug string) (*VendorDetail, erro
 	var serviceID int64
 
 	err := s.pool.QueryRow(ctx, `
-		select s.id, s.slug, s.name, s.url, coalesce(s.category, ''), coalesce(s.logo_url, ''),
+		select s.id, s.slug, s.name, coalesce(s.url, ''), coalesce(s.category, ''), coalesce(s.logo_url, ''),
 		       coalesce(ss.status, 'unknown'), ss.changed_at, s.last_polled_at
 		from services s
 		left join service_state ss on ss.service_id = s.id
-		where s.slug = $1 and s.active`, slug,
+		where s.slug = $1 and s.active and s.status = 'published'`, slug,
 	).Scan(&serviceID, &v.Slug, &v.Name, &v.URL, &v.Category, &v.LogoURL, &v.Status, &v.ChangedAt, &v.LastPolledAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -198,8 +198,9 @@ func (s *Store) FindVendor(ctx context.Context, nameOrSlug string) (string, erro
 	var slug string
 	err := s.pool.QueryRow(ctx, `
 		select slug from services
-		where active and (lower(slug) = lower($1) or lower(name) = lower($1))
-		order by active desc
+		where active and status <> 'rejected'
+		  and (lower(slug) = lower($1) or lower(name) = lower($1))
+		order by status desc
 		limit 1`, strings.TrimSpace(nameOrSlug)).Scan(&slug)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
@@ -228,7 +229,7 @@ func (s *Store) Stats(ctx context.Context) (Stats, error) {
 		       count(*) filter (where coalesce(ss.status, 'unknown') = 'unknown')
 		from services s
 		left join service_state ss on ss.service_id = s.id
-		where s.active`).Scan(&st.Total, &st.Healthy, &st.Degraded, &st.Down, &st.Unknown)
+		where s.active and s.status = 'published'`).Scan(&st.Total, &st.Healthy, &st.Degraded, &st.Down, &st.Unknown)
 	if err != nil {
 		return st, fmt.Errorf("read: stats: %w", err)
 	}

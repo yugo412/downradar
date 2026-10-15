@@ -55,7 +55,7 @@ const visible = computed(() => {
   )
 })
 
-type SuggestState = 'idle' | 'sending' | 'sent' | 'manual' | 'exists' | 'error'
+type SuggestState = 'idle' | 'sending' | 'sent' | 'exists' | 'error'
 
 const suggestState = ref<SuggestState>('idle')
 const suggestUrl = ref('')
@@ -82,30 +82,18 @@ async function submitSuggestion() {
   suggestLink.value = ''
 
   try {
-    const result = await $fetch<{ issueUrl?: string; manualUrl?: string }>('/api/v1/suggest', {
+    await $fetch<{ status: string; slug: string }>('/api/v1/suggest', {
       method: 'POST',
       body: { name: suggestName.value, url: suggestUrl.value },
     })
-
-    if (result.issueUrl) {
-      suggestState.value = 'sent'
-      suggestLink.value = result.issueUrl
-    } else if (result.manualUrl) {
-      suggestState.value = 'manual'
-      suggestLink.value = result.manualUrl
-    } else {
-      suggestState.value = 'sent'
-    }
+    suggestState.value = 'sent'
   } catch (err: unknown) {
-    const data = (err as { data?: { error?: string; vendorSlug?: string; manualUrl?: string } })?.data
+    const data = (err as { data?: { error?: string; vendorSlug?: string } })?.data
 
     if (data?.vendorSlug) {
       suggestState.value = 'exists'
-      suggestMessage.value = data.error ?? 'That service is already monitored.'
+      suggestMessage.value = data.error ?? 'That service has already been suggested.'
       suggestLink.value = `/${data.vendorSlug}`
-    } else if (data?.manualUrl) {
-      suggestState.value = 'manual'
-      suggestLink.value = data.manualUrl
     } else {
       suggestState.value = 'error'
       suggestMessage.value = data?.error ?? 'Could not send the suggestion. Please try again.'
@@ -188,32 +176,10 @@ useSeoMeta({
 
           <div v-if="suggestState === 'sent'" role="status" class="alert alert-success">
             <div>
-              <p class="font-medium">Thanks, your suggestion was sent.</p>
-              <a
-                v-if="suggestLink"
-                :href="suggestLink"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="link text-sm"
-              >
-                Track it on GitHub
-              </a>
-            </div>
-          </div>
-
-          <div v-else-if="suggestState === 'manual'" role="status" class="alert alert-info">
-            <div>
-              <p class="font-medium">
-                Automatic submission is not configured. Open the issue to finish.
+              <p class="font-medium">Thanks, your suggestion was recorded.</p>
+              <p class="text-sm opacity-80">
+                A moderator will review it before it starts being monitored.
               </p>
-              <a
-                :href="suggestLink"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="btn btn-sm btn-primary mt-2"
-              >
-                Open the GitHub issue
-              </a>
             </div>
           </div>
 
@@ -259,7 +225,7 @@ useSeoMeta({
                 {{ suggestState === 'sending' ? 'Sending…' : 'Suggest this service' }}
               </button>
               <span class="text-xs opacity-60">
-                Opens a GitHub issue so the request can be tracked.
+                Goes to a review queue, nothing is monitored until it is approved.
               </span>
             </div>
 
