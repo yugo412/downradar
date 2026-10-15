@@ -100,8 +100,10 @@ services:
       # Sent as X-Internal-Token by the proxy, so the API knows this traffic is
       # ours.
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
-      # Not a secret: used to render the repository link in the header.
-      GITHUB_REPO: ${GITHUB_REPO:-}
+      # Nitro reads runtime config from NUXT_* variables, not from the names the
+      # Go API uses, so the same secret is exposed under both names.
+      NUXT_INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
+      NUXT_PUBLIC_GITHUB_REPO: ${GITHUB_REPO:-}
     ports:
       - "3000:3000"
     volumes:

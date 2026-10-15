@@ -25,3 +25,4 @@ dist/
 
 # Local overrides
 compose.override.yml
+.env.production

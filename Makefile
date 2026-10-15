@@ -71,5 +71,8 @@ vet: ## Run go vet
 tidy: ## Tidy go.mod and go.sum
 > cd backend && go mod tidy
 
+deploy: ## Build locally and ship a new release to the server
+> ./deploy/deploy.sh
+
 mail: ## Print the development inbox URL
 > @echo "Mailpit: http://localhost:8026"

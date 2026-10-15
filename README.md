@@ -66,6 +66,47 @@ make test       # run backend tests inside the container
 make reset      # stop everything and delete all data
 ```
 
+## Deployment
+
+`make deploy` builds everything here and ships it to the server. Nothing is
+built on the server: it has 1.9 GB of RAM and is already serving other
+production sites, so a Nuxt build there would risk the OOM killer taking one of
+them down.
+
+The layout follows the convention already used on that machine:
+
+```
+/var/www/downradar.info/
+  releases/20261015202256/   the Go binary, services.yaml, and the web bundle
+  releases/20261015201543/   previous releases, kept for rollback
+  current -> releases/20261015202256
+  shared/.env                secrets, not touched by a release
+```
+
+Releases are immutable and `current` is a symlink, so rolling back is pointing
+the symlink at the previous release and restarting:
+
+```bash
+ssh ubuntu@43.133.137.16
+sudo ln -sfn releases/<previous> /var/www/downradar.info/current
+sudo systemctl restart downradar-api downradar-web
+```
+
+Services are `downradar-api.service` and `downradar-web.service`, both running
+as the `downradar` user with a memory cap. They read `/var/www/downradar.info/shared/.env`
+via `EnvironmentFile`.
+
+Two things that are easy to get wrong:
+
+- **Secrets must not be read in `nuxt.config.ts`.** Nuxt inlines those values
+  into the bundle at build time, so a build done locally would ship the local
+  secret to production. Everything comes from `NUXT_*` variables at runtime
+  instead, and the deploy script refuses to ship a bundle that contains one.
+- **The API must see the real client IP.** Caddy sets `X-Forwarded-For`
+  authoritatively and the Nitro proxy passes it through, otherwise every visitor
+  shares a single rate limit bucket. When Cloudflare is put in front, that Caddy
+  directive has to change to `{http.request.header.CF-Connecting-IP}`.
+
 ## Adding a vendor
 
 Edit `services.yaml` at the repository root and restart the API. No SQL, no

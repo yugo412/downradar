@@ -1,6 +1,5 @@
 import tailwindcss from '@tailwindcss/vite'
 
-const apiBase = process.env.NUXT_API_BASE ?? 'http://localhost:8080'
 const pageCacheSeconds = Number(process.env.NUXT_PAGE_CACHE_SECONDS ?? '60')
 
 export default defineNuxtConfig({
@@ -20,21 +19,24 @@ export default defineNuxtConfig({
   //
   // Caching also means an edit can take up to a minute to show up in the
   // browser, so set NUXT_PAGE_CACHE_SECONDS=0 while working on the UI.
+  // Only the page cache is decided at build time, because route rules are baked
+  // into the bundle. Everything else is supplied at runtime by environment
+  // variables, using Nuxt's naming convention: runtimeConfig.apiBase comes from
+  // NUXT_API_BASE, runtimeConfig.internalToken from NUXT_INTERNAL_TOKEN, and
+  // runtimeConfig.public.x from NUXT_PUBLIC_X.
+  //
+  // Never read a secret from process.env in this file. Nuxt inlines those values
+  // into the bundle at build time, so a build done on a laptop would ship the
+  // local secret to production and every internal check would then fail.
   routeRules: pageCacheSeconds > 0 ? { '/**': { swr: pageCacheSeconds } } : {},
 
-  // The frontend calls /api/v1/... (relative) and Nitro forwards it to the Go
-  // API, so SSR and the browser use the same path and no CORS is needed
-  // internally. The proxy lives in server/middleware/api-proxy.ts rather than in
-  // a route rule, because a route rule replaces the handler and would skip the
-  // middleware that adds the internal token.
   runtimeConfig: {
-    apiBase,
-    internalToken: process.env.INTERNAL_TOKEN ?? '',
+    apiBase: 'http://127.0.0.1:8080',
+    internalToken: '',
     public: {
       siteName: 'DownRadar',
-      siteUrl: process.env.NUXT_PUBLIC_SITE_URL ?? 'http://localhost:3000',
-      // Public on purpose: it is rendered as a link in the header.
-      githubRepo: process.env.GITHUB_REPO ?? '',
+      siteUrl: 'http://localhost:3000',
+      githubRepo: '',
     },
   },
 
