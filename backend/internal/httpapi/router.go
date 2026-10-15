@@ -33,9 +33,7 @@ type Options struct {
 	SuggestPerHour     int
 	SuggestBurst       int
 	InternalToken      string
-	GitHubAPIBase      string
-	GitHubRepo         string
-	GitHubToken        string
+	Suggest            *suggest.Client
 }
 
 func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
@@ -55,7 +53,7 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 		readLimiter:    newIPLimiter(readInterval, opts.RateLimitBurst),
 		suggestLimiter: newIPLimiter(suggestInterval, opts.SuggestBurst),
 		internalToken:  opts.InternalToken,
-		suggestClient:  suggest.NewClient(opts.GitHubAPIBase, opts.GitHubRepo, opts.GitHubToken),
+		suggestClient:  opts.Suggest,
 	}
 
 	mux := http.NewServeMux()
