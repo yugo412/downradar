@@ -76,6 +76,8 @@ services:
       # which leaves a stray empty backend/services.yaml behind. The API
       # watches the file and reloads itself, so editing it needs no restart.
       - ./services.yaml:/etc/downradar/services.yaml:ro
+      # The bootstrap file is only read by the seed command and its tests.
+      - ./seed:/app/seed:ro
       - go-mod-cache:/go/pkg/mod
       - go-build-cache:/root/.cache/go-build
     healthcheck:

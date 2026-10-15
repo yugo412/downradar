@@ -32,11 +32,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "==> building the api for linux/amd64"
+echo "==> building the api and the seed command for linux/amd64"
 (
   cd backend
   CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -trimpath -ldflags="-s -w" -o "$STAGE/downradar-api" ./cmd/server
+  CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -trimpath -ldflags="-s -w" -o "$STAGE/downradar-seed" ./cmd/seed
 )
 
 echo "==> building the web bundle"
@@ -55,6 +57,8 @@ echo "==> staging release $TS"
 mkdir -p "$STAGE/web"
 cp -r frontend/.output/. "$STAGE/web/"
 cp services.yaml "$STAGE/services.yaml"
+mkdir -p "$STAGE/seed"
+cp seed/vendors.yaml "$STAGE/seed/vendors.yaml"
 du -sh "$STAGE" | awk '{print "    size: " $1}'
 
 RELEASE_NAME="$TS" ./deploy/ship.sh "$STAGE"

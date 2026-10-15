@@ -7,6 +7,10 @@ import (
 	"testing"
 )
 
+// servicesFilePath prefers SERVICES_FILE, which is what the running API uses,
+// and falls back to walking up from the working directory. The two environments
+// differ: on the host the file sits at the repository root, while in the
+// container it is mounted at a path only the environment variable knows about.
 func servicesFilePath(t *testing.T) string {
 	t.Helper()
 
@@ -35,100 +39,100 @@ func servicesFilePath(t *testing.T) string {
 	return ""
 }
 
-func TestLoadRealServicesFile(t *testing.T) {
-	targets, err := Load(servicesFilePath(t))
+func writeTemp(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "services.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestLoadRealProfiles(t *testing.T) {
+	profiles, err := Load(servicesFilePath(t))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if len(targets) < 10 {
-		t.Fatalf("only %d vendors parsed, file looks broken", len(targets))
+	if len(profiles) < 4 {
+		t.Fatalf("only %d profiles parsed, file looks broken", len(profiles))
 	}
 
-	seen := map[string]bool{}
-	for _, tg := range targets {
-		if seen[tg.Slug] {
-			t.Errorf("duplicate slug: %s", tg.Slug)
+	for name, p := range profiles {
+		if p.Kind == "" {
+			t.Errorf("%s: empty kind", name)
 		}
-		seen[tg.Slug] = true
-
-		if tg.Kind == "" {
-			t.Errorf("%s: empty kind", tg.Slug)
+		if p.PollIntervalSeconds <= 0 || p.ActiveIntervalSeconds <= 0 {
+			t.Errorf("%s: invalid interval", name)
 		}
-		if tg.PollIntervalSeconds <= 0 || tg.ActiveIntervalSeconds <= 0 {
-			t.Errorf("%s: invalid interval", tg.Slug)
-		}
-		if tg.ActiveIntervalSeconds > tg.PollIntervalSeconds {
+		if p.ActiveIntervalSeconds > p.PollIntervalSeconds {
 			t.Errorf("%s: active interval (%d) is slower than normal interval (%d)",
-				tg.Slug, tg.ActiveIntervalSeconds, tg.PollIntervalSeconds)
+				name, p.ActiveIntervalSeconds, p.PollIntervalSeconds)
 		}
+	}
+
+	// The registry must not creep back into this file.
+	if strings.Contains(strings.ToLower(readFile(t, servicesFilePath(t))), "\nvendors:") {
+		t.Error("services.yaml still declares vendors, they belong in the table now")
 	}
 }
 
-func TestLoadRejectsBadInput(t *testing.T) {
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func TestLoadRejectsBadProfiles(t *testing.T) {
 	cases := []struct {
 		name string
 		body string
 		want string
 	}{
 		{
-			name: "duplicate slug",
-			body: `
-vendors:
-  - {slug: a, name: A, url: "https://a.example.com", kind: statuspage}
-  - {slug: a, name: B, url: "https://b.example.com", kind: statuspage}
-`,
-			want: "duplicate",
+			name: "no profiles",
+			body: "profiles: {}\n",
+			want: "no profiles",
 		},
 		{
-			name: "unregistered kind",
+			name: "unknown kind",
 			body: `
-vendors:
-  - {slug: a, name: A, url: "https://a.example.com", kind: nope}
+profiles:
+  a: {kind: nope, poll_interval_seconds: 300, active_interval_seconds: 60}
 `,
 			want: "not registered",
 		},
 		{
+			name: "missing kind",
+			body: `
+profiles:
+  a: {poll_interval_seconds: 300, active_interval_seconds: 60}
+`,
+			want: "no kind",
+		},
+		{
+			name: "zero interval",
+			body: `
+profiles:
+  a: {kind: statuspage, poll_interval_seconds: 0, active_interval_seconds: 60}
+`,
+			want: "positive poll intervals",
+		},
+		{
 			name: "unknown field",
 			body: `
-vendors:
-  - {slug: a, name: A, url: "https://a.example.com", kind: statuspage, slugh: typo}
+profiles:
+  a: {kind: statuspage, poll_interval_seconds: 300, active_interval_seconds: 60, slugh: typo}
 `,
 			want: "field",
-		},
-		{
-			name: "missing profile",
-			body: `
-vendors:
-  - {slug: a, name: A, url: "https://a.example.com", profile: gone}
-`,
-			want: "profile",
-		},
-		{
-			name: "internal url",
-			body: `
-vendors:
-  - {slug: a, name: A, url: "http://127.0.0.1:8080", kind: statuspage}
-`,
-			want: "internal",
-		},
-		{
-			name: "unsupported scheme",
-			body: `
-vendors:
-  - {slug: a, name: A, url: "file:///etc/passwd", kind: statuspage}
-`,
-			want: "scheme",
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			path := filepath.Join(dir, "services.yaml")
-			if err := os.WriteFile(path, []byte(tc.body), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			_, err := Load(path)
+			_, err := Load(writeTemp(t, tc.body))
 			if err == nil {
 				t.Fatal("expected an error")
 			}
@@ -139,41 +143,35 @@ vendors:
 	}
 }
 
-func TestProfileInheritance(t *testing.T) {
-	body := `
-profiles:
-  sp:
-    kind: statuspage
-    endpoint: /api/v2/summary.json
-    poll_interval_seconds: 900
-    active_interval_seconds: 120
-vendors:
-  - slug: a
-    name: A
-    url: https://a.example.com
-    profile: sp
-  - slug: b
-    name: B
-    url: https://b.example.com
-    profile: sp
-    poll_interval_seconds: 30
-`
-	dir := t.TempDir()
-	path := filepath.Join(dir, "services.yaml")
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
+func TestValidateURL(t *testing.T) {
+	ok := []string{
+		"https://status.example.com",
+		"http://status.example.com/api",
+		"https://status.example.com:8443/x",
 	}
-	targets, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
+	for _, raw := range ok {
+		if err := ValidateURL(raw); err != nil {
+			t.Errorf("ValidateURL(%q) = %v, want no error", raw, err)
+		}
 	}
-	if targets[0].Kind != "statuspage" || targets[0].PollIntervalSeconds != 900 {
-		t.Errorf("vendor a did not inherit profile: %+v", targets[0])
+
+	bad := map[string]string{
+		"http://127.0.0.1:8080": "internal",
+		"http://10.1.2.3/":      "internal",
+		"http://localhost/":     "not allowed",
+		"http://foo.internal/":  "not allowed",
+		"file:///etc/passwd":    "scheme",
+		"ftp://example.com":     "scheme",
+		"https://":              "no host",
 	}
-	if targets[1].PollIntervalSeconds != 30 {
-		t.Errorf("per-vendor override not applied: %d", targets[1].PollIntervalSeconds)
-	}
-	if targets[1].ActiveIntervalSeconds != 120 {
-		t.Errorf("active interval not inherited: %d", targets[1].ActiveIntervalSeconds)
+	for raw, want := range bad {
+		err := ValidateURL(raw)
+		if err == nil {
+			t.Errorf("ValidateURL(%q) should have failed", raw)
+			continue
+		}
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("ValidateURL(%q) = %q, want it to contain %q", raw, err, want)
+		}
 	}
 }

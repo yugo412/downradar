@@ -76,6 +76,7 @@ type Target struct {
 	URL                   string
 	Category              string
 	LogoURL               string
+	Profile               string
 	Kind                  string
 	Endpoint              string
 	Include               []string

@@ -77,7 +77,7 @@ The layout follows the convention already used on that machine:
 
 ```
 /var/www/downradar.info/
-  releases/20261015202256/   the Go binary, services.yaml, and the web bundle
+  releases/20261015202256/   both Go binaries, services.yaml, the seed file, and the web bundle
   releases/20261015201543/   previous releases, kept for rollback
   current -> releases/20261015202256
   shared/.env                secrets, not touched by a release
@@ -109,24 +109,34 @@ Two things that are easy to get wrong:
 
 ## Adding a vendor
 
-Edit `services.yaml` at the repository root and restart the API. No SQL, no
-Go code, no database insert.
+A vendor is a row in the `services` table, not an entry in a file. The table is
+the source of truth; `services.yaml` only says how a platform is polled.
 
-```yaml
-vendors:
-  - slug: strava
-    name: Strava
-    url: https://status.strava.com
-    category: fitness
-    profile: statuspage-v2
+The initial set comes from a bootstrap file, read once by a separate command:
+
+```bash
+cd backend
+go run ./cmd/seed -file seed/vendors.yaml -dry-run   # validate only
+go run ./cmd/seed -file seed/vendors.yaml            # write
 ```
 
-`services.yaml` is the source of truth. The `services` table is written by the
-application on startup: new slugs are inserted, changed ones updated, and
-removed ones are **soft deleted** so their incident history survives.
+It only ever upserts, so a vendor added later is never deactivated by a reseed,
+and editing the file afterwards has no effect.
+
+Each row names a `profile` from `services.yaml`, which decides the adapter, the
+endpoint and the default intervals. A row can override the endpoint and
+intervals for itself.
+
+Validation moved to the write path with the data: an unknown profile, a
+duplicate slug or an internal url is rejected before a row exists. The poller
+trusts the table and skips, with a warning, any row naming a profile that is no
+longer declared.
 
 ## Architecture notes
 
+- **The poller reads the vendor list from the table on every cycle.** That is
+  what replaced the file watcher: a row written by a form takes effect on the
+  next cycle, with no reload mechanism in between.
 - **History is stored as changes, not snapshots.** `status_events` only gets a
   row when a status actually changes. A per-minute snapshot would cost roughly
   1000x more storage for the same information.
@@ -139,13 +149,17 @@ removed ones are **soft deleted** so their incident history survives.
 ## Layout
 
 ```
-services.yaml             the vendor registry (source of truth)
+services.yaml             adapter profiles: kind, endpoint, intervals
+
+seed/vendors.yaml         bootstrap vendors, read once by cmd/seed
 
 backend/                  Go: poller, adapters, store, API
   cmd/server/             entrypoint
+  cmd/seed/               imports the bootstrap file into the table
   internal/adapters/      one adapter per platform, not per vendor
-  internal/catalog/       services.yaml -> targets, with validation
-  internal/poller/        scheduling and worker pool
+  internal/catalog/       services.yaml -> profiles, with validation
+  internal/seed/          seed/vendors.yaml -> targets, with validation
+  internal/poller/        reads the table each cycle, scheduling, worker pool
   internal/store/         the only package that speaks SQL
   db/migrations/          embedded .sql migrations
 
@@ -156,11 +170,10 @@ frontend/                 Nuxt 4 + Vue 3 + TypeScript + DaisyUI
 compose.dev.yml           db, mailpit, api, web
 ```
 
-The registry sits at the root because it is the one file most likely to be
-edited. The API watches it and reloads in place: saving it takes effect within
-a couple of seconds, with no restart and no dropped requests. If the new
-content fails validation the previous configuration keeps serving, and the
-error is logged with the offending vendor.
+`services.yaml` is at the root because it is the file a contributor is most
+likely to touch, and it holds only the profiles: what the code can read, not
+which vendors are monitored. Vendors live in the table, which is why adding one
+is a row rather than a commit.
 
 ## Data sources
 

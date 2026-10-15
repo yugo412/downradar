@@ -12,7 +12,6 @@ type Config struct {
 	ServicesFile          string
 	PollConcurrency       int
 	PollTick              time.Duration
-	RegistryWatch         time.Duration
 	RequestTimeout        time.Duration
 	RateLimitPerMinute    int
 	RateLimitBurst        int
@@ -35,7 +34,6 @@ func Load() Config {
 		ServicesFile:          env("SERVICES_FILE", "services.yaml"),
 		PollConcurrency:       envInt("POLL_CONCURRENCY", 8),
 		PollTick:              envDuration("POLL_TICK", 5*time.Second),
-		RegistryWatch:         envDuration("REGISTRY_WATCH_INTERVAL", 2*time.Second),
 		RequestTimeout:        envDuration("REQUEST_TIMEOUT", 20*time.Second),
 		RateLimitPerMinute:    envInt("RATE_LIMIT_PER_MINUTE", 120),
 		RateLimitBurst:        envInt("RATE_LIMIT_BURST", 30),

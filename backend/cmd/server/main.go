@@ -40,11 +40,11 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	targets, err := catalog.Load(cfg.ServicesFile)
+	profiles, err := catalog.Load(cfg.ServicesFile)
 	if err != nil {
 		return err
 	}
-	log.Info("catalog loaded", "vendors", len(targets), "file", cfg.ServicesFile)
+	log.Info("profiles loaded", "profiles", len(profiles), "file", cfg.ServicesFile)
 
 	st, err := store.New(ctx, cfg.DatabaseURL, store.Options{
 		RawPayloadMinInterval: cfg.RawPayloadMinInterval,
@@ -59,33 +59,12 @@ func run() error {
 	}
 	log.Info("migrations applied")
 
-	ids, err := st.SyncServices(ctx, targets)
-	if err != nil {
-		return err
-	}
-	log.Info("services synced", "count", len(ids))
-
-	p := poller.New(st, ids, targets, cfg.PollConcurrency, cfg.PollTick, log)
+	p := poller.New(st, profiles, cfg.PollConcurrency, cfg.PollTick, log)
 	go p.Run(ctx)
 
 	if cfg.RawPayloadDays > 0 {
 		go runRawPayloadCleanup(ctx, st, time.Duration(cfg.RawPayloadDays)*24*time.Hour, log)
 	}
-
-	go catalog.Watch(ctx, cfg.ServicesFile, cfg.RegistryWatch, func() {
-		newTargets, err := catalog.Load(cfg.ServicesFile)
-		if err != nil {
-			log.Error("registry reload failed, keeping previous configuration", "error", err)
-			return
-		}
-		newIDs, err := st.SyncServices(ctx, newTargets)
-		if err != nil {
-			log.Error("registry sync failed, keeping previous configuration", "error", err)
-			return
-		}
-		p.Reload(newIDs, newTargets)
-		log.Info("registry reloaded", "vendors", len(newTargets))
-	})
 
 	suggestClient := suggest.NewClient(
 		cfg.GitHubAPIBase,
