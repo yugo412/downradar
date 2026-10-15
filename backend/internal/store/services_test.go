@@ -129,3 +129,148 @@ func TestServicesReturnsRowsForThePoller(t *testing.T) {
 		t.Errorf("status = %q, want unknown before the first poll", found.Status)
 	}
 }
+
+func TestProposeServiceIsNotPolledUntilPublished(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	slug, err := st.ProposeService(ctx, "zz-test Proposed Vendor", "https://status.example.com")
+	if err != nil {
+		t.Fatalf("ProposeService: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = st.pool.Exec(context.Background(), `delete from services where slug = $1`, slug)
+	})
+
+	if slug != "zz-test-proposed-vendor" {
+		t.Errorf("slug = %q, want it derived from the name", slug)
+	}
+
+	var status string
+	if err := st.pool.QueryRow(ctx, `select status from services where slug = $1`, slug).Scan(&status); err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if status != string(StatusProposed) {
+		t.Errorf("status = %q, want proposed", status)
+	}
+
+	// The poller must not see it, and neither must the public list.
+	rows, err := st.Services(ctx)
+	if err != nil {
+		t.Fatalf("Services: %v", err)
+	}
+	for _, r := range rows {
+		if r.Slug == slug {
+			t.Error("a proposed vendor must not be polled")
+		}
+	}
+
+	vendors, err := st.ListVendors(ctx)
+	if err != nil {
+		t.Fatalf("ListVendors: %v", err)
+	}
+	for _, v := range vendors {
+		if v.Slug == slug {
+			t.Error("a proposed vendor must not appear on the site")
+		}
+	}
+
+	if _, err := st.GetVendor(ctx, slug); err == nil {
+		t.Error("a proposed vendor must not have a public page")
+	}
+}
+
+func TestProposeServiceMakesTheSlugUnique(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	first, err := st.ProposeService(ctx, "zz-test Duplicate Name", "")
+	if err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	second, err := st.ProposeService(ctx, "zz-test Duplicate Name", "")
+	if err != nil {
+		t.Fatalf("second: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = st.pool.Exec(context.Background(),
+			`delete from services where slug = any($1)`, []string{first, second})
+	})
+
+	if first == second {
+		t.Errorf("both proposals got the slug %q", first)
+	}
+	if second != first+"-2" {
+		t.Errorf("second slug = %q, want %q", second, first+"-2")
+	}
+}
+
+func TestProposeServiceAcceptsAMissingURL(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	slug, err := st.ProposeService(ctx, "zz-test No URL", "")
+	if err != nil {
+		t.Fatalf("ProposeService: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = st.pool.Exec(context.Background(), `delete from services where slug = $1`, slug)
+	})
+
+	var url *string
+	if err := st.pool.QueryRow(ctx, `select url from services where slug = $1`, slug).Scan(&url); err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if url != nil {
+		t.Errorf("url = %q, want NULL when the form left it empty", *url)
+	}
+}
+
+func TestSeedServicesPublishesAProposedRow(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	slug, err := st.ProposeService(ctx, "zz-test Seeded Later", "https://status.example.com")
+	if err != nil {
+		t.Fatalf("ProposeService: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = st.pool.Exec(context.Background(), `delete from services where slug = $1`, slug)
+	})
+
+	// The seed file is the authoritative list, so a name that shows up there is
+	// live even if it arrived as a proposal first.
+	if _, err := st.SeedServices(ctx, []adapters.Target{{
+		Slug:                  slug,
+		Name:                  "Seeded Later",
+		URL:                   "https://status.example.com",
+		Profile:               "statuspage-v2",
+		Kind:                  "statuspage",
+		PollIntervalSeconds:   300,
+		ActiveIntervalSeconds: 60,
+	}}); err != nil {
+		t.Fatalf("SeedServices: %v", err)
+	}
+
+	var status string
+	if err := st.pool.QueryRow(ctx, `select status from services where slug = $1`, slug).Scan(&status); err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if status != string(StatusPublished) {
+		t.Errorf("status = %q, want published", status)
+	}
+
+	rows, err := st.Services(ctx)
+	if err != nil {
+		t.Fatalf("Services: %v", err)
+	}
+	found := false
+	for _, r := range rows {
+		if r.Slug == slug {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("a seeded vendor must be polled")
+	}
+}

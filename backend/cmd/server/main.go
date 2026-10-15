@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -17,7 +16,6 @@ import (
 	"downradar.info/backend/internal/httpapi"
 	"downradar.info/backend/internal/poller"
 	"downradar.info/backend/internal/store"
-	"downradar.info/backend/internal/suggest"
 )
 
 func main() {
@@ -66,22 +64,6 @@ func run() error {
 		go runRawPayloadCleanup(ctx, st, time.Duration(cfg.RawPayloadDays)*24*time.Hour, log)
 	}
 
-	suggestClient := suggest.NewClient(
-		cfg.GitHubAPIBase,
-		cfg.GitHubRepo,
-		cfg.GitHubToken,
-		splitList(cfg.GitHubIssueLabels),
-	)
-	if suggestClient.CanSubmit() {
-		labelCtx, cancelLabels := context.WithTimeout(ctx, 20*time.Second)
-		if err := suggestClient.EnsureLabels(labelCtx); err != nil {
-			log.Warn("could not prepare the github labels, issues will be created without them", "error", err)
-		} else {
-			log.Info("github labels ready", "repo", cfg.GitHubRepo, "labels", suggestClient.Labels())
-		}
-		cancelLabels()
-	}
-
 	srv := &http.Server{
 		Addr: cfg.HTTPAddr,
 		Handler: httpapi.NewRouter(st, log, httpapi.Options{
@@ -90,7 +72,6 @@ func run() error {
 			SuggestPerHour:     cfg.SuggestPerHour,
 			SuggestBurst:       cfg.SuggestBurst,
 			InternalToken:      cfg.InternalToken,
-			Suggest:            suggestClient,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
@@ -143,15 +124,4 @@ func runRawPayloadCleanup(ctx context.Context, st *store.Store, age time.Duratio
 			}
 		}
 	}
-}
-
-func splitList(value string) []string {
-	parts := strings.Split(value, ",")
-	out := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if trimmed := strings.TrimSpace(part); trimmed != "" {
-			out = append(out, trimmed)
-		}
-	}
-	return out
 }

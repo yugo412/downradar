@@ -18,10 +18,6 @@ type Config struct {
 	SuggestPerHour        int
 	SuggestBurst          int
 	InternalToken         string
-	GitHubAPIBase         string
-	GitHubRepo            string
-	GitHubToken           string
-	GitHubIssueLabels     string
 	RawPayloadDays        int
 	RawPayloadMinInterval time.Duration
 	LogLevel              string
@@ -40,10 +36,6 @@ func Load() Config {
 		SuggestPerHour:        envInt("SUGGEST_RATE_LIMIT_PER_HOUR", 6),
 		SuggestBurst:          envInt("SUGGEST_RATE_LIMIT_BURST", 5),
 		InternalToken:         env("INTERNAL_TOKEN", ""),
-		GitHubAPIBase:         env("GITHUB_API_BASE", "https://api.github.com"),
-		GitHubRepo:            env("GITHUB_REPO", ""),
-		GitHubToken:           env("GITHUB_TOKEN", ""),
-		GitHubIssueLabels:     env("GITHUB_ISSUE_LABELS", "suggestion"),
 		RawPayloadDays:        envInt("RAW_PAYLOAD_RETENTION_DAYS", 7),
 		RawPayloadMinInterval: envDuration("RAW_PAYLOAD_MIN_INTERVAL", time.Hour),
 		LogLevel:              env("LOG_LEVEL", "info"),

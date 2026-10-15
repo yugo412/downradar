@@ -179,8 +179,9 @@ useSeoMeta({
         If a service is missing, the website offers to suggest it. That form posts
         to <code class="font-mono">POST /api/v1/suggest</code> with
         <code class="font-mono">{ "name": "...", "url": "..." }</code>, where the
-        url is optional, and turns the suggestion into a GitHub issue. It is rate
-        limited much more tightly than the read endpoints.
+        url is optional. The suggestion is stored for review, not monitored right
+        away, and a moderator publishes it later. It is rate limited much more
+        tightly than the read endpoints.
       </p>
     </section>
 

@@ -15,7 +15,6 @@ import (
 	"unicode/utf8"
 
 	"downradar.info/backend/internal/store"
-	"downradar.info/backend/internal/suggest"
 )
 
 type handlers struct {
@@ -24,7 +23,6 @@ type handlers struct {
 	readLimiter    *ipLimiter
 	suggestLimiter *ipLimiter
 	internalToken  string
-	suggestClient  *suggest.Client
 }
 
 type Options struct {
@@ -33,7 +31,6 @@ type Options struct {
 	SuggestPerHour     int
 	SuggestBurst       int
 	InternalToken      string
-	Suggest            *suggest.Client
 }
 
 func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
@@ -53,7 +50,6 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 		readLimiter:    newIPLimiter(readInterval, opts.RateLimitBurst),
 		suggestLimiter: newIPLimiter(suggestInterval, opts.SuggestBurst),
 		internalToken:  opts.InternalToken,
-		suggestClient:  opts.Suggest,
 	}
 
 	mux := http.NewServeMux()
@@ -183,47 +179,31 @@ func (h *handlers) suggest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slug, err := h.store.FindVendor(r.Context(), name)
+	// A rejected proposal does not block a new one, but anything else does.
+	existing, err := h.store.FindVendor(r.Context(), name)
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
-	if slug != "" {
+	if existing != "" {
 		writeJSON(w, http.StatusConflict, map[string]any{
-			"error":      name + " is already monitored",
-			"vendorSlug": slug,
+			"error":      name + " has already been suggested or is already monitored",
+			"vendorSlug": existing,
 		})
 		return
 	}
 
-	title, issueBody := suggestionIssue(name, pageURL)
-
-	if !h.suggestClient.CanSubmit() {
-		manual := h.suggestClient.ManualURL(title, issueBody)
-		if manual == "" {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-				"error": "suggestions are not available right now",
-			})
-			return
-		}
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
-			"error":     "automatic submission is not configured",
-			"manualUrl": manual,
-		})
-		return
-	}
-
-	issueURL, err := h.suggestClient.CreateIssue(r.Context(), title, issueBody)
+	slug, err := h.store.ProposeService(r.Context(), name, pageURL)
 	if err != nil {
-		h.log.Error("could not create suggestion issue", "error", err)
-		writeJSON(w, http.StatusBadGateway, map[string]string{
-			"error": "could not create the issue, please try again later",
-		})
+		h.fail(w, r, err)
 		return
 	}
 
-	h.log.Info("suggestion submitted", "name", name, "issue", issueURL)
-	writeJSON(w, http.StatusCreated, map[string]string{"issueUrl": issueURL})
+	h.log.Info("suggestion recorded", "name", name, "slug", slug)
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"status": string(store.StatusProposed),
+		"slug":   slug,
+	})
 }
 
 func validateSuggestion(name, pageURL string) string {
@@ -243,18 +223,6 @@ func validateSuggestion(name, pageURL string) string {
 		}
 	}
 	return ""
-}
-
-func suggestionIssue(name, pageURL string) (string, string) {
-	var sb strings.Builder
-	sb.WriteString("**Service name:** " + name + "\n\n")
-	if pageURL == "" {
-		sb.WriteString("**Status page URL:** not provided\n\n")
-	} else {
-		sb.WriteString("**Status page URL:** " + pageURL + "\n\n")
-	}
-	sb.WriteString("_Submitted from the website on " + time.Now().UTC().Format(time.RFC3339) + "._\n")
-	return "[suggestion] " + name, sb.String()
 }
 
 func sanitize(value string) string {

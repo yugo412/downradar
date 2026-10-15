@@ -61,22 +61,3 @@ func TestSanitizeAndClean(t *testing.T) {
 		}
 	}
 }
-
-func TestSuggestionIssue(t *testing.T) {
-	title, body := suggestionIssue("Some Service", "https://status.example.com")
-
-	if title != "[suggestion] Some Service" {
-		t.Errorf("title = %q", title)
-	}
-	if !strings.Contains(body, "**Service name:** Some Service") {
-		t.Errorf("body is missing the name: %q", body)
-	}
-	if !strings.Contains(body, "**Status page URL:** https://status.example.com") {
-		t.Errorf("body is missing the url: %q", body)
-	}
-
-	_, bodyWithoutURL := suggestionIssue("Some Service", "")
-	if !strings.Contains(bodyWithoutURL, "not provided") {
-		t.Errorf("body should say the url was not provided: %q", bodyWithoutURL)
-	}
-}

@@ -60,10 +60,6 @@ services:
       RATE_LIMIT_BURST: ${RATE_LIMIT_BURST:-30}
       SUGGEST_RATE_LIMIT_PER_HOUR: ${SUGGEST_RATE_LIMIT_PER_HOUR:-6}
       SUGGEST_RATE_LIMIT_BURST: ${SUGGEST_RATE_LIMIT_BURST:-5}
-      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
-      GITHUB_REPO: ${GITHUB_REPO:-}
-      GITHUB_ISSUE_LABELS: ${GITHUB_ISSUE_LABELS:-suggestion}
-      GITHUB_API_BASE: ${GITHUB_API_BASE:-https://api.github.com}
       RAW_PAYLOAD_MIN_INTERVAL: ${RAW_PAYLOAD_MIN_INTERVAL:-1h}
       RAW_PAYLOAD_RETENTION_DAYS: ${RAW_PAYLOAD_RETENTION_DAYS:-7}
     ports:
@@ -105,6 +101,7 @@ services:
       # Nitro reads runtime config from NUXT_* variables, not from the names the
       # Go API uses, so the same secret is exposed under both names.
       NUXT_INTERNAL_TOKEN: ${INTERNAL_TOKEN:-}
+      # Public on purpose: rendered as a link in the footer.
       NUXT_PUBLIC_GITHUB_REPO: ${GITHUB_REPO:-}
     ports:
       - "3000:3000"
