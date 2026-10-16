@@ -67,9 +67,9 @@ func scanAdminService(row rowScanner) (*AdminService, error) {
 }
 
 // AdminListServices returns rows for the management list. filter is one of
-// all, proposed, published, rejected or removed; removed means the soft deleted
-// ones, which are kept so their history survives. search matches the name, the
-// slug and the url, which are the columns the list shows.
+// all, proposed, published, rejected, no_match or removed; removed means the
+// soft deleted ones, which are kept so their history survives. search matches
+// the name, the slug and the url, which are the columns the list shows.
 //
 // Staff see every row, private ones included, so they can help when something
 // is wrong. Everybody else sees only what they own.
@@ -82,7 +82,7 @@ func (s *Store) AdminListServices(ctx context.Context, filter, search string, vi
 		select `+adminServiceColumns+adminServiceFrom+`
 		where ($1 = 'all'
 		       or ($1 = 'removed' and not s.active)
-		       or ($1 in ('proposed', 'published', 'rejected') and s.active and s.status = $1))
+		       or ($1 in ('proposed', 'no_match', 'published', 'rejected') and s.active and s.status = $1))
 		  and ($2 = ''
 		       or position(lower($2) in lower(s.name)) > 0
 		       or position(lower($2) in lower(s.slug)) > 0
@@ -91,9 +91,10 @@ func (s *Store) AdminListServices(ctx context.Context, filter, search string, vi
 		order by
 			case
 				when s.active and s.status = 'proposed' then 0
-				when s.active and s.status = 'published' then 1
-				when s.active then 2
-				else 3
+				when s.active and s.status = 'no_match' then 1
+				when s.active and s.status = 'published' then 2
+				when s.active then 3
+				else 4
 			end,
 			s.name`, filter, search, viewer.UserID, viewer.IsStaff)
 	if err != nil {
@@ -158,10 +159,21 @@ type NewService struct {
 	Aliases               []string
 	PollIntervalSeconds   int
 	ActiveIntervalSeconds int
+	// Status is empty for a vendor that is live. A vendor added without a
+	// profile that nothing could read is stored as no_match instead.
+	Status string
 	// OwnerID nil means the public catalogue, which is what makes a service
 	// private: it stays polled, it just stops being listed.
 	OwnerID *int64
 }
+
+// A vendor saved before its profile is known has no cadence of its own yet, so
+// it is given the same intervals the columns declare. They are replaced the
+// moment a profile is written.
+const (
+	defaultPollIntervalSeconds   = 300
+	defaultActiveIntervalSeconds = 60
+)
 
 // CreateService adds a vendor that is live straight away, which is why the url
 // and profile are validated by the caller: a published row without a profile is
@@ -177,6 +189,20 @@ func (s *Store) CreateService(ctx context.Context, in NewService) (string, error
 		aliases = []string{}
 	}
 
+	status := in.Status
+	if status == "" {
+		status = string(StatusPublished)
+	}
+
+	pollSeconds := in.PollIntervalSeconds
+	if pollSeconds <= 0 {
+		pollSeconds = defaultPollIntervalSeconds
+	}
+	activeSeconds := in.ActiveIntervalSeconds
+	if activeSeconds <= 0 {
+		activeSeconds = defaultActiveIntervalSeconds
+	}
+
 	if _, err := s.pool.Exec(ctx, `
 		insert into services (slug, name, url, category, logo_url, profile, endpoint,
 		                      aliases, include_components, allow_shared_page, active,
@@ -184,7 +210,7 @@ func (s *Store) CreateService(ctx context.Context, in NewService) (string, error
 		values ($1, $2, $3, $4, $5, $6, $7, $8, '{}', false, true, $9, $10, $11, $12, now())`,
 		slug, in.Name, nullify(in.URL), nullify(in.Category), nullify(in.LogoURL),
 		nullify(in.Profile), nullify(in.Endpoint), aliases,
-		in.PollIntervalSeconds, in.ActiveIntervalSeconds, string(StatusPublished), in.OwnerID,
+		pollSeconds, activeSeconds, status, in.OwnerID,
 	); err != nil {
 		return "", fmt.Errorf("services: create %s: %w", slug, err)
 	}
@@ -203,6 +229,10 @@ type ServicePatch struct {
 	Aliases  *[]string
 	Status   *string
 	Active   *bool
+	// The intervals are declared by the profile, so they travel with it when the
+	// profile changes. A nil field leaves the stored value alone.
+	PollIntervalSeconds   *int
+	ActiveIntervalSeconds *int
 	// SetOwner has to be separate from OwnerID, because a nil OwnerID is a
 	// meaningful value here: it is what moves a service back to the catalogue.
 	SetOwner bool
@@ -212,7 +242,8 @@ type ServicePatch struct {
 func (p ServicePatch) Empty() bool {
 	return p.Name == nil && p.URL == nil && p.Profile == nil && p.Category == nil &&
 		p.LogoURL == nil && p.Endpoint == nil && p.Aliases == nil && p.Status == nil &&
-		p.Active == nil && !p.SetOwner
+		p.Active == nil && p.PollIntervalSeconds == nil && p.ActiveIntervalSeconds == nil &&
+		!p.SetOwner
 }
 
 func (s *Store) UpdateService(ctx context.Context, slug string, p ServicePatch) error {
@@ -228,10 +259,13 @@ func (s *Store) UpdateService(ctx context.Context, slug string, p ServicePatch) 
 			status     = coalesce($9::text, status),
 			active     = coalesce($10::boolean, active),
 			owner_id   = case when $11::boolean then $12::bigint else owner_id end,
+			poll_interval_seconds   = coalesce($13::int, poll_interval_seconds),
+			active_interval_seconds = coalesce($14::int, active_interval_seconds),
 			updated_at = now()
 		where slug = $1`,
 		slug, p.Name, p.URL, p.Profile, p.Category, p.LogoURL, p.Endpoint,
-		p.Aliases, p.Status, p.Active, p.SetOwner, p.OwnerID)
+		p.Aliases, p.Status, p.Active, p.SetOwner, p.OwnerID,
+		p.PollIntervalSeconds, p.ActiveIntervalSeconds)
 	if err != nil {
 		return fmt.Errorf("services: update %s: %w", slug, err)
 	}

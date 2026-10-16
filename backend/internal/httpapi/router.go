@@ -16,13 +16,15 @@ import (
 
 	"downradar.info/backend/internal/auth"
 	"downradar.info/backend/internal/catalog"
+	"downradar.info/backend/internal/detect"
 	"downradar.info/backend/internal/store"
 )
 
 type handlers struct {
 	store           *store.Store
 	log             *slog.Logger
-	profiles        catalog.Profiles
+	catalog         catalog.Catalog
+	detector        *detect.Detector
 	readLimiter     *ipLimiter
 	suggestLimiter  *ipLimiter
 	loginLimiter    *ipLimiter
@@ -44,7 +46,7 @@ type Options struct {
 	PasswordPerHour     int
 	PasswordBurst       int
 	InternalToken       string
-	Profiles            catalog.Profiles
+	Catalog             catalog.Catalog
 	SessionCookie       string
 	SessionTTL          time.Duration
 	SessionCookieSecure bool
@@ -83,7 +85,8 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	h := &handlers{
 		store:           st,
 		log:             log,
-		profiles:        opts.Profiles,
+		catalog:         opts.Catalog,
+		detector:        detect.New(opts.Catalog),
 		readLimiter:     newIPLimiter(readInterval, opts.RateLimitBurst),
 		suggestLimiter:  newIPLimiter(suggestInterval, opts.SuggestBurst),
 		loginLimiter:    newIPLimiter(loginInterval, opts.LoginBurst),
@@ -122,6 +125,9 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 			"too many attempts, please try again later", h.changePassword)))
 
 	mux.HandleFunc("GET /api/v1/profiles", h.requireAuth(h.listProfiles))
+	mux.HandleFunc("POST /api/v1/profiles/detect",
+		h.requireAuth(h.limited(h.readLimiter, true,
+			"rate limit exceeded, please try again in a moment", h.detectProfile)))
 	mux.HandleFunc("GET /api/v1/categories", h.requireAuth(h.listCategories))
 
 	// The service endpoints ask for a session, not a role: everybody manages
@@ -133,6 +139,7 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	mux.HandleFunc("PATCH /api/v1/services/{slug}", h.requireAuth(h.updateService))
 	mux.HandleFunc("DELETE /api/v1/services/{slug}", h.requireAuth(h.deleteService))
 	mux.HandleFunc("GET /api/v1/services/{slug}/status", h.requireAuth(h.serviceStatus))
+	mux.HandleFunc("GET /api/v1/services/{slug}/polls", h.requireAuth(h.pollLog))
 
 	// Managing people is admin only, moderators included out.
 	admins := []string{auth.RoleAdmin}

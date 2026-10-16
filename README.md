@@ -124,20 +124,33 @@ It only ever upserts, so a vendor added later is never deactivated by a reseed,
 and editing the file afterwards has no effect.
 
 Each row names a `profile` from `services.yaml`, which decides the adapter, the
-endpoint and the default intervals. A row can override the endpoint and
-intervals for itself.
+endpoint, the default intervals and the one line description the management
+screens show. A row can override the endpoint and intervals for itself.
 
 Validation moved to the write path with the data: an unknown profile, a
 duplicate slug or an internal url is rejected before a row exists. The poller
 trusts the table and skips, with a warning, any row naming a profile that is no
 longer declared.
 
+A vendor added without a profile is offered to the detect queue: the profiles
+listed under `detect` in `services.yaml` are tried in order and the first one
+whose adapter can read the page wins. The url alone is enough, so its platform
+does not have to be known first.
+
 ## How a vendor is published
 
 The suggest form writes a row with `status = 'proposed'`. A proposed row is not
 polled and has no public page. A moderator opens `/services`, filters to
-Proposed, and fills in the url and the profile, because a published row without
-a profile would never be polled.
+Proposed, and fills in the url and the profile. Leaving the profile empty runs
+the detect queue instead of refusing the row, and the add form has a Detect
+button that fills the picker in before anything is saved.
+
+When nothing in the queue can read the page, the vendor is still saved, as
+`no_match`: the name and the url are kept, the poller leaves it out of the
+rotation, and it is offered to the queue again once an hour. Every attempt is
+written down, so the fetch log of a parked vendor still shows when it was tried
+and what each profile made of the page. Writing a profile for its platform is
+what turns it into a polled vendor, after which it starts by itself.
 
 Deleting a proposal removes the row outright: it has no history worth keeping.
 Deleting a published vendor only deactivates it, so its history survives and it
@@ -215,6 +228,13 @@ every call.
 - **Polling is adaptive.** 300s while healthy, 60s while degraded.
 - **Empty responses never become "ok".** Unknown vocabulary maps to `unknown`
   and is recorded in `poll_runs.unknown_statuses` so drift is visible.
+- **The fetch log is staff and owner only.** A vendor's public page and its row
+  at `/services/{slug}` both list the recent `poll_runs` rows for it: when the
+  page was read, what came back and what did not parse, detection attempts
+  included. A failed fetch changes no status, so this is the only place a page
+  that stopped answering shows up. The vendor itself is visible to every signed
+  in visitor, so the log carries a check of its own, and on the public page it is
+  rendered in the browser rather than into the cached HTML.
 - **`/api/**` is proxied by Nuxt**, so the browser and SSR use the same relative
   path and no CORS is involved.
 

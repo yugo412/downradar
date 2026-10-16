@@ -49,15 +49,15 @@ func writeTemp(t *testing.T, body string) string {
 }
 
 func TestLoadRealProfiles(t *testing.T) {
-	profiles, err := Load(servicesFilePath(t))
+	cat, err := Load(servicesFilePath(t))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if len(profiles) < 4 {
-		t.Fatalf("only %d profiles parsed, file looks broken", len(profiles))
+	if len(cat.Profiles) < 4 {
+		t.Fatalf("only %d profiles parsed, file looks broken", len(cat.Profiles))
 	}
 
-	for name, p := range profiles {
+	for name, p := range cat.Profiles {
 		if p.Kind == "" {
 			t.Errorf("%s: empty kind", name)
 		}
@@ -67,6 +67,17 @@ func TestLoadRealProfiles(t *testing.T) {
 		if p.ActiveIntervalSeconds > p.PollIntervalSeconds {
 			t.Errorf("%s: active interval (%d) is slower than normal interval (%d)",
 				name, p.ActiveIntervalSeconds, p.PollIntervalSeconds)
+		}
+	}
+
+	// The detect queue decides what is tried when a vendor arrives without a
+	// profile, so every entry has to be a profile that exists.
+	if len(cat.Detect) == 0 {
+		t.Error("services.yaml declares no detect queue, nothing would be detected")
+	}
+	for _, name := range cat.Detect {
+		if _, ok := cat.Profiles[name]; !ok {
+			t.Errorf("detect queue names %q, which is not a declared profile", name)
 		}
 	}
 
@@ -128,6 +139,24 @@ profiles:
 `,
 			want: "field",
 		},
+		{
+			name: "detect names a profile that is not declared",
+			body: `
+detect: [nope]
+profiles:
+  a: {kind: statuspage, poll_interval_seconds: 300, active_interval_seconds: 60}
+`,
+			want: "not declared",
+		},
+		{
+			name: "detect names the same profile twice",
+			body: `
+detect: [a, a]
+profiles:
+  a: {kind: statuspage, poll_interval_seconds: 300, active_interval_seconds: 60}
+`,
+			want: "twice",
+		},
 	}
 
 	for _, tc := range cases {
@@ -140,6 +169,43 @@ profiles:
 				t.Fatalf("error = %q, want it to contain %q", err.Error(), tc.want)
 			}
 		})
+	}
+}
+
+func TestLoadReadsDescriptionsAndTheDetectQueue(t *testing.T) {
+	cat, err := Load(writeTemp(t, `
+detect:
+  - second
+  - first
+profiles:
+  first: {kind: statuspage, description: The first one, poll_interval_seconds: 300, active_interval_seconds: 60}
+  second: {kind: statuspage, description: The second one, poll_interval_seconds: 300, active_interval_seconds: 60}
+`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if got := cat.Profiles["first"].Description; got != "The first one" {
+		t.Errorf("description = %q", got)
+	}
+	if got := cat.Profiles["second"].Description; got != "The second one" {
+		t.Errorf("description = %q", got)
+	}
+
+	// The queue keeps the order it was written in, not the map order.
+	want := []string{"second", "first"}
+	if len(cat.Detect) != len(want) {
+		t.Fatalf("detect = %v, want %v", cat.Detect, want)
+	}
+	for i := range want {
+		if cat.Detect[i] != want[i] {
+			t.Fatalf("detect = %v, want %v", cat.Detect, want)
+		}
+	}
+
+	candidates := cat.Candidates()
+	if len(candidates) != 2 || candidates[0].Name != "second" {
+		t.Errorf("candidates = %v, want them in queue order", candidates)
 	}
 }
 

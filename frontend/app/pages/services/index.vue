@@ -10,6 +10,7 @@ type Filter = 'all' | ServiceStatus | 'removed'
 const filters: { value: Filter; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'proposed', label: 'Proposed' },
+  { value: 'no_match', label: 'No match' },
   { value: 'published', label: 'Published' },
   { value: 'rejected', label: 'Rejected' },
   { value: 'removed', label: 'Removed' },
@@ -34,6 +35,13 @@ const { data, pending, error, refresh } = useFetch<{ services: AdminService[]; c
 
 const services = computed(() => data.value?.services ?? [])
 const created = computed(() => String(route.query.created ?? ''))
+
+// The query carries the slug of a service that was just added, so the notice can
+// say what became of it. A vendor that no profile could read is saved as
+// no_match and waits for an adapter, which is worth explaining there.
+const createdService = computed(() => services.value.find((s) => s.slug === created.value) ?? null)
+const createdName = computed(() => createdService.value?.name ?? created.value)
+const createdParked = computed(() => createdService.value?.status === 'no_match')
 
 const editing = ref<AdminService | null>(null)
 const removing = ref<AdminService | null>(null)
@@ -75,18 +83,6 @@ watch(
   },
 )
 
-function statusLabel(service: AdminService) {
-  if (!service.active) return 'removed'
-  return service.status
-}
-
-function statusClass(service: AdminService) {
-  if (!service.active) return 'badge-ghost'
-  if (service.status === 'published') return 'badge-success'
-  if (service.status === 'proposed') return 'badge-warning'
-  return 'badge-error'
-}
-
 function ownsService(service: AdminService) {
   return Boolean(service.ownerId && service.ownerId === user.value?.id)
 }
@@ -99,12 +95,13 @@ function canRemove(service: AdminService) {
   return isAdmin.value
 }
 
-// Where the name links to. A private service has no page on the public site, so
-// it gets the signed in view under /services instead.
+// Where the name links to. A private service, and a vendor that is not published
+// yet, has no page on the public site, so both get the signed in view under
+// /services, which is also where their fetch log is.
 function detailLink(service: AdminService) {
   if (!service.active) return ''
-  if (service.ownerId) return `/services/${service.slug}`
-  return service.status === 'published' ? `/${service.slug}` : ''
+  if (service.ownerId || service.status !== 'published') return `/services/${service.slug}`
+  return `/${service.slug}`
 }
 
 function removalMessage(service: AdminService | null) {
@@ -166,8 +163,18 @@ async function onSaved() {
       <NuxtLink to="/services/new" class="btn btn-primary btn-sm">Add service</NuxtLink>
     </header>
 
-    <div v-if="created" role="status" class="alert alert-success mb-4">
-      <span>{{ created }} was added and is live.</span>
+    <div
+      v-if="created"
+      role="status"
+      class="alert mb-4"
+      :class="createdParked ? 'alert-warning' : 'alert-success'"
+    >
+      <span v-if="createdParked">
+        {{ createdName }} was saved, but no adapter profile can read its page yet, so it is not
+        polled. A new profile has to be written for its platform before it can be; until then the
+        poller keeps trying it and it starts on its own once that profile exists.
+      </span>
+      <span v-else>{{ createdName }} was added and is live.</span>
     </div>
 
     <div class="mb-4 flex flex-wrap items-center gap-3">
@@ -243,7 +250,10 @@ async function onSaved() {
               </div>
             </td>
             <td>
-              <span class="badge badge-sm" :class="statusClass(s)">{{ statusLabel(s) }}</span>
+              <span
+                class="badge badge-sm"
+                :class="serviceStatusClass(s.status, s.active)"
+              >{{ serviceStatusLabel(s.status, s.active) }}</span>
             </td>
             <td>
               <span v-if="s.profile" class="font-mono text-xs">{{ s.profile }}</span>
