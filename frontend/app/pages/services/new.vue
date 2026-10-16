@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AdminProfile, ServicePayload } from '~/types/api'
+import type { AdminProfile, ServiceCreated, ServicePayload } from '~/types/api'
 
 definePageMeta({ middleware: 'authenticated', ssr: false })
 
@@ -33,7 +33,7 @@ async function save(payload: ServicePayload) {
   error.value = ''
 
   try {
-    const res = await $fetch<{ slug: string }>('/api/v1/services', {
+    const res = await $fetch<ServiceCreated>('/api/v1/services', {
       method: 'POST',
       body: payload,
     })

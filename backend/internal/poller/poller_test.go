@@ -111,3 +111,23 @@ func TestDueJobsPollsVendorsThatNeverRan(t *testing.T) {
 		t.Fatalf("a vendor with no last poll must be due, got %d", len(due))
 	}
 }
+
+func TestDueDetectionsWaitsBetweenAttempts(t *testing.T) {
+	now := time.Now().UTC()
+	justNow := now.Add(-time.Minute)
+	longAgo := now.Add(-2 * detectionRetry)
+
+	rows := []store.DetectRow{
+		{ID: 1, Slug: "never-tried"},
+		{ID: 2, Slug: "tried-just-now", LastPolledAt: &justNow},
+		{ID: 3, Slug: "tried-long-ago", LastPolledAt: &longAgo},
+	}
+
+	due := dueDetections(rows, now)
+	if len(due) != 2 {
+		t.Fatalf("due = %d, want the one never tried and the one tried long ago", len(due))
+	}
+	if due[0].Slug != "never-tried" || due[1].Slug != "tried-long-ago" {
+		t.Errorf("due = %+v, want them in the order they arrived", due)
+	}
+}

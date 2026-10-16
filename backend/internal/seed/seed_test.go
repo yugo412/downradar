@@ -103,7 +103,7 @@ func TestLoadRealSeedFile(t *testing.T) {
 		t.Fatalf("load profiles: %v", err)
 	}
 
-	targets, err := Load(seedFilePath(t), realProfiles)
+	targets, err := Load(seedFilePath(t), realProfiles.Profiles)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}

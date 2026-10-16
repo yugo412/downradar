@@ -9,12 +9,19 @@ import (
 
 	"downradar.info/backend/internal/adapters"
 	"downradar.info/backend/internal/catalog"
+	"downradar.info/backend/internal/detect"
 	"downradar.info/backend/internal/store"
 )
+
+// detectionRetry is how long a vendor without a profile waits before it is
+// offered to the detection queue again. A new profile arrives with a deploy, not
+// in minutes, so the page is left alone in between.
+const detectionRetry = time.Hour
 
 type Poller struct {
 	store       *store.Store
 	profiles    catalog.Profiles
+	detector    *detect.Detector
 	concurrency int
 	tick        time.Duration
 	log         *slog.Logger
@@ -26,10 +33,11 @@ type job struct {
 	target adapters.Target
 }
 
-func New(st *store.Store, profiles catalog.Profiles, concurrency int, tick time.Duration, log *slog.Logger) *Poller {
+func New(st *store.Store, cat catalog.Catalog, concurrency int, tick time.Duration, log *slog.Logger) *Poller {
 	return &Poller{
 		store:       st,
-		profiles:    profiles,
+		profiles:    cat.Profiles,
+		detector:    detect.New(cat),
 		concurrency: concurrency,
 		tick:        tick,
 		log:         log,
@@ -56,7 +64,14 @@ func (p *Poller) Run(ctx context.Context) {
 // cycle reads the vendor list from the table every time. That is what replaced
 // the file watcher: a row written by a form is picked up on the next cycle,
 // with no reload mechanism in between.
+//
+// Detection runs first so that a vendor matched in this pass is polled with the
+// report that matched it, and the page is not fetched twice.
 func (p *Poller) cycle(ctx context.Context) error {
+	if err := p.detectMissingProfile(ctx); err != nil && ctx.Err() == nil {
+		p.log.Error("profile detection pass failed", "error", err)
+	}
+
 	rows, err := p.store.Services(ctx)
 	if err != nil {
 		return err
@@ -78,6 +93,78 @@ func (p *Poller) cycle(ctx context.Context) error {
 		})
 	}
 	return g.Wait()
+}
+
+// detectMissingProfile offers every vendor that has no profile to the queue. A
+// vendor added without one is stored either way; this is what turns it into a
+// polled vendor once a profile for its platform exists.
+func (p *Poller) detectMissingProfile(ctx context.Context) error {
+	rows, err := p.store.PendingDetection(ctx)
+	if err != nil {
+		return err
+	}
+
+	due := dueDetections(rows, time.Now().UTC())
+	if len(due) == 0 {
+		return nil
+	}
+
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(p.concurrency)
+
+	for _, row := range due {
+		row := row
+		g.Go(func() error {
+			p.detectOne(gctx, row)
+			return nil
+		})
+	}
+	return g.Wait()
+}
+
+// dueDetections keeps the queue off a page that was offered recently.
+func dueDetections(rows []store.DetectRow, now time.Time) []store.DetectRow {
+	var due []store.DetectRow
+	for _, row := range rows {
+		if row.LastPolledAt == nil || now.Sub(*row.LastPolledAt) >= detectionRetry {
+			due = append(due, row)
+		}
+	}
+	return due
+}
+
+func (p *Poller) detectOne(ctx context.Context, row store.DetectRow) {
+	match, err := p.detector.Detect(ctx, row.Name, row.URL)
+	if err != nil {
+		if ctx.Err() != nil {
+			return
+		}
+		p.log.Info("no profile matched, the vendor waits for a later pass",
+			"vendor", row.Slug, "url", row.URL, "error", err)
+		if parkErr := p.store.ParkDetection(ctx, row.ID, err.Error()); parkErr != nil {
+			p.log.Error("failed to park the vendor", "vendor", row.Slug, "error", parkErr)
+		}
+		return
+	}
+
+	profile, ok := p.profiles[match.Profile]
+	if !ok {
+		p.log.Error("detected a profile that is not declared", "vendor", row.Slug, "profile", match.Profile)
+		return
+	}
+
+	if err := p.store.SetDetectedProfile(ctx, row.ID, match.Profile,
+		profile.PollIntervalSeconds, profile.ActiveIntervalSeconds); err != nil {
+		p.log.Error("failed to record the detected profile", "vendor", row.Slug, "error", err)
+		return
+	}
+
+	p.log.Info("profile detected", "vendor", row.Slug, "profile", match.Profile, "url", row.URL)
+
+	if _, err := p.store.ApplyReport(ctx, row.ID, match.Report); err != nil {
+		p.log.Warn("the detected profile could not store its first report",
+			"vendor", row.Slug, "profile", match.Profile, "error", err)
+	}
 }
 
 // resolve turns rows into targets. A row naming a profile that services.yaml no

@@ -44,7 +44,7 @@ func testRouter(t *testing.T) (*store.Store, http.Handler) {
 	// limits would trip part way through and make the result depend on how many
 	// calls a test happens to make. They are the subject of their own tests.
 	router := NewRouter(st, slog.New(slog.NewTextHandler(io.Discard, nil)), Options{
-		Profiles:           catalog.Profiles{},
+		Catalog:            catalog.Catalog{},
 		RateLimitPerMinute: 60000,
 		RateLimitBurst:     1000,
 		SuggestPerHour:     36000,

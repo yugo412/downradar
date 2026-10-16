@@ -52,6 +52,35 @@ const visibility = ref<Visibility>(props.initial?.ownerId ? 'private' : 'public'
 // insists on them for anything that is about to be published.
 const publishing = computed(() => status.value === 'published')
 
+const selectedProfile = computed(() => props.profiles.find((p) => p.name === profile.value))
+
+// Detection runs on the page itself, so it is offered as a button rather than
+// being done quietly: a wrong url or a platform without an adapter is worth
+// seeing before anything is saved. Saving with the field empty does the same
+// thing on the server.
+const detecting = ref(false)
+const detectError = ref('')
+const detected = ref('')
+
+async function detect() {
+  detecting.value = true
+  detectError.value = ''
+  detected.value = ''
+
+  try {
+    const res = await $fetch<{ profile: AdminProfile }>('/api/v1/profiles/detect', {
+      method: 'POST',
+      body: { name: name.value, url: url.value },
+    })
+    profile.value = res.profile.name
+    detected.value = res.profile.name
+  } catch (err) {
+    detectError.value = apiError(err, 'The profile could not be detected.')
+  } finally {
+    detecting.value = false
+  }
+}
+
 function onSubmit() {
   emit('submit', {
     name: name.value,
@@ -100,18 +129,43 @@ function onSubmit() {
       </span>
     </label>
 
-    <label class="form-control w-full">
-      <span class="label-text mb-1 text-sm font-medium">Adapter profile</span>
-      <select v-model="profile" class="select select-bordered w-full" :required="publishing">
-        <option value="">Not chosen yet</option>
-        <option v-for="p in profiles" :key="p.name" :value="p.name">
-          {{ p.name }} ({{ p.kind }})
-        </option>
-      </select>
-      <span class="label-text-alt mt-1 opacity-60">
-        Says how the status page is read. A published service without one is never polled.
+    <div class="form-control w-full">
+      <div class="flex items-end gap-2">
+        <label class="flex w-full flex-col">
+          <span class="label-text mb-1 text-sm font-medium">Adapter profile</span>
+          <select v-model="profile" class="select select-bordered w-full">
+            <option value="">Not chosen yet</option>
+            <option v-for="p in profiles" :key="p.name" :value="p.name">
+              {{ p.name }} ({{ p.kind }})
+            </option>
+          </select>
+        </label>
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm shrink-0"
+          :disabled="detecting || busy || !url"
+          :title="url ? 'Try every profile in the detect queue on this page' : 'Enter a status page url first'"
+          @click="detect"
+        >
+          <span v-if="detecting" class="loading loading-spinner loading-xs" />
+          Detect
+        </button>
+      </div>
+
+      <span v-if="selectedProfile?.description" class="label-text-alt mt-1 opacity-60">
+        {{ selectedProfile.description }}
       </span>
-    </label>
+      <span class="label-text-alt mt-1 opacity-60">
+        Says how the status page is read. Leave it empty and the page is offered to the detect
+        queue when you save; a page that nothing can read is still kept, it just is not polled.
+      </span>
+      <span v-if="detectError" role="alert" class="label-text-alt mt-1 text-error">
+        {{ detectError }}
+      </span>
+      <span v-else-if="detected" role="status" class="label-text-alt mt-1 text-success">
+        {{ detected }} reads this page.
+      </span>
+    </div>
 
     <div class="grid gap-4 sm:grid-cols-2">
       <label class="form-control w-full">
@@ -169,6 +223,9 @@ function onSubmit() {
     <label v-if="showStatus" class="form-control w-full">
       <span class="label-text mb-1 text-sm font-medium">Status</span>
       <select v-model="status" class="select select-bordered w-full">
+        <option v-if="initial?.status === 'no_match'" value="no_match">
+          No match — no profile could read the page yet
+        </option>
         <option value="proposed">Proposed — waiting for a review</option>
         <option value="published">Published — live and polled</option>
         <option value="rejected">Rejected — kept for the record, never polled</option>

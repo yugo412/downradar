@@ -4,18 +4,37 @@
 # Vendors live in the services table; this file only says how a platform is
 # polled. Adding a vendor is a database row, not an edit here.
 #
-# A profile names an adapter (kind), the endpoint to hit on it, and the polling
-# intervals. Vendors reference a profile by name, and a vendor row can override
-# the endpoint and intervals for itself.
+# A profile names an adapter (kind), the endpoint to hit on it, the polling
+# intervals and a one line description for the management screens. Vendors
+# reference a profile by name, and a vendor row can override the endpoint and
+# intervals for itself.
 #
-# This file is validated at startup. An unknown kind, an unknown field or a
-# non positive interval stops the server with a clear error.
+# This file is validated at startup. An unknown kind, an unknown field, a
+# non positive interval or a detect queue naming a profile that is not declared
+# stops the server with a clear error.
+
+# The detect queue is what makes a vendor possible to add without knowing its
+# platform first. When a vendor arrives with no profile, these profiles are tried
+# in this order and the first one whose adapter can read the page wins. A page
+# that none of them can read is stored with the status no_match and offered to
+# the queue again later, so the vendor starts working by itself once a profile
+# for its platform is listed here.
+#
+# Only platforms that can be recognised from a url alone belong here. A bespoke
+# page (opencode, flashduty, slack) would be probed on every unknown url and
+# never match, so it is left out.
+detect:
+  - statuspage-v2
+  - statusio
+  - sorryapp
+  - pagerduty
 
 profiles:
   # One profile serves dozens of vendors. Change the interval here and every
   # vendor using it follows.
   statuspage-v2:
     kind: statuspage
+    description: Pages hosted by Atlassian Statuspage, read from /api/v2/summary.json.
     endpoint: /api/v2/summary.json
     poll_interval_seconds: 300     # while healthy
     active_interval_seconds: 60    # while degraded or down
@@ -25,6 +44,7 @@ profiles:
   # Note: no endpoint here, the adapter fetches the page URL itself.
   flashduty:
     kind: flashduty
+    description: FlashDuty (flashcat.cloud) pages, read from the data embedded in the page.
     poll_interval_seconds: 300
     active_interval_seconds: 60
 
@@ -34,6 +54,7 @@ profiles:
   # as the "domain", which is how the API knows which page to return.
   cronjob-statuspage:
     kind: cronjob
+    description: Pages hosted by cron-job.org, read from its own API.
     endpoint: https://api.cron-job.org/
     poll_interval_seconds: 300
     active_interval_seconds: 60
@@ -43,6 +64,7 @@ profiles:
   # incident history, so the adapter exposes one "All services" component.
   slack:
     kind: slack
+    description: Slack's own status page, which reports one system status rather than components.
     poll_interval_seconds: 300
     active_interval_seconds: 60
 
@@ -53,6 +75,7 @@ profiles:
   # incident title from the written note where there is one.
   opencode:
     kind: opencode
+    description: OpenCode's own status page, whose components carry a slug instead of a name.
     endpoint: /api/status
     poll_interval_seconds: 300
     active_interval_seconds: 60
@@ -63,6 +86,7 @@ profiles:
   # Everything else under /1.0 needs an API key and is not used.
   statusio:
     kind: statusio
+    description: Pages hosted by Status.io, whose page id is read from the page itself.
     endpoint: /1.0/status/
     poll_interval_seconds: 300
     active_interval_seconds: 60
@@ -73,6 +97,19 @@ profiles:
   # maintenance. Components nest one level through parent_id.
   sorryapp:
     kind: sorryapp
+    description: Pages hosted by Sorry, such as Pingdom and Postmark.
     endpoint: /api/v1/
+    poll_interval_seconds: 300
+    active_interval_seconds: 60
+
+  # PagerDuty runs its own status pages and they are a platform too. The page
+  # publishes a JSON API at its origin: /api/services is the component list,
+  # /api/impacted_services says which of them are in trouble, /api/post_enums is
+  # the vocabulary the page names its states with, and /api/posts is the
+  # incident and maintenance history. Nothing has to be configured per vendor.
+  pagerduty:
+    kind: pagerduty
+    description: PagerDuty status pages, read from the JSON API the page publishes.
+    endpoint: /api/
     poll_interval_seconds: 300
     active_interval_seconds: 60

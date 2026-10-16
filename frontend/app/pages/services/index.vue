@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AdminService, ServiceStatus } from '~/types/api'
+import type { AdminProfile, AdminService, ServiceStatus } from '~/types/api'
 
 definePageMeta({ middleware: 'authenticated', ssr: false })
 
@@ -10,6 +10,7 @@ type Filter = 'all' | ServiceStatus | 'removed'
 const filters: { value: Filter; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'proposed', label: 'Proposed' },
+  { value: 'no_match', label: 'No match' },
   { value: 'published', label: 'Published' },
   { value: 'rejected', label: 'Rejected' },
   { value: 'removed', label: 'Removed' },
@@ -35,11 +36,20 @@ const { data, pending, error, refresh } = useFetch<{ services: AdminService[]; c
 const services = computed(() => data.value?.services ?? [])
 const created = computed(() => String(route.query.created ?? ''))
 
+// The query carries the slug of a service that was just added, so the notice can
+// say what became of it. A vendor that no profile could read is saved as
+// no_match and waits for an adapter, which is worth explaining there.
+const createdService = computed(() => services.value.find((s) => s.slug === created.value) ?? null)
+const createdName = computed(() => createdService.value?.name ?? created.value)
+const createdParked = computed(() => createdService.value?.status === 'no_match')
+
 const editing = ref<AdminService | null>(null)
 const removing = ref<AdminService | null>(null)
 const removeBusy = ref(false)
 const removeError = ref('')
 const actionError = ref('')
+const actionNotice = ref('')
+const retrying = ref('')
 
 function syncUrl() {
   const query: Record<string, string> = {}
@@ -75,18 +85,6 @@ watch(
   },
 )
 
-function statusLabel(service: AdminService) {
-  if (!service.active) return 'removed'
-  return service.status
-}
-
-function statusClass(service: AdminService) {
-  if (!service.active) return 'badge-ghost'
-  if (service.status === 'published') return 'badge-success'
-  if (service.status === 'proposed') return 'badge-warning'
-  return 'badge-error'
-}
-
 function ownsService(service: AdminService) {
   return Boolean(service.ownerId && service.ownerId === user.value?.id)
 }
@@ -99,12 +97,13 @@ function canRemove(service: AdminService) {
   return isAdmin.value
 }
 
-// Where the name links to. A private service has no page on the public site, so
-// it gets the signed in view under /services instead.
+// Where the name links to. A private service, and a vendor that is not published
+// yet, has no page on the public site, so both get the signed in view under
+// /services, which is also where their fetch log is.
 function detailLink(service: AdminService) {
   if (!service.active) return ''
-  if (service.ownerId) return `/services/${service.slug}`
-  return service.status === 'published' ? `/${service.slug}` : ''
+  if (service.ownerId || service.status !== 'published') return `/services/${service.slug}`
+  return `/${service.slug}`
 }
 
 function removalMessage(service: AdminService | null) {
@@ -145,6 +144,28 @@ async function restore(service: AdminService) {
   }
 }
 
+// A parked vendor is retried by the poller once an hour anyway; this is for
+// when a profile has just been deployed and the wait is not wanted.
+async function retryDetection(service: AdminService) {
+  actionError.value = ''
+  actionNotice.value = ''
+  retrying.value = service.slug
+
+  try {
+    const result = await $fetch<{ profile: AdminProfile }>(
+      `/api/v1/services/${service.slug}/detect`,
+      { method: 'POST' },
+    )
+    actionNotice.value =
+      `${service.name} is read by ${result.profile.name} now, so it is live and being polled.`
+    await refresh()
+  } catch (err) {
+    actionError.value = apiError(err)
+  } finally {
+    retrying.value = ''
+  }
+}
+
 async function onSaved() {
   editing.value = null
   await refresh()
@@ -166,8 +187,18 @@ async function onSaved() {
       <NuxtLink to="/services/new" class="btn btn-primary btn-sm">Add service</NuxtLink>
     </header>
 
-    <div v-if="created" role="status" class="alert alert-success mb-4">
-      <span>{{ created }} was added and is live.</span>
+    <div
+      v-if="created"
+      role="status"
+      class="alert mb-4"
+      :class="createdParked ? 'alert-warning' : 'alert-success'"
+    >
+      <span v-if="createdParked">
+        {{ createdName }} was saved, but no adapter profile can read its page yet, so it is not
+        polled. A new profile has to be written for its platform before it can be; until then the
+        poller keeps trying it, and Retry on its row runs that check right away.
+      </span>
+      <span v-else>{{ createdName }} was added and is live.</span>
     </div>
 
     <div class="mb-4 flex flex-wrap items-center gap-3">
@@ -197,6 +228,7 @@ async function onSaved() {
       </button>
     </div>
 
+    <p v-if="actionNotice" role="status" class="alert alert-success mb-4">{{ actionNotice }}</p>
     <p v-if="actionError" role="alert" class="alert alert-error mb-4">{{ actionError }}</p>
 
     <div v-if="error" role="alert" class="alert alert-error">
@@ -243,7 +275,10 @@ async function onSaved() {
               </div>
             </td>
             <td>
-              <span class="badge badge-sm" :class="statusClass(s)">{{ statusLabel(s) }}</span>
+              <span
+                class="badge badge-sm"
+                :class="serviceStatusClass(s.status, s.active)"
+              >{{ serviceStatusLabel(s.status, s.active) }}</span>
             </td>
             <td>
               <span v-if="s.profile" class="font-mono text-xs">{{ s.profile }}</span>
@@ -264,6 +299,16 @@ async function onSaved() {
             <td>
               <div class="flex flex-wrap justify-end gap-1">
                 <button class="btn btn-ghost btn-xs" @click="editing = s">Edit</button>
+                <button
+                  v-if="s.active && s.status === 'no_match'"
+                  class="btn btn-ghost btn-xs"
+                  :disabled="retrying === s.slug"
+                  title="Run the profiles again against this page, for when a new one has been deployed."
+                  @click="retryDetection(s)"
+                >
+                  <span v-if="retrying === s.slug" class="loading loading-spinner loading-xs" />
+                  Retry
+                </button>
                 <button
                   v-if="s.active && s.status === 'proposed'"
                   class="btn btn-ghost btn-xs"

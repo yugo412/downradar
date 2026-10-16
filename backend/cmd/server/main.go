@@ -38,11 +38,12 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	profiles, err := catalog.Load(cfg.ServicesFile)
+	cat, err := catalog.Load(cfg.ServicesFile)
 	if err != nil {
 		return err
 	}
-	log.Info("profiles loaded", "profiles", len(profiles), "file", cfg.ServicesFile)
+	log.Info("profiles loaded",
+		"profiles", len(cat.Profiles), "detect", len(cat.Detect), "file", cfg.ServicesFile)
 
 	st, err := store.New(ctx, cfg.DatabaseURL, store.Options{
 		RawPayloadMinInterval: cfg.RawPayloadMinInterval,
@@ -57,7 +58,7 @@ func run() error {
 	}
 	log.Info("migrations applied")
 
-	p := poller.New(st, profiles, cfg.PollConcurrency, cfg.PollTick, log)
+	p := poller.New(st, cat, cfg.PollConcurrency, cfg.PollTick, log)
 	go p.Run(ctx)
 
 	if cfg.RawPayloadDays > 0 {
@@ -78,7 +79,7 @@ func run() error {
 			PasswordPerHour:     cfg.PasswordPerHour,
 			PasswordBurst:       cfg.PasswordBurst,
 			InternalToken:       cfg.InternalToken,
-			Profiles:            profiles,
+			Catalog:             cat,
 			SessionCookie:       cfg.SessionCookie,
 			SessionTTL:          cfg.SessionTTL,
 			SessionCookieSecure: cfg.SessionCookieSecure,

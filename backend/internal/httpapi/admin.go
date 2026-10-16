@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,10 +9,12 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"downradar.info/backend/internal/auth"
 	"downradar.info/backend/internal/catalog"
+	"downradar.info/backend/internal/detect"
 	"downradar.info/backend/internal/store"
 )
 
@@ -19,6 +22,11 @@ const (
 	visibilityPublic  = "public"
 	visibilityPrivate = "private"
 )
+
+// detectionBudget bounds one detection request end to end, which keeps it
+// inside the server's write timeout even if the queue grows. The detector bounds
+// each profile it tries as well, so this is the backstop for the whole queue.
+const detectionBudget = 20 * time.Second
 
 // servicePayload carries only the fields the caller sent. A nil field is left
 // alone, which is what makes the same struct work for create and for patch.
@@ -54,28 +62,106 @@ func (h *handlers) viewer(r *http.Request) store.Viewer {
 	return store.Viewer{UserID: user.ID, IsStaff: auth.CanManageServices(user.Role)}
 }
 
-func (h *handlers) listProfiles(w http.ResponseWriter, r *http.Request) {
-	type profileView struct {
-		Name                  string `json:"name"`
-		Kind                  string `json:"kind"`
-		Endpoint              string `json:"endpoint,omitempty"`
-		PollIntervalSeconds   int    `json:"pollIntervalSeconds"`
-		ActiveIntervalSeconds int    `json:"activeIntervalSeconds"`
-	}
+// profileView is how a profile is shown to the management screens: what it is
+// called, which platform it reads, and what that means in one line.
+type profileView struct {
+	Name                  string `json:"name"`
+	Kind                  string `json:"kind"`
+	Description           string `json:"description,omitempty"`
+	Endpoint              string `json:"endpoint,omitempty"`
+	PollIntervalSeconds   int    `json:"pollIntervalSeconds"`
+	ActiveIntervalSeconds int    `json:"activeIntervalSeconds"`
+}
 
-	out := make([]profileView, 0, len(h.profiles))
-	for name, p := range h.profiles {
-		out = append(out, profileView{
-			Name:                  name,
-			Kind:                  p.Kind,
-			Endpoint:              p.Endpoint,
-			PollIntervalSeconds:   p.PollIntervalSeconds,
-			ActiveIntervalSeconds: p.ActiveIntervalSeconds,
-		})
+func profileViewOf(name string, p catalog.Profile) profileView {
+	return profileView{
+		Name:                  name,
+		Kind:                  p.Kind,
+		Description:           p.Description,
+		Endpoint:              p.Endpoint,
+		PollIntervalSeconds:   p.PollIntervalSeconds,
+		ActiveIntervalSeconds: p.ActiveIntervalSeconds,
+	}
+}
+
+func (h *handlers) listProfiles(w http.ResponseWriter, r *http.Request) {
+	out := make([]profileView, 0, len(h.catalog.Profiles))
+	for name, p := range h.catalog.Profiles {
+		out = append(out, profileViewOf(name, p))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 
 	writeJSON(w, http.StatusOK, map[string]any{"profiles": out})
+}
+
+// noMatchMessage is what a caller is told when the queue ran out of profiles. It
+// names both ways forward, because from here it is not possible to tell a wrong
+// url from a platform that has no adapter yet.
+const noMatchMessage = "no adapter profile could read this page. Check that the url is the status page itself; if it is, a new profile has to be written for its platform before the service can be polled."
+
+// detectProfile answers which profile reads a page, so the picker can be filled
+// in before anything is saved.
+func (h *handlers) detectProfile(w http.ResponseWriter, r *http.Request) {
+	var body detectRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+
+	pageURL := clean(sanitize(body.URL))
+	if pageURL == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "a status page url is needed to detect a profile",
+		})
+		return
+	}
+	if err := catalog.ValidateURL(pageURL); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	match, err := h.detectPage(r, clean(sanitize(body.Name)), pageURL)
+	if err != nil {
+		var noMatch *detect.NoMatch
+		if !errors.As(err, &noMatch) {
+			h.log.Error("profile detection failed", "url", pageURL, "error", err)
+			writeJSON(w, http.StatusBadGateway, map[string]string{
+				"error": "the page could not be checked, try again in a moment",
+			})
+			return
+		}
+		h.log.Info("no profile matched", "url", pageURL, "by", h.user(r).Email, "error", err)
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": noMatchMessage})
+		return
+	}
+
+	h.log.Info("profile detected", "url", pageURL, "profile", match.Profile, "by", h.user(r).Email)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"profile": profileViewOf(match.Profile, h.catalog.Profiles[match.Profile]),
+	})
+}
+
+type detectRequest struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
+}
+
+// detectProfileFor runs the queue for a vendor that arrived without a profile.
+// An empty answer means nothing matched, which the callers store as no_match.
+func (h *handlers) detectProfileFor(r *http.Request, name, pageURL string) string {
+	match, err := h.detectPage(r, name, pageURL)
+	if err != nil {
+		var noMatch *detect.NoMatch
+		if errors.As(err, &noMatch) {
+			h.log.Info("no profile matched, the vendor is saved without one", "url", pageURL, "error", err)
+		} else {
+			h.log.Error("profile detection failed", "url", pageURL, "error", err)
+		}
+		return ""
+	}
+
+	h.log.Info("profile detected", "url", pageURL, "profile", match.Profile)
+	return match.Profile
 }
 
 func (h *handlers) listCategories(w http.ResponseWriter, r *http.Request) {
@@ -176,6 +262,130 @@ func (h *handlers) serviceStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, detail)
 }
 
+// pollLogLimit is how much of the history the detail page shows. The poller
+// writes a row per attempt, so a vendor polled every five minutes makes 288 a
+// day; the page wants the recent ones, not the year.
+const pollLogLimit = 50
+
+// staffOrOwner is who may see the parts of a service that are not the vendor's
+// public face: the fetch log, and running the detect queue by hand. A public
+// vendor is visible to every signed in visitor, so those need their own check.
+func staffOrOwner(viewer store.Viewer, ownerID *int64) bool {
+	return viewer.IsStaff || viewer.Owns(ownerID)
+}
+
+// pollLog is the fetch history of one service: when it was read, what came
+// back, and what did not parse.
+func (h *handlers) pollLog(w http.ResponseWriter, r *http.Request) {
+	current := h.findVisibleService(w, r)
+	if current == nil {
+		return
+	}
+	if !staffOrOwner(h.viewer(r), current.OwnerID) {
+		writeJSON(w, http.StatusForbidden, map[string]string{
+			"error": "only an admin, a moderator or the owner can read the fetch log",
+		})
+		return
+	}
+
+	runs, err := h.store.RecentPollRuns(r.Context(), current.Slug, pollLogLimit)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"polls": runs})
+}
+
+// detectPage offers one page to the queue. The budget is what keeps a request
+// inside the server's write timeout, and it belongs here rather than with the
+// callers because every path that reads a page is bounded the same way.
+func (h *handlers) detectPage(r *http.Request, name, pageURL string) (detect.Match, error) {
+	ctx, cancel := context.WithTimeout(r.Context(), detectionBudget)
+	defer cancel()
+
+	return h.detector.Detect(ctx, name, pageURL)
+}
+
+// retryDetection runs the queue again for a vendor that has no profile, which is
+// what turns it into a polled vendor as soon as a profile for its platform is
+// deployed. It is the same work the poller does once an hour, done on demand.
+func (h *handlers) retryDetection(w http.ResponseWriter, r *http.Request) {
+	current := h.findVisibleService(w, r)
+	if current == nil {
+		return
+	}
+	if !staffOrOwner(h.viewer(r), current.OwnerID) {
+		writeJSON(w, http.StatusForbidden, map[string]string{
+			"error": "only an admin, a moderator or the owner can retry detection",
+		})
+		return
+	}
+	switch {
+	case !current.Active:
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "this service is removed, restore it before retrying",
+		})
+		return
+	case current.Profile != "":
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "this service already has an adapter profile",
+		})
+		return
+	case current.Status != string(store.StatusNoMatch):
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "only a service that no profile matched can be retried",
+		})
+		return
+	case current.URL == "":
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "a status page url is needed to detect a profile",
+		})
+		return
+	}
+
+	match, err := h.detectPage(r, current.Name, current.URL)
+	if err != nil {
+		var noMatch *detect.NoMatch
+		if !errors.As(err, &noMatch) {
+			h.log.Error("profile detection failed", "slug", current.Slug, "error", err)
+			writeJSON(w, http.StatusBadGateway, map[string]string{
+				"error": "the page could not be checked, try again in a moment",
+			})
+			return
+		}
+		h.log.Info("no profile matched", "slug", current.Slug, "by", h.user(r).Email, "error", err)
+		if parkErr := h.store.ParkDetection(r.Context(), current.ID, err.Error()); parkErr != nil {
+			h.fail(w, r, parkErr)
+			return
+		}
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": noMatchMessage})
+		return
+	}
+
+	profile, ok := h.catalog.Profiles[match.Profile]
+	if !ok {
+		h.log.Error("detected a profile that is not declared", "slug", current.Slug, "profile", match.Profile)
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error": "the profile that matched is not available",
+		})
+		return
+	}
+
+	if err := h.store.SetDetectedProfile(r.Context(), current.ID, match.Profile,
+		profile.PollIntervalSeconds, profile.ActiveIntervalSeconds); err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	h.log.Info("profile detected", "slug", current.Slug, "profile", match.Profile, "by", h.user(r).Email)
+
+	if _, err := h.store.ApplyReport(r.Context(), current.ID, match.Report); err != nil {
+		h.log.Warn("the detected profile could not store its first report",
+			"slug", current.Slug, "profile", match.Profile, "error", err)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"profile": profileViewOf(match.Profile, profile)})
+}
+
 func (h *handlers) createService(w http.ResponseWriter, r *http.Request) {
 	body, ok := decodeServicePayload(w, r)
 	if !ok {
@@ -213,8 +423,17 @@ func (h *handlers) createService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A service added here goes live immediately, so it has to be pollable.
+	// A vendor added without a profile is offered to the detection queue, so the
+	// platform does not have to be known up front. When nothing matches it is
+	// still saved, as no_match, and the poller keeps looking.
 	status := string(store.StatusPublished)
+	if profile == "" && pageURL != "" {
+		if profile = h.detectProfileFor(r, name, pageURL); profile == "" {
+			status = string(store.StatusNoMatch)
+		}
+	}
+
+	// A service added here goes live immediately, so it has to be pollable.
 	if problem := h.validateService(name, pageURL, profile, category, logoURL, aliases, status); problem != "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": problem})
 		return
@@ -225,7 +444,7 @@ func (h *handlers) createService(w http.ResponseWriter, r *http.Request) {
 		ownerID = &user.ID
 	}
 
-	chosen := h.profiles[profile]
+	chosen := h.catalog.Profiles[profile]
 	slug, err := h.store.CreateService(r.Context(), store.NewService{
 		Name:                  name,
 		URL:                   pageURL,
@@ -236,6 +455,7 @@ func (h *handlers) createService(w http.ResponseWriter, r *http.Request) {
 		Aliases:               aliases,
 		PollIntervalSeconds:   chosen.PollIntervalSeconds,
 		ActiveIntervalSeconds: chosen.ActiveIntervalSeconds,
+		Status:                status,
 		OwnerID:               ownerID,
 	})
 	if err != nil {
@@ -247,6 +467,7 @@ func (h *handlers) createService(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"slug":       slug,
 		"status":     status,
+		"profile":    profile,
 		"visibility": visibility,
 	})
 }
@@ -309,6 +530,21 @@ func (h *handlers) updateService(w http.ResponseWriter, r *http.Request) {
 		status = strings.ToLower(clean(sanitize(*body.Status)))
 	}
 
+	// A vendor that is about to be polled without a profile is offered to the
+	// detection queue, the same way the add form does it. When nothing matches it
+	// is parked as no_match rather than left in a state nothing can poll.
+	if status == string(store.StatusPublished) && profile == "" && pageURL != "" {
+		if profile = h.detectProfileFor(r, name, pageURL); profile == "" {
+			status = string(store.StatusNoMatch)
+		}
+	}
+
+	// A parked vendor that has just been given a profile is pollable again, so it
+	// goes live instead of staying in the one state the poller leaves alone.
+	if status == string(store.StatusNoMatch) && profile != "" {
+		status = string(store.StatusPublished)
+	}
+
 	if problem := h.validateService(name, pageURL, profile, category, logoURL, aliases, status); problem != "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": problem})
 		return
@@ -320,9 +556,6 @@ func (h *handlers) updateService(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.URL != nil {
 		patch.URL = &pageURL
-	}
-	if body.Profile != nil {
-		patch.Profile = &profile
 	}
 	if body.Category != nil {
 		patch.Category = &category
@@ -336,7 +569,18 @@ func (h *handlers) updateService(w http.ResponseWriter, r *http.Request) {
 	if body.Aliases != nil {
 		patch.Aliases = &aliases
 	}
-	if body.Status != nil {
+
+	// The intervals are declared by the profile, so they follow it. A vendor
+	// parked as no_match picks up the cadence of the profile that matched it the
+	// moment the profile is written.
+	if profile != current.Profile {
+		patch.Profile = &profile
+		if chosen, ok := h.catalog.Profiles[profile]; ok {
+			patch.PollIntervalSeconds = &chosen.PollIntervalSeconds
+			patch.ActiveIntervalSeconds = &chosen.ActiveIntervalSeconds
+		}
+	}
+	if status != current.Status {
 		patch.Status = &status
 	}
 
@@ -426,7 +670,7 @@ func (h *handlers) validateService(name, pageURL, profile, category, logoURL str
 		return "service name must be between 2 and 80 characters"
 	}
 	if !store.Status(status).Valid() {
-		return "status must be proposed, published or rejected"
+		return "status must be proposed, published, rejected or no_match"
 	}
 	if status == string(store.StatusPublished) {
 		if pageURL == "" {
@@ -436,13 +680,18 @@ func (h *handlers) validateService(name, pageURL, profile, category, logoURL str
 			return "a published service needs an adapter profile"
 		}
 	}
+	// A vendor that no profile matched is kept without one, but it is still a
+	// page: with no url there would be nothing for the poller to try again.
+	if status == string(store.StatusNoMatch) && pageURL == "" {
+		return "a service with no matched profile needs a status page url"
+	}
 	if pageURL != "" {
 		if err := catalog.ValidateURL(pageURL); err != nil {
 			return err.Error()
 		}
 	}
 	if profile != "" {
-		if _, ok := h.profiles[profile]; !ok {
+		if _, ok := h.catalog.Profiles[profile]; !ok {
 			return fmt.Sprintf("unknown profile %q", profile)
 		}
 	}

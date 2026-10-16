@@ -6,21 +6,22 @@ definePageMeta({ middleware: 'authenticated', ssr: false })
 const route = useRoute()
 const slug = computed(() => String(route.params.slug ?? ''))
 
-const {
-  data: detail,
-  error,
-  refresh,
-} = useFetch<VendorDetail>(() => `/api/v1/services/${slug.value}/status`)
-
-const { data: meta, refresh: refreshMeta } = useFetch<{ service: AdminService }>(
+const { data: meta, error: metaError, refresh: refreshMeta } = useFetch<{ service: AdminService }>(
   () => `/api/v1/services/${slug.value}`,
+)
+
+// The row is the page. What the vendor reports is only there once it is polled,
+// so this call is allowed to answer 404: a suggestion, or a vendor that no
+// profile could read, has nothing to show but its row and its fetch log.
+const { data: detail, refresh: refreshDetail } = useFetch<VendorDetail>(
+  () => `/api/v1/services/${slug.value}/status`,
 )
 
 const editing = ref(false)
 
 async function onSaved() {
   editing.value = false
-  await Promise.all([refresh(), refreshMeta()])
+  await Promise.all([refreshMeta(), refreshDetail()])
 }
 </script>
 
@@ -30,28 +31,28 @@ async function onSaved() {
       &larr; All services
     </NuxtLink>
 
-    <div v-if="error" role="alert" class="alert alert-error mt-6">
+    <div v-if="metaError" role="alert" class="alert alert-error mt-6">
       <span>This service could not be loaded. It may belong to somebody else.</span>
     </div>
 
-    <template v-else-if="detail">
+    <template v-else-if="meta">
       <header class="mt-4 mb-8 flex flex-wrap items-start justify-between gap-4">
         <div class="flex items-start gap-4 min-w-0">
-          <VendorLogo :src="detail.logoUrl" :name="detail.name" :size="56" />
+          <VendorLogo :src="meta.service.logoUrl" :name="meta.service.name" :size="56" />
           <div class="min-w-0">
-            <h1 class="text-3xl font-bold tracking-tight">{{ detail.name }}</h1>
+            <h1 class="text-3xl font-bold tracking-tight">{{ meta.service.name }}</h1>
             <div class="mt-1 flex flex-wrap items-center gap-2 text-sm opacity-70">
-              <span v-if="meta?.service.ownerId" class="badge badge-ghost badge-sm">
+              <span v-if="meta.service.ownerId" class="badge badge-ghost badge-sm">
                 private &middot; {{ meta.service.ownerName }}
               </span>
               <a
-                v-if="detail.url"
-                :href="detail.url"
+                v-if="meta.service.url"
+                :href="meta.service.url"
                 target="_blank"
                 rel="noopener noreferrer"
                 class="link break-all"
               >
-                {{ detail.url }}
+                {{ meta.service.url }}
               </a>
             </div>
           </div>
@@ -60,11 +61,27 @@ async function onSaved() {
           <button type="button" class="btn btn-ghost btn-sm" @click="editing = true">
             Quick edit
           </button>
-          <StatusBadge :status="detail.status" />
+          <StatusBadge v-if="detail" :status="detail.status" />
+          <span
+            v-else
+            class="badge badge-sm"
+            :class="serviceStatusClass(meta.service.status, meta.service.active)"
+          >
+            {{ serviceStatusLabel(meta.service.status, meta.service.active) }}
+          </span>
         </div>
       </header>
 
-      <VendorStatus :vendor="detail" />
+      <VendorStatus v-if="detail" :vendor="detail" />
+
+      <p
+        v-else
+        class="mb-8 rounded-box border border-base-300 bg-base-100 p-6 text-center opacity-70 shadow-sm"
+      >
+        Nothing has been read from this vendor yet.
+      </p>
+
+      <FetchLog :slug="slug" :owner-id="meta.service.ownerId" />
 
       <ServiceEditor v-if="editing" :slug="slug" @close="editing = false" @saved="onSaved" />
     </template>

@@ -43,6 +43,17 @@ export interface VendorDetail extends Vendor {
   incidents: Incident[]
 }
 
+export interface PollRun {
+  id: number
+  ok: boolean
+  httpStatus?: number
+  componentsFound: number
+  unknownStatuses?: string[]
+  error?: string
+  durationMs?: number
+  fetchedAt: string
+}
+
 export interface Stats {
   total: number
   healthy: number
@@ -62,9 +73,10 @@ export interface AuthUser {
   role: Role
 }
 
-export type ServiceStatus = 'proposed' | 'published' | 'rejected'
+export type ServiceStatus = 'proposed' | 'published' | 'rejected' | 'no_match'
 
 export interface AdminService {
+  id: number
   slug: string
   name: string
   url: string
@@ -104,9 +116,17 @@ export interface AdminUser {
 export interface AdminProfile {
   name: string
   kind: string
+  description?: string
   endpoint?: string
   pollIntervalSeconds: number
   activeIntervalSeconds: number
+}
+
+export interface ServiceCreated {
+  slug: string
+  status: ServiceStatus
+  profile: string
+  visibility: Visibility
 }
 
 export interface ServicePayload {

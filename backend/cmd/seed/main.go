@@ -28,13 +28,13 @@ func main() {
 func run(file string, dryRun bool, log *slog.Logger) error {
 	cfg := config.Load()
 
-	profiles, err := catalog.Load(cfg.ServicesFile)
+	cat, err := catalog.Load(cfg.ServicesFile)
 	if err != nil {
 		return err
 	}
-	log.Info("profiles loaded", "profiles", len(profiles), "file", cfg.ServicesFile)
+	log.Info("profiles loaded", "profiles", len(cat.Profiles), "file", cfg.ServicesFile)
 
-	targets, err := seed.Load(file, profiles)
+	targets, err := seed.Load(file, cat.Profiles)
 	if err != nil {
 		return err
 	}
