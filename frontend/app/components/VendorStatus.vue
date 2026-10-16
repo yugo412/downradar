@@ -37,7 +37,9 @@ const openIncidents = computed(() => incidents.value.filter((i) => !i.resolvedAt
             <tr v-for="c in components" :key="c.sourceId">
               <td class="font-medium">{{ c.name }}</td>
               <td><StatusBadge :status="c.status" size="sm" /></td>
-              <td class="text-right text-sm opacity-60">{{ timeAgo(c.changedAt) }}</td>
+              <td class="text-right text-sm opacity-60">
+                <LiveAgo :at="c.changedAt" />
+              </td>
             </tr>
             <tr v-if="!components.length">
               <td colspan="3" class="text-center opacity-60">No components reported yet.</td>
@@ -103,7 +105,7 @@ const openIncidents = computed(() => incidents.value.filter((i) => !i.resolvedAt
     </section>
 
     <p v-if="vendor.lastPolledAt" class="mt-8 text-xs opacity-50">
-      Last checked {{ timeAgo(vendor.lastPolledAt) }}. Data is polled every few minutes.
+      Last checked <LiveAgo :at="vendor.lastPolledAt" />. Data is polled every few minutes.
     </p>
   </div>
 </template>
