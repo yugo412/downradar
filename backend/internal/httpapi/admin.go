@@ -120,10 +120,7 @@ func (h *handlers) detectProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), detectionBudget)
-	defer cancel()
-
-	match, err := h.detector.Detect(ctx, clean(sanitize(body.Name)), pageURL)
+	match, err := h.detectPage(r, clean(sanitize(body.Name)), pageURL)
 	if err != nil {
 		var noMatch *detect.NoMatch
 		if !errors.As(err, &noMatch) {
@@ -152,10 +149,7 @@ type detectRequest struct {
 // detectProfileFor runs the queue for a vendor that arrived without a profile.
 // An empty answer means nothing matched, which the callers store as no_match.
 func (h *handlers) detectProfileFor(r *http.Request, name, pageURL string) string {
-	ctx, cancel := context.WithTimeout(r.Context(), detectionBudget)
-	defer cancel()
-
-	match, err := h.detector.Detect(ctx, name, pageURL)
+	match, err := h.detectPage(r, name, pageURL)
 	if err != nil {
 		var noMatch *detect.NoMatch
 		if errors.As(err, &noMatch) {
@@ -273,10 +267,10 @@ func (h *handlers) serviceStatus(w http.ResponseWriter, r *http.Request) {
 // day; the page wants the recent ones, not the year.
 const pollLogLimit = 50
 
-// canSeePollLog is staff and the owner of the row, which is stricter than the
-// service itself: a public vendor is visible to every signed in visitor, and
-// the fetch log is not.
-func canSeePollLog(viewer store.Viewer, ownerID *int64) bool {
+// staffOrOwner is who may see the parts of a service that are not the vendor's
+// public face: the fetch log, and running the detect queue by hand. A public
+// vendor is visible to every signed in visitor, so those need their own check.
+func staffOrOwner(viewer store.Viewer, ownerID *int64) bool {
 	return viewer.IsStaff || viewer.Owns(ownerID)
 }
 
@@ -287,7 +281,7 @@ func (h *handlers) pollLog(w http.ResponseWriter, r *http.Request) {
 	if current == nil {
 		return
 	}
-	if !canSeePollLog(h.viewer(r), current.OwnerID) {
+	if !staffOrOwner(h.viewer(r), current.OwnerID) {
 		writeJSON(w, http.StatusForbidden, map[string]string{
 			"error": "only an admin, a moderator or the owner can read the fetch log",
 		})
@@ -300,6 +294,96 @@ func (h *handlers) pollLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"polls": runs})
+}
+
+// detectPage offers one page to the queue. The budget is what keeps a request
+// inside the server's write timeout, and it belongs here rather than with the
+// callers because every path that reads a page is bounded the same way.
+func (h *handlers) detectPage(r *http.Request, name, pageURL string) (detect.Match, error) {
+	ctx, cancel := context.WithTimeout(r.Context(), detectionBudget)
+	defer cancel()
+
+	return h.detector.Detect(ctx, name, pageURL)
+}
+
+// retryDetection runs the queue again for a vendor that has no profile, which is
+// what turns it into a polled vendor as soon as a profile for its platform is
+// deployed. It is the same work the poller does once an hour, done on demand.
+func (h *handlers) retryDetection(w http.ResponseWriter, r *http.Request) {
+	current := h.findVisibleService(w, r)
+	if current == nil {
+		return
+	}
+	if !staffOrOwner(h.viewer(r), current.OwnerID) {
+		writeJSON(w, http.StatusForbidden, map[string]string{
+			"error": "only an admin, a moderator or the owner can retry detection",
+		})
+		return
+	}
+	switch {
+	case !current.Active:
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "this service is removed, restore it before retrying",
+		})
+		return
+	case current.Profile != "":
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "this service already has an adapter profile",
+		})
+		return
+	case current.Status != string(store.StatusNoMatch):
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "only a service that no profile matched can be retried",
+		})
+		return
+	case current.URL == "":
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "a status page url is needed to detect a profile",
+		})
+		return
+	}
+
+	match, err := h.detectPage(r, current.Name, current.URL)
+	if err != nil {
+		var noMatch *detect.NoMatch
+		if !errors.As(err, &noMatch) {
+			h.log.Error("profile detection failed", "slug", current.Slug, "error", err)
+			writeJSON(w, http.StatusBadGateway, map[string]string{
+				"error": "the page could not be checked, try again in a moment",
+			})
+			return
+		}
+		h.log.Info("no profile matched", "slug", current.Slug, "by", h.user(r).Email, "error", err)
+		if parkErr := h.store.ParkDetection(r.Context(), current.ID, err.Error()); parkErr != nil {
+			h.fail(w, r, parkErr)
+			return
+		}
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": noMatchMessage})
+		return
+	}
+
+	profile, ok := h.catalog.Profiles[match.Profile]
+	if !ok {
+		h.log.Error("detected a profile that is not declared", "slug", current.Slug, "profile", match.Profile)
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error": "the profile that matched is not available",
+		})
+		return
+	}
+
+	if err := h.store.SetDetectedProfile(r.Context(), current.ID, match.Profile,
+		profile.PollIntervalSeconds, profile.ActiveIntervalSeconds); err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	h.log.Info("profile detected", "slug", current.Slug, "profile", match.Profile, "by", h.user(r).Email)
+
+	if _, err := h.store.ApplyReport(r.Context(), current.ID, match.Report); err != nil {
+		h.log.Warn("the detected profile could not store its first report",
+			"slug", current.Slug, "profile", match.Profile, "error", err)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"profile": profileViewOf(match.Profile, profile)})
 }
 
 func (h *handlers) createService(w http.ResponseWriter, r *http.Request) {

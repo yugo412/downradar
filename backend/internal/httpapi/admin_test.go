@@ -102,7 +102,7 @@ func TestStringValue(t *testing.T) {
 	}
 }
 
-func TestCanSeePollLog(t *testing.T) {
+func TestStaffOrOwner(t *testing.T) {
 	owner := int64(7)
 
 	cases := []struct {
@@ -122,8 +122,8 @@ func TestCanSeePollLog(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.label, func(t *testing.T) {
-			if got := canSeePollLog(tc.viewer, tc.ownerID); got != tc.want {
-				t.Errorf("canSeePollLog = %v, want %v", got, tc.want)
+			if got := staffOrOwner(tc.viewer, tc.ownerID); got != tc.want {
+				t.Errorf("staffOrOwner = %v, want %v", got, tc.want)
 			}
 		})
 	}

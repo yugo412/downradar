@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AdminService, ServiceStatus } from '~/types/api'
+import type { AdminProfile, AdminService, ServiceStatus } from '~/types/api'
 
 definePageMeta({ middleware: 'authenticated', ssr: false })
 
@@ -48,6 +48,8 @@ const removing = ref<AdminService | null>(null)
 const removeBusy = ref(false)
 const removeError = ref('')
 const actionError = ref('')
+const actionNotice = ref('')
+const retrying = ref('')
 
 function syncUrl() {
   const query: Record<string, string> = {}
@@ -142,6 +144,28 @@ async function restore(service: AdminService) {
   }
 }
 
+// A parked vendor is retried by the poller once an hour anyway; this is for
+// when a profile has just been deployed and the wait is not wanted.
+async function retryDetection(service: AdminService) {
+  actionError.value = ''
+  actionNotice.value = ''
+  retrying.value = service.slug
+
+  try {
+    const result = await $fetch<{ profile: AdminProfile }>(
+      `/api/v1/services/${service.slug}/detect`,
+      { method: 'POST' },
+    )
+    actionNotice.value =
+      `${service.name} is read by ${result.profile.name} now, so it is live and being polled.`
+    await refresh()
+  } catch (err) {
+    actionError.value = apiError(err)
+  } finally {
+    retrying.value = ''
+  }
+}
+
 async function onSaved() {
   editing.value = null
   await refresh()
@@ -172,7 +196,7 @@ async function onSaved() {
       <span v-if="createdParked">
         {{ createdName }} was saved, but no adapter profile can read its page yet, so it is not
         polled. A new profile has to be written for its platform before it can be; until then the
-        poller keeps trying it and it starts on its own once that profile exists.
+        poller keeps trying it, and Retry on its row runs that check right away.
       </span>
       <span v-else>{{ createdName }} was added and is live.</span>
     </div>
@@ -204,6 +228,7 @@ async function onSaved() {
       </button>
     </div>
 
+    <p v-if="actionNotice" role="status" class="alert alert-success mb-4">{{ actionNotice }}</p>
     <p v-if="actionError" role="alert" class="alert alert-error mb-4">{{ actionError }}</p>
 
     <div v-if="error" role="alert" class="alert alert-error">
@@ -274,6 +299,16 @@ async function onSaved() {
             <td>
               <div class="flex flex-wrap justify-end gap-1">
                 <button class="btn btn-ghost btn-xs" @click="editing = s">Edit</button>
+                <button
+                  v-if="s.active && s.status === 'no_match'"
+                  class="btn btn-ghost btn-xs"
+                  :disabled="retrying === s.slug"
+                  title="Run the profiles again against this page, for when a new one has been deployed."
+                  @click="retryDetection(s)"
+                >
+                  <span v-if="retrying === s.slug" class="loading loading-spinner loading-xs" />
+                  Retry
+                </button>
                 <button
                   v-if="s.active && s.status === 'proposed'"
                   class="btn btn-ghost btn-xs"

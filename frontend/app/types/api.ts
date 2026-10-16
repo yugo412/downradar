@@ -76,6 +76,7 @@ export interface AuthUser {
 export type ServiceStatus = 'proposed' | 'published' | 'rejected' | 'no_match'
 
 export interface AdminService {
+  id: number
   slug: string
   name: string
   url: string

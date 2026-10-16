@@ -140,6 +140,9 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	mux.HandleFunc("DELETE /api/v1/services/{slug}", h.requireAuth(h.deleteService))
 	mux.HandleFunc("GET /api/v1/services/{slug}/status", h.requireAuth(h.serviceStatus))
 	mux.HandleFunc("GET /api/v1/services/{slug}/polls", h.requireAuth(h.pollLog))
+	mux.HandleFunc("POST /api/v1/services/{slug}/detect",
+		h.requireAuth(h.limited(h.readLimiter, true,
+			"rate limit exceeded, please try again in a moment", h.retryDetection)))
 
 	// Managing people is admin only, moderators included out.
 	admins := []string{auth.RoleAdmin}

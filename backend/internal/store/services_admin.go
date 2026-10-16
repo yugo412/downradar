@@ -12,6 +12,7 @@ import (
 // AdminService is a vendor as the management screens see it: every column that
 // can be edited, plus the state needed to decide what the row may do next.
 type AdminService struct {
+	ID                    int64      `json:"id"`
 	Slug                  string     `json:"slug"`
 	Name                  string     `json:"name"`
 	URL                   string     `json:"url"`
@@ -36,7 +37,7 @@ type AdminService struct {
 }
 
 const adminServiceColumns = `
-	s.slug, s.name, coalesce(s.url, ''), coalesce(s.category, ''), coalesce(s.logo_url, ''),
+	s.id, s.slug, s.name, coalesce(s.url, ''), coalesce(s.category, ''), coalesce(s.logo_url, ''),
 	coalesce(s.profile, ''), coalesce(s.endpoint, ''), s.aliases, s.allow_shared_page,
 	s.poll_interval_seconds, s.active_interval_seconds, s.status, s.active,
 	s.last_polled_at, s.created_at, s.updated_at,
@@ -51,7 +52,7 @@ const adminServiceFrom = `
 func scanAdminService(row rowScanner) (*AdminService, error) {
 	var a AdminService
 	if err := row.Scan(
-		&a.Slug, &a.Name, &a.URL, &a.Category, &a.LogoURL,
+		&a.ID, &a.Slug, &a.Name, &a.URL, &a.Category, &a.LogoURL,
 		&a.Profile, &a.Endpoint, &a.Aliases, &a.AllowSharedPage,
 		&a.PollIntervalSeconds, &a.ActiveIntervalSeconds, &a.Status, &a.Active,
 		&a.LastPolledAt, &a.CreatedAt, &a.UpdatedAt,

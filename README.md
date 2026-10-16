@@ -150,7 +150,10 @@ When nothing in the queue can read the page, the vendor is still saved, as
 rotation, and it is offered to the queue again once an hour. Every attempt is
 written down, so the fetch log of a parked vendor still shows when it was tried
 and what each profile made of the page. Writing a profile for its platform is
-what turns it into a polled vendor, after which it starts by itself.
+what turns it into a polled vendor, after which it starts by itself. The hourly
+pass is the usual way a new profile reaches the rows waiting for it; Retry on a
+row in the No match filter runs the same queue straight away, so a freshly
+deployed profile does not have to be waited on.
 
 Deleting a proposal removes the row outright: it has no history worth keeping.
 Deleting a published vendor only deactivates it, so its history survives and it
