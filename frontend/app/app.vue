@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const { siteName, githubRepo } = useRuntimeConfig().public
+const { githubRepo } = useRuntimeConfig().public
 const { user, signOut } = useAuth()
 
 const route = useRoute()
@@ -29,16 +29,7 @@ async function onSignOut() {
   <div class="min-h-screen flex flex-col bg-base-200">
     <header class="border-b border-base-300 bg-base-100">
       <div class="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between gap-4">
-        <NuxtLink to="/" class="flex flex-col min-w-0 text-lg">
-          <span class="flex items-center gap-2.5 min-w-0">
-            <span class="inline-block size-[0.72em] shrink-0 rounded-full bg-error animate-pulse" />
-            <span class="font-semibold tracking-tight">{{ siteName }}</span>
-          </span>
-          <span class="flex items-center gap-2.5 min-w-0">
-            <span class="inline-block size-[0.72em] shrink-0" aria-hidden="true" />
-            <span class="text-xs opacity-60">Official status pages, aggregated</span>
-          </span>
-        </NuxtLink>
+        <SiteBrand />
         <nav class="flex items-center gap-1 shrink-0">
           <!-- ClientOnly is required, not cosmetic: the session is fetched in the
                browser, so rendering this from the server would either leak one

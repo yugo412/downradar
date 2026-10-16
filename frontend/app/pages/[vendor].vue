@@ -10,6 +10,13 @@ const { data: vendor, error, refresh } = await useFetch<VendorDetail>(
   () => `/api/v1/vendors/${slug.value}`,
 )
 
+// A service that does not exist is a real 404, so links and search engines see
+// the right answer. Anything else, such as the API restarting, stays on this
+// page with a note: that is not the visitor's fault and it is usually brief.
+if (error.value?.statusCode === 404) {
+  throw createError({ statusCode: 404, statusMessage: 'Service not found', fatal: true })
+}
+
 const editing = ref(false)
 
 async function onSaved() {
@@ -37,7 +44,7 @@ if (vendor.value) {
     <NuxtLink to="/" class="link link-hover text-sm opacity-70">&larr; All services</NuxtLink>
 
     <div v-if="error" role="alert" class="alert alert-error mt-6">
-      <span>Service not found, or the API is still warming up.</span>
+      <span>This service could not be loaded right now. The API may be restarting.</span>
     </div>
 
     <template v-else-if="vendor">
