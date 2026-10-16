@@ -6,6 +6,14 @@ COMPOSE := docker compose -f compose.dev.yml
 
 .DEFAULT_GOAL := help
 
+# Every target below is a command, not a file, and one of them shares its name
+# with a directory in the repository. Without this, make finds that directory,
+# decides the target is up to date, and reports success without running
+# anything.
+.PHONY: help dev up reload down reset restart-api reset-limits logs logs-api \
+        logs-web ps psql sql shell-api shell-web test test-local fmt vet tidy \
+        deploy mail
+
 help:
 > @grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
