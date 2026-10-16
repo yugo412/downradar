@@ -3,7 +3,7 @@ const { siteName, githubRepo } = useRuntimeConfig().public
 const { user, signOut } = useAuth()
 
 const route = useRoute()
-const openMenu = ref<'service' | 'account' | null>(null)
+const openMenu = ref<'service' | 'account' | 'nav' | null>(null)
 
 useTheme()
 
@@ -14,9 +14,21 @@ watch(
   },
 )
 
-function toggle(menu: 'service' | 'account') {
+function toggle(menu: 'service' | 'account' | 'nav') {
   openMenu.value = openMenu.value === menu ? null : menu
 }
+
+// One list of destinations, rendered twice: as dropdowns on a wide screen and as
+// a single panel on a narrow one. Written once so the two cannot drift apart.
+const serviceLinks = [
+  { label: 'Add service', to: '/services/new' },
+  { label: 'List services', to: '/services' },
+]
+
+const accountLinks = [
+  { label: 'Edit profile', to: '/account/profile' },
+  { label: 'Change password', to: '/account/password' },
+]
 
 async function onSignOut() {
   openMenu.value = null
@@ -27,7 +39,7 @@ async function onSignOut() {
 
 <template>
   <div class="min-h-screen flex flex-col bg-base-200">
-    <header class="border-b border-base-300 bg-base-100">
+    <header class="relative border-b border-base-300 bg-base-100">
       <div class="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between gap-4">
         <NuxtLink to="/" class="flex flex-col min-w-0 text-lg">
           <span class="flex items-center gap-2.5 min-w-0">
@@ -47,83 +59,129 @@ async function onSignOut() {
             <!-- One menu per concern. Service is where a person manages the
                  services they can see, and the account menu belongs to whoever
                  is signed in. -->
-            <div v-if="user" class="relative">
-              <button
-                type="button"
-                class="btn btn-ghost btn-sm"
-                :aria-expanded="openMenu === 'service'"
-                @click="toggle('service')"
-              >
-                Service
-                <svg class="h-3 w-3 opacity-60" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
-                  <path d="M6 8.5 1.5 4h9z" />
-                </svg>
-              </button>
-              <ul
-                v-if="openMenu === 'service'"
-                class="absolute right-0 z-50 mt-1 w-60 rounded-box border border-base-300 bg-base-100 p-2 shadow-lg"
-              >
-                <li>
-                  <NuxtLink to="/services/new" class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200">
-                    Add service
-                  </NuxtLink>
-                </li>
-                <li>
-                  <NuxtLink to="/services" class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200">
-                    List services
-                  </NuxtLink>
-                </li>
-              </ul>
+            <div v-if="user" class="hidden items-center gap-1 md:flex">
+              <div class="relative">
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-sm"
+                  :aria-expanded="openMenu === 'service'"
+                  @click="toggle('service')"
+                >
+                  Service
+                  <svg class="h-3 w-3 opacity-60" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+                    <path d="M6 8.5 1.5 4h9z" />
+                  </svg>
+                </button>
+                <ul
+                  v-if="openMenu === 'service'"
+                  class="absolute right-0 z-50 mt-1 w-60 rounded-box border border-base-300 bg-base-100 p-2 shadow-lg"
+                >
+                  <li v-for="l in serviceLinks" :key="l.to">
+                    <NuxtLink :to="l.to" class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200">
+                      {{ l.label }}
+                    </NuxtLink>
+                  </li>
+                </ul>
+              </div>
+
+              <div class="relative">
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-sm"
+                  :aria-expanded="openMenu === 'account'"
+                  @click="toggle('account')"
+                >
+                  {{ user.name }}
+                  <svg class="h-3 w-3 opacity-60" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+                    <path d="M6 8.5 1.5 4h9z" />
+                  </svg>
+                </button>
+                <ul
+                  v-if="openMenu === 'account'"
+                  class="absolute right-0 z-50 mt-1 w-60 rounded-box border border-base-300 bg-base-100 p-2 shadow-lg"
+                >
+                  <li class="px-3 pb-2 pt-1 text-xs opacity-60">
+                    {{ user.email }} ({{ user.role }})
+                  </li>
+                  <li v-for="l in accountLinks" :key="l.to">
+                    <NuxtLink :to="l.to" class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200">
+                      {{ l.label }}
+                    </NuxtLink>
+                  </li>
+                  <li class="mt-1 border-t border-base-300 pt-1">
+                    <button
+                      type="button"
+                      class="block w-full rounded-btn px-3 py-2 text-left text-sm hover:bg-base-200"
+                      @click="onSignOut"
+                    >
+                      Sign out
+                    </button>
+                  </li>
+                </ul>
+              </div>
             </div>
 
-            <div v-if="user" class="relative">
+            <!-- Narrow screens get one panel instead of three dropdowns. The
+                 panel is a child of the nav but positions against the header,
+                 which is why the header carries relative. -->
+            <div v-if="user" class="md:hidden">
               <button
                 type="button"
-                class="btn btn-ghost btn-sm"
-                :aria-expanded="openMenu === 'account'"
-                @click="toggle('account')"
+                class="btn btn-ghost btn-sm btn-circle"
+                :aria-expanded="openMenu === 'nav'"
+                aria-label="Menu"
+                @click="toggle('nav')"
               >
-                {{ user.name }}
-                <svg class="h-3 w-3 opacity-60" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
-                  <path d="M6 8.5 1.5 4h9z" />
+                <svg
+                  class="h-5 w-5"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  aria-hidden="true"
+                >
+                  <path stroke-linecap="round" d="M4 7h16M4 12h16M4 17h16" />
                 </svg>
               </button>
-              <ul
-                v-if="openMenu === 'account'"
-                class="absolute right-0 z-50 mt-1 w-60 rounded-box border border-base-300 bg-base-100 p-2 shadow-lg"
-              >
-                <li class="px-3 pb-2 pt-1 text-xs opacity-60">
-                  {{ user.email }} ({{ user.role }})
-                </li>
-                <li>
-                  <NuxtLink
-                    to="/account/profile"
-                    class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200"
-                  >
-                    Edit profile
-                  </NuxtLink>
-                </li>
-                <li>
-                  <NuxtLink
-                    to="/account/password"
-                    class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200"
-                  >
-                    Change password
-                  </NuxtLink>
-                </li>
-                <li class="mt-1 border-t border-base-300 pt-1">
-                  <button
-                    type="button"
-                    class="block w-full rounded-btn px-3 py-2 text-left text-sm hover:bg-base-200"
-                    @click="onSignOut"
-                  >
-                    Sign out
-                  </button>
-                </li>
-              </ul>
             </div>
 
             <div v-if="openMenu" class="fixed inset-0 z-40" @click="openMenu = null" />
+
+            <div
+              v-if="openMenu === 'nav'"
+              class="absolute inset-x-0 top-full z-50 border-b border-base-300 bg-base-100 px-4 pb-4 shadow-lg md:hidden"
+            >
+              <p class="px-3 pb-1 pt-3 text-xs uppercase tracking-wide opacity-50">Service</p>
+              <NuxtLink
+                v-for="l in serviceLinks"
+                :key="l.to"
+                :to="l.to"
+                class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200"
+              >
+                {{ l.label }}
+              </NuxtLink>
+
+              <div class="my-2 border-t border-base-300" />
+
+              <p class="px-3 pb-1 text-xs uppercase tracking-wide opacity-50">
+                {{ user?.name }} ({{ user?.role }})
+              </p>
+              <NuxtLink
+                v-for="l in accountLinks"
+                :key="l.to"
+                :to="l.to"
+                class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200"
+              >
+                {{ l.label }}
+              </NuxtLink>
+              <button
+                type="button"
+                class="block w-full rounded-btn px-3 py-2 text-left text-sm hover:bg-base-200"
+                @click="onSignOut"
+              >
+                Sign out
+              </button>
+            </div>
           </ClientOnly>
           <ThemeToggle />
         </nav>
