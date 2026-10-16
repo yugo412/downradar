@@ -217,7 +217,10 @@ the change, and a loop drains them over SMTP. A mail server that is slow or down
 therefore cannot hold up polling, a delivery that fails is retried a few times
 and then left with its error, and nothing is lost if the process stops between
 the two steps. The feature is off unless `SMTP_ADDR` is set; while it is off the
-API refuses subscriptions, rather than taking them and sending nothing.
+API refuses subscriptions, rather than taking them and sending nothing. That
+address is a host and a port: 465 is dialled with TLS from the first byte, which
+is what the port means, and every other port is dialled plainly and upgraded with
+STARTTLS when the server offers it.
 
 ## Private services
 

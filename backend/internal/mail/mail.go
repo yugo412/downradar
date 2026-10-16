@@ -4,6 +4,7 @@ package mail
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"mime"
 	"net"
@@ -34,18 +35,19 @@ func NewSMTP(addr, from, user, password string, timeout time.Duration) *SMTP {
 // Send delivers one message. The context bounds the whole conversation, because
 // net/smtp has no notion of one.
 func (s *SMTP) Send(ctx context.Context, to, subject, body string) error {
+	host, port, err := net.SplitHostPort(s.addr)
+	if err != nil {
+		return fmt.Errorf("mail: parse address %q: %w", s.addr, err)
+	}
+
 	var auth smtp.Auth
 	if s.user != "" {
-		host, _, err := net.SplitHostPort(s.addr)
-		if err != nil {
-			return fmt.Errorf("mail: parse address %q: %w", s.addr, err)
-		}
 		auth = smtp.PlainAuth("", s.user, s.password, host)
 	}
 
 	done := make(chan error, 1)
 	go func() {
-		done <- smtp.SendMail(s.addr, auth, envelope(s.from), []string{to},
+		done <- send(s.addr, host, port, auth, envelope(s.from), to,
 			Message(s.from, to, subject, body))
 	}()
 
@@ -58,6 +60,76 @@ func (s *SMTP) Send(ctx context.Context, to, subject, body string) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// send is the conversation itself. It is written out rather than handed to
+// smtp.SendMail for one reason: a server on 465 speaks TLS from the first byte,
+// and SendMail dials in the clear and waits for a greeting, which such a server
+// never sends in the clear. Every other port is dialled plainly and upgraded
+// with STARTTLS when the server offers it, which is what SendMail would have
+// done anyway.
+func send(addr, host, port string, auth smtp.Auth, from, to string, msg []byte) error {
+	var (
+		conn net.Conn
+		err  error
+	)
+	if implicitTLS(port) {
+		conn, err = tls.Dial("tcp", addr, &tls.Config{ServerName: host})
+	} else {
+		conn, err = net.Dial("tcp", addr)
+	}
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client, err := smtp.NewClient(conn, host)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	if !implicitTLS(port) {
+		if ok, _ := client.Extension("STARTTLS"); ok {
+			if err := client.StartTLS(&tls.Config{ServerName: host}); err != nil {
+				return err
+			}
+		}
+	}
+
+	if auth != nil {
+		if ok, _ := client.Extension("AUTH"); ok {
+			if err := client.Auth(auth); err != nil {
+				return err
+			}
+		}
+	}
+
+	if err := client.Mail(from); err != nil {
+		return err
+	}
+	if err := client.Rcpt(to); err != nil {
+		return err
+	}
+
+	writer, err := client.Data()
+	if err != nil {
+		return err
+	}
+	if _, err := writer.Write(msg); err != nil {
+		return err
+	}
+	if err := writer.Close(); err != nil {
+		return err
+	}
+
+	return client.Quit()
+}
+
+// implicitTLS reports whether a server speaks TLS from the first byte. That is
+// what port 465 means, and it is the convention every mail tool follows.
+func implicitTLS(port string) bool {
+	return port == "465"
 }
 
 // envelope is the address a mail server is given as the sender. A display name

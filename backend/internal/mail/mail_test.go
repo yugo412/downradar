@@ -1,8 +1,13 @@
 package mail
 
 import (
+	"bufio"
+	"context"
+	"net"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestMessageCarriesWhatAMailServerNeeds(t *testing.T) {
@@ -60,5 +65,103 @@ func TestMessageEncodesANonASCIIHeader(t *testing.T) {
 
 	if !strings.Contains(msg, "Subject: =?utf-8?") {
 		t.Errorf("an accented subject went out raw:\n%s", msg)
+	}
+}
+
+func TestImplicitTLSIsTheConventionForPort465(t *testing.T) {
+	if !implicitTLS("465") {
+		t.Error("port 465 is not dialled with TLS")
+	}
+	for _, port := range []string{"25", "587", "1025", "2525"} {
+		if implicitTLS(port) {
+			t.Errorf("port %s should be dialled plainly and upgraded with STARTTLS", port)
+		}
+	}
+}
+
+// TestSendDeliversOverAPlainConnection runs the conversation against a small
+// server that says the right things, which is the only way to know the client
+// still speaks SMTP after not handing it to smtp.SendMail.
+func TestSendDeliversOverAPlainConnection(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+
+	var mu sync.Mutex
+	var transcript []string
+	record := func(line string) {
+		mu.Lock()
+		defer mu.Unlock()
+		transcript = append(transcript, line)
+	}
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		reader := bufio.NewReader(conn)
+		write := func(line string) { _, _ = conn.Write([]byte(line + "\r\n")) }
+		write("220 test ready")
+
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				return
+			}
+			line = strings.TrimRight(line, "\r\n")
+			record(line)
+
+			switch {
+			case strings.HasPrefix(line, "EHLO"), strings.HasPrefix(line, "HELO"):
+				write("250 test")
+			case line == "DATA":
+				write("354 go ahead")
+				for {
+					body, err := reader.ReadString('\n')
+					if err != nil {
+						return
+					}
+					if strings.TrimRight(body, "\r\n") == "." {
+						break
+					}
+					record(body)
+				}
+				write("250 queued")
+			case line == "QUIT":
+				write("221 bye")
+				return
+			default:
+				write("250 ok")
+			}
+		}
+	}()
+
+	sender := NewSMTP(ln.Addr().String(), "DownRadar <alerts@example.com>", "", "", time.Second)
+	if err := sender.Send(context.Background(), "ann@example.com", "Hello", "body"); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	<-done
+
+	mu.Lock()
+	got := strings.Join(transcript, "\n")
+	mu.Unlock()
+
+	for _, want := range []string{
+		"MAIL FROM:<alerts@example.com>",
+		"RCPT TO:<ann@example.com>",
+		"Subject: Hello",
+		"body",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("transcript does not contain %q:\n%s", want, got)
+		}
 	}
 }
