@@ -4,8 +4,11 @@
 // asked the API who the visitor is, and useRequestHeaders does not carry the
 // session cookie there. Reading the h3 event directly does work, and failing
 // closed is the right behaviour when the API cannot be reached.
-const SESSION_PREFIXES = ['/services', '/account']
+const SESSION_PREFIXES = ['/account']
+const STAFF_PREFIX = '/services'
 const ADMIN_PREFIX = '/users'
+
+const STAFF_ROLES = ['admin', 'moderator']
 
 function under(path: string, prefix: string) {
   return path === prefix || path.startsWith(`${prefix}/`)
@@ -14,8 +17,9 @@ function under(path: string, prefix: string) {
 export default defineEventHandler(async (event) => {
   const path = event.path.split('?')[0]
   const needsSession = SESSION_PREFIXES.some((prefix) => under(path, prefix))
+  const needsStaff = under(path, STAFF_PREFIX)
   const needsAdmin = under(path, ADMIN_PREFIX)
-  if (!needsSession && !needsAdmin) return
+  if (!needsSession && !needsStaff && !needsAdmin) return
 
   const config = useRuntimeConfig()
 
@@ -38,8 +42,11 @@ export default defineEventHandler(async (event) => {
   if (role === '') {
     return sendRedirect(event, `/login?next=${encodeURIComponent(path)}`, 302)
   }
-  // /services is where anybody sees the services they own, so a session is
-  // enough there. /users is admin only.
+  // The service pages belong to the people who run the catalogue; a subscriber
+  // is sent to the alerts they look after. /users is admin only.
+  if (needsStaff && !STAFF_ROLES.includes(role)) {
+    return sendRedirect(event, '/alerts', 302)
+  }
   if (needsAdmin && role !== 'admin') {
     return sendRedirect(event, '/', 302)
   }

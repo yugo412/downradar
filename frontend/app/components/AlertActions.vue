@@ -13,11 +13,11 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="flex flex-wrap items-center gap-1">
+  <div class="flex flex-wrap items-center gap-2 text-xs">
     <button
       v-if="alert.state === 'active'"
       type="button"
-      class="btn btn-ghost btn-xs"
+      class="link"
       :disabled="busy"
       @click="emit('state', 'paused')"
     >
@@ -26,7 +26,7 @@ const emit = defineEmits<{
     <button
       v-else
       type="button"
-      class="btn btn-ghost btn-xs"
+      class="link"
       :disabled="busy"
       @click="emit('state', 'active')"
     >
@@ -35,7 +35,7 @@ const emit = defineEmits<{
     <button
       v-if="alert.state === 'active'"
       type="button"
-      class="btn btn-ghost btn-xs"
+      class="link"
       :disabled="busy"
       @click="emit('state', 'unsubscribed')"
     >
@@ -43,7 +43,7 @@ const emit = defineEmits<{
     </button>
     <button
       type="button"
-      class="btn btn-ghost btn-xs text-error"
+      class="link text-error"
       :disabled="busy"
       @click="emit('remove')"
     >

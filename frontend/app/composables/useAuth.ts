@@ -32,6 +32,18 @@ export function useAuth() {
     return res.user
   }
 
+  // Registering signs the person in as well, which is what the API does, so the
+  // session state is set here rather than on the login screen afterwards.
+  async function register(name: string, email: string, password: string) {
+    const res = await $fetch<{ user: AuthUser }>('/api/v1/auth/register', {
+      method: 'POST',
+      body: { name, email, password },
+    })
+    user.value = res.user
+    loaded.value = true
+    return res.user
+  }
+
   async function signOut() {
     try {
       await $fetch('/api/v1/auth/logout', { method: 'POST' })
@@ -40,10 +52,10 @@ export function useAuth() {
     }
   }
 
-  async function updateProfile(name: string) {
+  async function updateProfile(name: string, email: string) {
     const res = await $fetch<{ user: AuthUser }>('/api/v1/auth/profile', {
       method: 'PATCH',
-      body: { name },
+      body: { name, email },
     })
     user.value = res.user
     return res.user
@@ -63,6 +75,7 @@ export function useAuth() {
     isAdmin,
     load,
     signIn,
+    register,
     signOut,
     updateProfile,
     changePassword,

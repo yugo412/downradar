@@ -9,9 +9,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"downradar.info/backend/internal/account"
 	"downradar.info/backend/internal/auth"
 	"downradar.info/backend/internal/catalog"
 	"downradar.info/backend/internal/store"
@@ -21,6 +23,52 @@ import (
 // testing here live in the handlers: locking yourself out cannot be checked
 // without them.
 func testRouter(t *testing.T) (*store.Store, http.Handler) {
+	t.Helper()
+
+	st, router, _ := testRouterWithMail(t)
+	return st, router
+}
+
+// mailSpy records what the account mailer would have sent, so a test can follow
+// a link that only ever existed in an email.
+type mailSpy struct {
+	mu       sync.Mutex
+	messages []sentMail
+}
+
+type sentMail struct {
+	to      string
+	subject string
+	body    string
+}
+
+func (m *mailSpy) Send(ctx context.Context, to, subject, body string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.messages = append(m.messages, sentMail{to: to, subject: subject, body: body})
+	return nil
+}
+
+func (m *mailSpy) sent() []sentMail {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]sentMail(nil), m.messages...)
+}
+
+// tokenFrom pulls the token out of the link in a message body.
+func tokenFrom(t *testing.T, body string) string {
+	t.Helper()
+
+	for _, field := range strings.Fields(body) {
+		if i := strings.Index(field, "token="); i >= 0 {
+			return strings.TrimRight(field[i+len("token="):], ".,)")
+		}
+	}
+	t.Fatalf("no token in the message body:\n%s", body)
+	return ""
+}
+
+func testRouterWithMail(t *testing.T) (*store.Store, http.Handler, *mailSpy) {
 	t.Helper()
 
 	dsn := os.Getenv("DATABASE_URL")
@@ -39,17 +87,22 @@ func testRouter(t *testing.T) (*store.Store, http.Handler) {
 		t.Fatalf("migrate: %v", err)
 	}
 
+	spy := &mailSpy{}
+
 	// Every request in these tests comes from the same address, so the per-IP
 	// limits would trip part way through and make the result depend on how many
 	// calls a test happens to make. They are the subject of their own tests.
 	router := NewRouter(st, quietLogger(), Options{
 		Catalog:             catalog.Catalog{},
+		AccountMailer:       account.New(spy, "https://downradar.test"),
 		RateLimitPerMinute:  60000,
 		RateLimitBurst:      1000,
 		SuggestPerHour:      36000,
 		SuggestBurst:        1000,
 		AlertPerHour:        36000,
 		AlertBurst:          1000,
+		AccountPerHour:      36000,
+		AccountBurst:        1000,
 		LoginPerHour:        36000,
 		LoginBurst:          1000,
 		PasswordPerHour:     36000,
@@ -57,7 +110,7 @@ func testRouter(t *testing.T) (*store.Store, http.Handler) {
 		SessionCookieSecure: false,
 		AlertsEnabled:       true,
 	})
-	return st, router
+	return st, router, spy
 }
 
 func testUser(t *testing.T, st *store.Store, role string) *store.User {

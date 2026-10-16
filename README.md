@@ -151,7 +151,10 @@ The suggest form writes a row with `status = 'proposed'`. A proposed row is not
 polled and has no public page. A moderator opens `/services`, filters to
 Proposed, and fills in the url and the profile. Leaving the profile empty runs
 the detect queue instead of refusing the row, and the add form has a Detect
-button that fills the picker in before anything is saved.
+button that fills the picker in before anything is saved. A signed in visitor who
+suggested the service is stored as the row's owner, which is attribution for the
+review queue: approving the suggestion clears that owner and publishes the row to
+the catalogue.
 
 When nothing in the queue can read the page, the vendor is still saved, as
 `no_match`: the name and the url are kept, the poller leaves it out of the
@@ -193,10 +196,11 @@ A visitor who is not signed in gets one alert. With no account behind them the
 address they typed is their whole identity, so that is what the limit is counted
 on, and asking for a second vendor is refused with the name of the vendor that
 address already has an alert for, so there is nothing to guess at, along with a
-pointer to sign in or to unsubscribe from that one. Anyone signed in may have as
-many as they like, and the address they give does not have to be the one on their
-account. The id of a signed in subscriber is recorded with the row, so it can be
-tied to them later without asking again.
+pointer to sign in or to unsubscribe from that one. A subscriber may keep up to
+`ALERT_LIMIT_PER_SUBSCRIBER` (ten by default), counted per account; staff are not
+capped. The address they give does not have to be the one on their account. The
+id of a signed in subscriber is recorded with the row, so it can be tied to them
+later without asking again.
 
 An email goes out every time that vendor's overall status changes, in either
 direction, so a recovery is announced as much as an outage. The first status a
@@ -235,22 +239,41 @@ polled, `owner_id` says who may see it, which is why a private service is
 
 Staff move a service either way from the edit form, so a vendor that only
 matters to one person can be taken out of the catalogue and put back later.
-Everybody else can only add and manage their own, and only as private: the
-public catalogue stays curated.
 
-`/services` shows what the viewer may see. Staff get the catalogue plus every
-private service, everybody else gets only their own. A private service has no
-page on the public site, so its detail lives at `/services/{slug}`, which is
-excluded from the page cache for the same reason as the rest of `/services`.
+The catalogue itself is staff only. A subscriber never reaches `/services`: their
+surface is the alerts they manage, and a service they want monitored goes through
+the suggestion form, where a signed in visitor is recorded as the suggester.
+
+`/services` shows the catalogue plus every private service, and is guarded by
+role on both the server and the API. A private service has no page on the public
+site, so its detail lives at `/services/{slug}`, which is excluded from the page
+cache for the same reason as the rest of `/services`.
 
 A private service also appears on the home page for its owner, marked `private`.
 That part is fetched and merged in the browser and never rendered on the server,
 which is what keeps the cached home page byte for byte identical for everybody.
 
+## Accounts
+
+A visitor can register on the site with a name, an address and a password. That
+always makes a subscriber, and an address on the site's own domain is refused
+with an answer that says no more than that the account could not be made, so the
+reply cannot be used to map our own mailboxes. Registering signs the person in
+and sends a link that confirms the address belongs to them; the banner on every
+page offers to send it again until it does. Nothing is blocked while an address
+is unconfirmed: being unable to do anything until an email arrives would be worse
+than the risk it removes.
+
+A forgotten password is reset by email too. The link works once and expires in an
+hour, and using it ends every session, so if the old password was known to
+somebody else they are out. Both kinds of link are stored hashed, like session
+tokens, so a copy of the table is not a set of working links, and asking for
+another one retires the one before it.
+
 ## Staff sign in
 
-There is no registration form and no link to the login page. Accounts are made
-from the shell, and `/login` is reached by typing it:
+There is no link to the login page from the site, and an administrator is still
+made from the shell:
 
 ```bash
 cd backend
@@ -259,24 +282,26 @@ go run ./cmd/user -email you@example.com -reset          # new password
 ```
 
 With no `-password` the command generates one and prints it once. `-role` takes
-`admin`, `moderator` or `subscriber`.
+`admin`, `moderator` or `subscriber`, and an account made this way counts as
+confirmed already: whoever ran the command can do anything on the server anyway.
 
 | Role | Can do |
 | --- | --- |
 | `admin` | everything, including removing a published service |
 | `moderator` | add, edit, publish, and delete a proposal; cannot remove a published service |
-| `subscriber` | add and manage services of their own, which stay private |
+| `subscriber` | get alerts on the catalogue and suggest services; the catalogue itself is staff only |
 
 Sessions live in an httpOnly, `SameSite=Lax` cookie, and only the hash of the
 token is stored, so a database dump does not hand out working sessions. A
 password reset ends every session the old password opened.
 
 Everyone who is signed in gets their own menu, separate from the Service one:
-`/account/profile` changes the display name, and `/account/password` changes the
-password. The email cannot be changed from there. Changing a password signs out
-every other device and keeps the one that asked, so nobody is thrown out of the
-page they are standing on. Both endpoints only ask for a session, not a role,
-which is what the subscriber role will need.
+`/account/profile` changes the display name and the address, and
+`/account/password` changes the password. Changing the address takes the
+confirmation with it and sends a fresh link to the new one. Changing a password
+signs out every other device and keeps the one that asked, so nobody is thrown
+out of the page they are standing on. Both endpoints only ask for a session, not
+a role, which is what the subscriber role will need.
 
 The management screens render on the client only, so a session never ends up in
 cached HTML. `server/middleware/session-guard.ts` rejects an unauthorised request

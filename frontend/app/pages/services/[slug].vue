@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { AdminService, VendorDetail } from '~/types/api'
 
-definePageMeta({ middleware: 'authenticated', ssr: false })
+definePageMeta({ middleware: 'staff', ssr: false })
 
 const route = useRoute()
 const slug = computed(() => String(route.params.slug ?? ''))
@@ -43,7 +43,7 @@ async function onSaved() {
             <h1 class="text-3xl font-bold tracking-tight">{{ meta.service.name }}</h1>
             <div class="mt-1 flex flex-wrap items-center gap-2 text-sm opacity-70">
               <span v-if="meta.service.ownerId" class="badge badge-ghost badge-sm">
-                private &middot; {{ meta.service.ownerName }}
+                {{ meta.service.status === 'proposed' ? `suggested by ${meta.service.ownerName}` : `private · ${meta.service.ownerName}` }}
               </span>
               <a
                 v-if="meta.service.url"

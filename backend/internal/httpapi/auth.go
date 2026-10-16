@@ -171,6 +171,22 @@ func (h *handlers) requireRole(roles []string, next http.HandlerFunc) http.Handl
 	})
 }
 
+// requireStaff asks for a session whose role may look after the service
+// catalogue. Subscribers are kept out of every one of those routes: their
+// surface is the alerts they manage, and a service they want monitored goes
+// through the suggestion queue instead.
+func (h *handlers) requireStaff(next http.HandlerFunc) http.HandlerFunc {
+	return h.requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		user := h.user(r)
+		if !auth.CanManageServices(user.Role) {
+			h.log.Warn("role refused", "user", user.Email, "role", user.Role, "path", r.URL.Path)
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "your role cannot do this"})
+			return
+		}
+		next(w, r)
+	})
+}
+
 func (h *handlers) login(w http.ResponseWriter, r *http.Request) {
 	var body loginRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
@@ -205,19 +221,11 @@ func (h *handlers) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := auth.NewToken()
-	if err != nil {
+	if err := h.startSession(w, r, user); err != nil {
 		h.fail(w, r, err)
 		return
 	}
 
-	expires := time.Now().Add(h.sessionTTL)
-	if err := h.store.CreateSession(r.Context(), auth.HashToken(token), user.ID, expires); err != nil {
-		h.fail(w, r, err)
-		return
-	}
-
-	h.setSessionCookie(w, token, expires)
 	h.log.Info("signed in", "user", user.Email, "role", user.Role)
 	writeJSON(w, http.StatusOK, map[string]any{"user": user})
 }
@@ -245,7 +253,8 @@ func (h *handlers) me(w http.ResponseWriter, r *http.Request) {
 }
 
 type profileRequest struct {
-	Name string `json:"name"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
 }
 
 func validateDisplayName(name string) string {
@@ -255,6 +264,9 @@ func validateDisplayName(name string) string {
 	return ""
 }
 
+// updateProfile changes the name, and the address when one is given. A new
+// address has not been confirmed by anybody, so the confirmation is taken away
+// and a fresh link goes to it.
 func (h *handlers) updateProfile(w http.ResponseWriter, r *http.Request) {
 	var body profileRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
@@ -264,9 +276,25 @@ func (h *handlers) updateProfile(w http.ResponseWriter, r *http.Request) {
 
 	current := h.user(r)
 	name := clean(sanitize(body.Name))
+	email := auth.NormalizeEmail(body.Email)
 
 	if problem := validateDisplayName(name); problem != "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": problem})
+		return
+	}
+	if email == "" {
+		email = current.Email
+	}
+	if !auth.ValidEmail(email) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "that does not look like an email address",
+		})
+		return
+	}
+	if auth.OnReservedDomain(email) {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
+			"error": "that address cannot be used",
+		})
 		return
 	}
 
@@ -275,7 +303,28 @@ func (h *handlers) updateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updated, err := h.store.UserByEmail(r.Context(), current.Email)
+	if email != current.Email {
+		if err := h.store.SetUserEmail(r.Context(), current.ID, email); err != nil {
+			if errors.Is(err, store.ErrEmailTaken) {
+				writeJSON(w, http.StatusConflict, map[string]string{
+					"error": "that email address is already registered",
+				})
+				return
+			}
+			h.fail(w, r, err)
+			return
+		}
+
+		updated, err := h.store.UserByID(r.Context(), current.ID)
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		h.sendVerification(context.WithoutCancel(r.Context()), updated)
+		h.log.Info("address changed", "user", current.Email, "to", email)
+	}
+
+	updated, err := h.store.UserByEmail(r.Context(), email)
 	if err != nil {
 		h.fail(w, r, err)
 		return

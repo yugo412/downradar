@@ -16,6 +16,7 @@ type User struct {
 	Name         string     `json:"name"`
 	Role         string     `json:"role"`
 	PasswordHash string     `json:"-"`
+	VerifiedAt   *time.Time `json:"verifiedAt,omitempty"`
 	DisabledAt   *time.Time `json:"disabledAt,omitempty"`
 	CreatedAt    time.Time  `json:"createdAt"`
 	UpdatedAt    time.Time  `json:"updatedAt"`
@@ -23,6 +24,13 @@ type User struct {
 
 func (u *User) Disabled() bool {
 	return u.DisabledAt != nil
+}
+
+// Verified says whether the address has been proved to belong to whoever typed
+// it. An account made from the shell is taken as proved: somebody who can run a
+// command on the server does not need to receive an email to be believed.
+func (u *User) Verified() bool {
+	return u.VerifiedAt != nil
 }
 
 // UserView is what the admin screen shows: the account plus how much it owns,
@@ -36,7 +44,7 @@ var ErrEmailTaken = errors.New("store: email already registered")
 
 // Qualified, because the session lookup joins another table that also has a
 // created_at. Insert statements alias the target table so the same list works.
-const userColumns = `u.id, u.email, u.name, u.role, u.password_hash, u.disabled_at, u.created_at, u.updated_at`
+const userColumns = `u.id, u.email, u.name, u.role, u.password_hash, u.verified_at, u.disabled_at, u.created_at, u.updated_at`
 
 type rowScanner interface {
 	Scan(dest ...any) error
@@ -45,7 +53,7 @@ type rowScanner interface {
 func scanUser(row rowScanner) (*User, error) {
 	var u User
 	if err := row.Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.PasswordHash,
-		&u.DisabledAt, &u.CreatedAt, &u.UpdatedAt); err != nil {
+		&u.VerifiedAt, &u.DisabledAt, &u.CreatedAt, &u.UpdatedAt); err != nil {
 		return nil, err
 	}
 	return &u, nil
@@ -56,16 +64,37 @@ func isUniqueViolation(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
+// CreateUser makes an account that is already trusted: the shell and the admin
+// screen are the ones calling this, and neither needs to receive an email to be
+// believed about the address.
 func (s *Store) CreateUser(ctx context.Context, email, name, role, passwordHash string) (*User, error) {
 	u, err := scanUser(s.pool.QueryRow(ctx, `
-		insert into users as u (email, name, role, password_hash)
-		values ($1, $2, $3, $4)
+		insert into users as u (email, name, role, password_hash, verified_at)
+		values ($1, $2, $3, $4, now())
 		returning `+userColumns, email, name, role, passwordHash))
 	if isUniqueViolation(err) {
 		return nil, ErrEmailTaken
 	}
 	if err != nil {
 		return nil, fmt.Errorf("users: create %s: %w", email, err)
+	}
+	return u, nil
+}
+
+// RegisterUser makes an account from the site itself. It is always a subscriber
+// and its address is not proved yet: the role is not something a visitor
+// chooses, and the address is only theirs once they have followed the link that
+// was sent to it.
+func (s *Store) RegisterUser(ctx context.Context, email, name, passwordHash string) (*User, error) {
+	u, err := scanUser(s.pool.QueryRow(ctx, `
+		insert into users as u (email, name, role, password_hash)
+		values ($1, $2, 'subscriber', $3)
+		returning `+userColumns, email, name, passwordHash))
+	if isUniqueViolation(err) {
+		return nil, ErrEmailTaken
+	}
+	if err != nil {
+		return nil, fmt.Errorf("users: register %s: %w", email, err)
 	}
 	return u, nil
 }
@@ -106,14 +135,30 @@ func (s *Store) SetUserName(ctx context.Context, id int64, name string) error {
 	return nil
 }
 
+// SetUserEmail changes an address and takes the proof with it: the new one has
+// not been confirmed by anybody yet.
 func (s *Store) SetUserEmail(ctx context.Context, id int64, email string) error {
 	tag, err := s.pool.Exec(ctx, `
-		update users set email = $2, updated_at = now() where id = $1`, id, email)
+		update users set email = $2, verified_at = null, updated_at = now()
+		where id = $1`, id, email)
 	if isUniqueViolation(err) {
 		return ErrEmailTaken
 	}
 	if err != nil {
 		return fmt.Errorf("users: set email %d: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SetUserVerified records that the address was proved to belong to this account.
+func (s *Store) SetUserVerified(ctx context.Context, id int64) error {
+	tag, err := s.pool.Exec(ctx, `
+		update users set verified_at = now(), updated_at = now() where id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("users: set verified %d: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound
@@ -192,7 +237,7 @@ func (s *Store) ListUsers(ctx context.Context, role, search string) ([]UserView,
 	for rows.Next() {
 		var v UserView
 		if err := rows.Scan(&v.ID, &v.Email, &v.Name, &v.Role, &v.PasswordHash,
-			&v.DisabledAt, &v.CreatedAt, &v.UpdatedAt, &v.Services); err != nil {
+			&v.VerifiedAt, &v.DisabledAt, &v.CreatedAt, &v.UpdatedAt, &v.Services); err != nil {
 			return nil, fmt.Errorf("users: scan: %w", err)
 		}
 		out = append(out, v)

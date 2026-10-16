@@ -69,17 +69,20 @@ func (s *Store) Services(ctx context.Context) ([]ServiceRow, error) {
 }
 
 // ProposeService records a suggestion as a proposed row. It is what the suggest
-// form writes; nothing polls it until a moderator publishes it.
-func (s *Store) ProposeService(ctx context.Context, name, pageURL string) (string, error) {
+// form writes; nothing polls it until a moderator publishes it. A signed in
+// suggester is stored as the owner, which is attribution for the review queue,
+// not a visibility choice: approving the suggestion clears it and publishes the
+// row to the catalogue.
+func (s *Store) ProposeService(ctx context.Context, name, pageURL string, ownerID *int64) (string, error) {
 	slug, err := s.uniqueSlug(ctx, slugify(name))
 	if err != nil {
 		return "", err
 	}
 
 	if _, err := s.pool.Exec(ctx, `
-		insert into services (slug, name, url, status, active, updated_at)
-		values ($1, $2, $3, $4, true, now())`,
-		slug, name, nullify(pageURL), string(StatusProposed),
+		insert into services (slug, name, url, status, active, owner_id, updated_at)
+		values ($1, $2, $3, $4, true, $5, now())`,
+		slug, name, nullify(pageURL), string(StatusProposed), ownerID,
 	); err != nil {
 		return "", fmt.Errorf("propose: insert %s: %w", slug, err)
 	}

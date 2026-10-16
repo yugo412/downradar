@@ -229,6 +229,26 @@ func (s *Store) AlertElsewhere(ctx context.Context, email string, serviceID int6
 	return &ref, nil
 }
 
+// ActiveAlertCount is how many alerts this account still has that can arrive,
+// leaving out one vendor so re-subscribing to it is not counted twice. A vendor
+// removed from the catalogue is not polled any more, so its alert is not holding
+// a place. It is what caps a subscriber; guests are held by AlertElsewhere and
+// staff are not held at all.
+func (s *Store) ActiveAlertCount(ctx context.Context, userID, exceptServiceID int64) (int, error) {
+	var count int
+	err := s.pool.QueryRow(ctx, `
+		select count(*)
+		from alert_subscriptions a
+		join services v on v.id = a.service_id
+		where a.user_id = $1 and a.unsubscribed_at is null and a.service_id <> $2
+		  and v.active and v.status = 'published' and v.owner_id is null`,
+		userID, exceptServiceID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("alerts: active count for user %d: %w", userID, err)
+	}
+	return count, nil
+}
+
 // AlertByToken resolves the token in an unsubscribe link.
 func (s *Store) AlertByToken(ctx context.Context, token string) (*AlertView, error) {
 	var view AlertView

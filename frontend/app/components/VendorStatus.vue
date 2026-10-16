@@ -7,6 +7,20 @@ const components = computed(() => props.vendor.componentsList ?? [])
 const incidents = computed(() => props.vendor.incidents ?? [])
 const events = computed(() => props.vendor.recentEvents ?? [])
 const openIncidents = computed(() => incidents.value.filter((i) => !i.resolvedAt))
+
+// A status page can report a hundred components, so the table is searchable. The
+// list is already here, so the filter runs in the browser: it is instant, and the
+// page stays one cached fetch that everybody gets the same copy of.
+const search = ref('')
+const needle = computed(() => search.value.trim().toLowerCase())
+const shownComponents = computed(() => {
+  if (!needle.value) return components.value
+  return components.value.filter(
+    (c) =>
+      c.name.toLowerCase().includes(needle.value) ||
+      (c.group ?? '').toLowerCase().includes(needle.value),
+  )
+})
 </script>
 
 <template>
@@ -24,6 +38,16 @@ const openIncidents = computed(() => incidents.value.filter((i) => !i.resolvedAt
 
     <section class="mb-8">
       <h2 class="mb-3 text-lg font-semibold">Components</h2>
+
+      <input
+        v-if="components.length"
+        v-model="search"
+        type="search"
+        class="input input-bordered mb-3 w-full"
+        placeholder="Search components"
+        aria-label="Search components"
+      />
+
       <div class="overflow-x-auto bg-base-100 border border-base-300 rounded-box shadow-sm">
         <table class="table">
           <thead>
@@ -34,15 +58,20 @@ const openIncidents = computed(() => incidents.value.filter((i) => !i.resolvedAt
             </tr>
           </thead>
           <tbody>
-            <tr v-for="c in components" :key="c.sourceId">
+            <tr v-for="c in shownComponents" :key="c.sourceId">
               <td class="font-medium">{{ c.name }}</td>
               <td><StatusBadge :status="c.status" size="sm" /></td>
               <td class="text-right text-sm opacity-60">
                 <LiveAgo :at="c.changedAt" />
               </td>
             </tr>
-            <tr v-if="!components.length">
-              <td colspan="3" class="text-center opacity-60">No components reported yet.</td>
+            <tr v-if="!shownComponents.length">
+              <td colspan="3" class="text-center opacity-60">
+                <template v-if="components.length">
+                  No component matches “{{ search.trim() }}”.
+                </template>
+                <template v-else>No components reported yet.</template>
+              </td>
             </tr>
           </tbody>
         </table>

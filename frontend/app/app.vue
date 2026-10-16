@@ -1,6 +1,6 @@
 <script setup lang="ts">
 const { githubRepo } = useRuntimeConfig().public
-const { user, isAdmin, signOut } = useAuth()
+const { user, isAdmin, canManageServices, signOut } = useAuth()
 
 const route = useRoute()
 const openMenu = ref<'service' | 'account' | 'nav' | null>(null)
@@ -35,6 +35,27 @@ async function onSignOut() {
   await signOut()
   await navigateTo('/')
 }
+
+const resending = ref(false)
+const resent = ref(false)
+
+// The banner above every page, for a signed in visitor whose address has not
+// been confirmed. Nothing is blocked until it is: the link may have gone astray,
+// and being unable to do anything until an email arrives would be worse.
+async function resend() {
+  resending.value = true
+  resent.value = false
+
+  try {
+    await $fetch('/api/v1/auth/verify/resend', { method: 'POST' })
+    resent.value = true
+  } catch {
+    // Nothing to say: the banner is not the place for an error, and the button
+    // is the same click again.
+  } finally {
+    resending.value = false
+  }
+}
 </script>
 
 <template>
@@ -47,23 +68,44 @@ async function onSignOut() {
                browser, so rendering this from the server would either leak one
                visitor's session into the cached page or break hydration. -->
           <ClientOnly>
-            <NuxtLink v-if="isAdmin" to="/users" class="btn btn-ghost btn-sm">
+            <!-- Both of these stand on their own rather than under the account
+                 menu, and both are hidden on a narrow screen: there the copies
+                 inside the panel below are the ones that show. -->
+            <NuxtLink
+              v-if="isAdmin"
+              to="/users"
+              class="btn btn-ghost btn-sm hidden md:inline-flex"
+            >
               Users
             </NuxtLink>
 
-            <!-- Alerts stand on their own rather than under the account menu:
-                 they are a thing a person keeps an eye on, not a setting. On a
-                 narrow screen the copy inside the panel below is the one that
-                 shows, so this one is desktop only. -->
             <NuxtLink v-if="user" to="/alerts" class="btn btn-ghost btn-sm hidden md:inline-flex">
               Alerts
             </NuxtLink>
 
-            <!-- One menu per concern. Service is where a person manages the
-                 services they can see, and the account menu belongs to whoever
-                 is signed in. -->
+            <!-- A visitor without an account gets these instead of the menus
+                 below, and they are hidden on a narrow screen for the same
+                 reason: the copies in the panel are the ones that show. -->
+            <NuxtLink
+              v-if="!user"
+              to="/login"
+              class="btn btn-ghost btn-sm hidden md:inline-flex"
+            >
+              Sign in
+            </NuxtLink>
+            <NuxtLink
+              v-if="!user"
+              to="/register"
+              class="btn btn-primary btn-sm hidden md:inline-flex"
+            >
+              Create account
+            </NuxtLink>
+
+            <!-- One menu per concern. Service is where the people who run the
+                 catalogue manage it, and the account menu belongs to whoever is
+                 signed in. -->
             <div v-if="user" class="hidden items-center gap-1 md:flex">
-              <div class="relative">
+              <div v-if="canManageServices" class="relative">
                 <button
                   type="button"
                   class="btn btn-ghost btn-sm"
@@ -124,10 +166,11 @@ async function onSignOut() {
               </div>
             </div>
 
-            <!-- Narrow screens get one panel instead of three dropdowns. The
-                 panel is a child of the nav but positions against the header,
-                 which is why the header carries relative. -->
-            <div v-if="user" class="md:hidden">
+            <!-- Narrow screens get one panel instead of the dropdowns, for a
+                 visitor with an account and one without alike. The panel is a
+                 child of the nav but positions against the header, which is why
+                 the header carries relative. -->
+            <div class="md:hidden">
               <button
                 type="button"
                 class="btn btn-ghost btn-sm btn-circle"
@@ -154,46 +197,91 @@ async function onSignOut() {
               v-if="openMenu === 'nav'"
               class="absolute inset-x-0 top-full z-50 border-b border-base-300 bg-base-100 px-4 pb-4 shadow-lg md:hidden"
             >
-              <NuxtLink to="/alerts" class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200">
-                Alerts
-              </NuxtLink>
+              <template v-if="user">
+                <NuxtLink to="/alerts" class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200">
+                  Alerts
+                </NuxtLink>
 
-              <p class="px-3 pb-1 pt-3 text-xs uppercase tracking-wide opacity-50">Service</p>
-              <NuxtLink
-                v-for="l in serviceLinks"
-                :key="l.to"
-                :to="l.to"
-                class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200"
-              >
-                {{ l.label }}
-              </NuxtLink>
+                <NuxtLink
+                  v-if="isAdmin"
+                  to="/users"
+                  class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200"
+                >
+                  Users
+                </NuxtLink>
 
-              <div class="my-2 border-t border-base-300" />
+                <template v-if="canManageServices">
+                  <p class="px-3 pb-1 pt-3 text-xs uppercase tracking-wide opacity-50">Service</p>
+                  <NuxtLink
+                    v-for="l in serviceLinks"
+                    :key="l.to"
+                    :to="l.to"
+                    class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200"
+                  >
+                    {{ l.label }}
+                  </NuxtLink>
+                </template>
 
-              <p class="px-3 pb-1 text-xs uppercase tracking-wide opacity-50">
-                {{ user?.name }} ({{ user?.role }})
-              </p>
-              <NuxtLink
-                v-for="l in accountLinks"
-                :key="l.to"
-                :to="l.to"
-                class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200"
-              >
-                {{ l.label }}
-              </NuxtLink>
-              <button
-                type="button"
-                class="block w-full rounded-btn px-3 py-2 text-left text-sm hover:bg-base-200"
-                @click="onSignOut"
-              >
-                Sign out
-              </button>
+                <div class="my-2 border-t border-base-300" />
+
+                <p class="px-3 pb-1 text-xs uppercase tracking-wide opacity-50">
+                  {{ user.name }} ({{ user.role }})
+                </p>
+                <NuxtLink
+                  v-for="l in accountLinks"
+                  :key="l.to"
+                  :to="l.to"
+                  class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200"
+                >
+                  {{ l.label }}
+                </NuxtLink>
+                <button
+                  type="button"
+                  class="block w-full rounded-btn px-3 py-2 text-left text-sm hover:bg-base-200"
+                  @click="onSignOut"
+                >
+                  Sign out
+                </button>
+              </template>
+
+              <template v-else>
+                <NuxtLink to="/login" class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200">
+                  Sign in
+                </NuxtLink>
+                <NuxtLink
+                  to="/register"
+                  class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200"
+                >
+                  Create account
+                </NuxtLink>
+              </template>
             </div>
           </ClientOnly>
           <ThemeToggle />
         </nav>
       </div>
     </header>
+
+    <ClientOnly>
+      <div
+        v-if="user && !user.verifiedAt"
+        class="border-b border-warning/40 bg-warning/10"
+      >
+        <div class="mx-auto flex max-w-6xl flex-wrap items-center gap-2 px-4 py-2 text-sm">
+          <span>Your email address is not confirmed yet. Check your inbox for the link.</span>
+          <button
+            type="button"
+            class="link inline-flex items-center gap-1"
+            :disabled="resending"
+            @click="resend"
+          >
+            <span v-if="resending" class="loading loading-spinner loading-xs" />
+            Send it again
+          </button>
+          <span v-if="resent" class="text-success">Sent.</span>
+        </div>
+      </div>
+    </ClientOnly>
 
     <main class="flex-1">
       <NuxtPage />

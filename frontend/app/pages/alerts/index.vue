@@ -6,17 +6,27 @@ definePageMeta({ middleware: 'authenticated', ssr: false })
 useSeoMeta({ title: 'Alerts', robots: 'noindex, nofollow' })
 
 const alerts = ref<AccountAlert[]>([])
+// How full the account is: the cap the API would hold it to (none for staff),
+// and how many alerts are already counting against it.
+const limit = ref<number | null>(null)
+const used = ref(0)
 const loading = ref(true)
 const error = ref('')
 const busy = ref<number | null>(null)
 const deleting = ref<AccountAlert | null>(null)
 
+const atLimit = computed(() => limit.value !== null && used.value >= limit.value)
+
 onMounted(load)
 
 async function load() {
   try {
-    const res = await $fetch<{ alerts: AccountAlert[] }>('/api/v1/auth/alerts')
+    const res = await $fetch<{ alerts: AccountAlert[]; limit: number | null; used: number }>(
+      '/api/v1/auth/alerts',
+    )
     alerts.value = res.alerts
+    limit.value = res.limit
+    used.value = res.used
   } catch (err) {
     error.value = apiError(err, 'Could not load your alerts.')
   } finally {
@@ -77,6 +87,12 @@ function stateOf(alert: AccountAlert) {
 
     <p v-if="error" role="alert" class="alert alert-error mb-6">
       <span>{{ error }}</span>
+    </p>
+
+    <p v-if="atLimit" class="alert alert-warning mb-6">
+      <span>
+        Your account has reached its limit of {{ limit }} alerts. Remove one before adding another.
+      </span>
     </p>
 
     <div v-if="loading" class="flex justify-center py-16">

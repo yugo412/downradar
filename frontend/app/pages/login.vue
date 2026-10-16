@@ -15,7 +15,7 @@ const error = ref('')
 // signed in moderator to another domain.
 const next = computed(() => {
   const raw = String(route.query.next ?? '')
-  return raw.startsWith('/') && !raw.startsWith('//') ? raw : '/services'
+  return raw.startsWith('/') && !raw.startsWith('//') ? raw : '/'
 })
 
 // Only reacts to the session arriving, so that signing in does not navigate
@@ -63,16 +63,12 @@ async function submit() {
           />
         </label>
 
-        <label class="form-control w-full">
-          <span class="label-text mb-1 text-sm font-medium">Password</span>
-          <input
-            v-model="password"
-            type="password"
-            class="input input-bordered w-full"
-            autocomplete="current-password"
-            required
-          />
-        </label>
+        <PasswordInput
+          v-model="password"
+          label="Password"
+          autocomplete="current-password"
+          required
+        />
 
         <p v-if="error" role="alert" class="text-sm text-error">{{ error }}</p>
 
@@ -81,6 +77,11 @@ async function submit() {
           Sign in
         </button>
       </form>
+
+      <div class="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm opacity-70">
+        <NuxtLink to="/forgot" class="link">Forgot your password?</NuxtLink>
+        <NuxtLink to="/register" class="link">Create an account</NuxtLink>
+      </div>
     </div>
   </div>
 </template>

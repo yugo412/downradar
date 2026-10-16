@@ -87,7 +87,7 @@ func TestPendingDetectionFindsOnlyTheVendorsWithoutAProfile(t *testing.T) {
 	}
 	t.Cleanup(func() { dropServices(context.Background(), st, live) })
 
-	proposal, err := st.ProposeService(ctx, uniqueName("proposal"), "https://status.example.com")
+	proposal, err := st.ProposeService(ctx, uniqueName("proposal"), "https://status.example.com", nil)
 	if err != nil {
 		t.Fatalf("ProposeService: %v", err)
 	}

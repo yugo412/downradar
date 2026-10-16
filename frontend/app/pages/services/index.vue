@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { AdminProfile, AdminService, ServiceStatus } from '~/types/api'
 
-definePageMeta({ middleware: 'authenticated', ssr: false })
+definePageMeta({ middleware: 'staff', ssr: false })
 
 useSeoMeta({ title: 'Services', robots: 'noindex, nofollow' })
 
@@ -193,12 +193,15 @@ async function onSaved() {
       class="alert mb-4"
       :class="createdParked ? 'alert-warning' : 'alert-success'"
     >
-      <span v-if="createdParked">
-        {{ createdName }} was saved, but no adapter profile can read its page yet, so it is not
-        polled. A new profile has to be written for its platform before it can be; until then the
-        poller keeps trying it, and Retry on its row runs that check right away.
-      </span>
-      <span v-else>{{ createdName }} was added and is live.</span>
+      <div>
+        <p v-if="createdParked">
+          {{ createdName }} was saved, but no adapter profile can read its page yet, so it is not
+          polled. A new profile has to be written for its platform before it can be; until then the
+          poller keeps trying it, and Retry on its row runs that check right away.
+        </p>
+        <p v-else>{{ createdName }} was added and is live.</p>
+        <NuxtLink :to="`/services/${created}`" class="link text-sm">View detail</NuxtLink>
+      </div>
     </div>
 
     <div class="mb-4 flex flex-wrap items-center gap-3">
@@ -239,20 +242,93 @@ async function onSaved() {
       <span class="loading loading-spinner" />
     </div>
 
-    <div v-else class="overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm">
-      <table class="table">
-        <thead>
-          <tr>
-            <th>Service</th>
-            <th>Status</th>
-            <th>Profile</th>
-            <th>Source</th>
-            <th class="text-right">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="s in services" :key="s.slug" class="align-top">
-            <td>
+    <template v-else>
+      <!-- A phone cannot hold five columns without scrolling sideways, so the
+           table is for wide screens and the same rows are cards below. -->
+      <div class="hidden overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm md:block">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Service</th>
+              <th>Status</th>
+              <th>Profile</th>
+              <th>Source</th>
+              <th class="text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="s in services" :key="s.slug" class="align-top">
+              <td>
+                <NuxtLink
+                  v-if="detailLink(s)"
+                  :to="detailLink(s)"
+                  class="link link-hover font-medium"
+                >
+                  {{ s.name }}
+                </NuxtLink>
+                <div
+                  v-else
+                  class="font-medium"
+                  title="A service only gets a page once it is published."
+                >
+                  {{ s.name }}
+                </div>
+                <div class="font-mono text-xs opacity-50">/{{ s.slug }}</div>
+                <div v-if="s.ownerId" class="mt-1">
+                  <span class="badge badge-ghost badge-sm" :title="s.ownerEmail">
+                    {{ s.status === 'proposed' ? `suggested by ${s.ownerName}` : `private · ${s.ownerName}` }}
+                  </span>
+                </div>
+              </td>
+              <td>
+                <span
+                  class="badge badge-sm whitespace-nowrap"
+                  :class="serviceStatusClass(s.status, s.active)"
+                >{{ serviceStatusLabel(s.status, s.active) }}</span>
+              </td>
+              <td>
+                <span v-if="s.profile" class="font-mono text-xs">{{ s.profile }}</span>
+                <span v-else class="text-xs opacity-50">none</span>
+              </td>
+              <td class="max-w-xs">
+                <a
+                  v-if="s.url"
+                  :href="s.url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="link break-all text-xs"
+                >
+                  {{ s.url }}
+                </a>
+                <span v-else class="text-xs opacity-50">no url</span>
+              </td>
+              <td>
+                <div class="flex justify-end">
+                  <ServiceActions
+                    :service="s"
+                    :can-remove="canRemove(s)"
+                    :retrying="retrying === s.slug"
+                    @edit="editing = s"
+                    @publish="editing = { ...s, status: 'published' }"
+                    @retry="retryDetection(s)"
+                    @restore="restore(s)"
+                    @remove="removing = s"
+                  />
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <ul class="flex flex-col gap-3 md:hidden">
+        <li
+          v-for="s in services"
+          :key="s.slug"
+          class="rounded-box border border-base-300 bg-base-100 p-4 shadow-sm"
+        >
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
               <NuxtLink
                 v-if="detailLink(s)"
                 :to="detailLink(s)"
@@ -268,82 +344,59 @@ async function onSaved() {
                 {{ s.name }}
               </div>
               <div class="font-mono text-xs opacity-50">/{{ s.slug }}</div>
-              <div v-if="s.ownerId" class="mt-1">
-                <span class="badge badge-ghost badge-sm" :title="s.ownerEmail">
-                  private &middot; {{ s.ownerName }}
-                </span>
-              </div>
-            </td>
-            <td>
-              <span
-                class="badge badge-sm"
-                :class="serviceStatusClass(s.status, s.active)"
-              >{{ serviceStatusLabel(s.status, s.active) }}</span>
-            </td>
-            <td>
-              <span v-if="s.profile" class="font-mono text-xs">{{ s.profile }}</span>
-              <span v-else class="text-xs opacity-50">none</span>
-            </td>
-            <td class="max-w-xs">
-              <a
-                v-if="s.url"
-                :href="s.url"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="link break-all text-xs"
-              >
-                {{ s.url }}
-              </a>
-              <span v-else class="text-xs opacity-50">no url</span>
-            </td>
-            <td>
-              <div class="flex flex-wrap justify-end gap-1">
-                <button class="btn btn-ghost btn-xs" @click="editing = s">Edit</button>
-                <button
-                  v-if="s.active && s.status === 'no_match'"
-                  class="btn btn-ghost btn-xs"
-                  :disabled="retrying === s.slug"
-                  title="Run the profiles again against this page, for when a new one has been deployed."
-                  @click="retryDetection(s)"
-                >
-                  <span v-if="retrying === s.slug" class="loading loading-spinner loading-xs" />
-                  Retry
-                </button>
-                <button
-                  v-if="s.active && s.status === 'proposed'"
-                  class="btn btn-ghost btn-xs"
-                  @click="editing = { ...s, status: 'published' }"
-                >
-                  Publish
-                </button>
-                <button
-                  v-if="!s.active"
-                  class="btn btn-ghost btn-xs"
-                  @click="restore(s)"
-                >
-                  Restore
-                </button>
-                <button
-                  v-if="s.active"
-                  class="btn btn-ghost btn-xs text-error"
-                  :disabled="!canRemove(s)"
-                  :title="canRemove(s) ? '' : 'Only an admin can remove a published service'"
-                  @click="removing = s"
-                >
-                  Delete
-                </button>
-              </div>
-            </td>
-          </tr>
-          <tr v-if="!services.length">
-            <td colspan="5" class="text-center opacity-60">
-              <template v-if="search">Nothing matches &ldquo;{{ search }}&rdquo;.</template>
-              <template v-else>Nothing here.</template>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+            </div>
+            <span
+              class="badge badge-sm shrink-0 whitespace-nowrap"
+              :class="serviceStatusClass(s.status, s.active)"
+            >
+              {{ serviceStatusLabel(s.status, s.active) }}
+            </span>
+          </div>
+
+          <div class="mt-2 flex flex-wrap items-center gap-2 text-xs opacity-70">
+            <span class="font-mono">{{ s.profile || 'none' }}</span>
+            <span aria-hidden="true">&middot;</span>
+            <a
+              v-if="s.url"
+              :href="s.url"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="link break-all"
+            >
+              {{ s.url }}
+            </a>
+            <span v-else>no url</span>
+          </div>
+
+          <div v-if="s.ownerId" class="mt-1">
+            <span class="badge badge-ghost badge-sm" :title="s.ownerEmail">
+              private &middot; {{ s.ownerName }}
+            </span>
+          </div>
+
+          <div class="mt-3">
+            <ServiceActions
+              :service="s"
+              :can-remove="canRemove(s)"
+              :retrying="retrying === s.slug"
+              @edit="editing = s"
+              @publish="editing = { ...s, status: 'published' }"
+              @retry="retryDetection(s)"
+              @restore="restore(s)"
+              @remove="removing = s"
+            />
+          </div>
+        </li>
+      </ul>
+
+      <p
+        v-if="!services.length"
+        class="rounded-box border border-base-300 bg-base-100 p-6 text-center text-sm opacity-70 shadow-sm"
+      >
+        <template v-if="search">Nothing matches &ldquo;{{ search }}&rdquo;.</template>
+        <template v-else>Nothing here.</template>
+      </p>
+    </template>
 
     <ServiceEditor
       v-if="editing"
