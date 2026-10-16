@@ -28,7 +28,20 @@ export default defineNuxtConfig({
   // Never read a secret from process.env in this file. Nuxt inlines those values
   // into the bundle at build time, so a build done on a laptop would ship the
   // local secret to production and every internal check would then fail.
-  routeRules: pageCacheSeconds > 0 ? { '/**': { swr: pageCacheSeconds } } : {},
+  routeRules:
+    pageCacheSeconds > 0
+      ? {
+          '/**': { swr: pageCacheSeconds },
+          // The management and account screens are per visitor, so a cached
+          // shell would be handed to the wrong one. They also render on the
+          // client only, which keeps any session out of the cached HTML.
+          '/services': { swr: false, headers: { 'cache-control': 'no-store' } },
+          '/services/**': { swr: false, headers: { 'cache-control': 'no-store' } },
+          '/account': { swr: false, headers: { 'cache-control': 'no-store' } },
+          '/account/**': { swr: false, headers: { 'cache-control': 'no-store' } },
+          '/login': { swr: false, headers: { 'cache-control': 'no-store' } },
+        }
+      : {},
 
   runtimeConfig: {
     apiBase: 'http://127.0.0.1:8080',

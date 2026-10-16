@@ -79,13 +79,17 @@ func (s *Store) ListVendors(ctx context.Context) ([]VendorSummary, error) {
 			join component_state cs on cs.component_id = c.id
 			where c.service_id = s.id and c.active
 		) agg on true
-		where s.active and s.status = 'published'
+		where s.active and s.status = 'published' and s.owner_id is null
 		order by s.name`)
 	if err != nil {
 		return nil, fmt.Errorf("read: list vendors: %w", err)
 	}
 	defer rows.Close()
 
+	return scanVendorSummaries(rows)
+}
+
+func scanVendorSummaries(rows pgx.Rows) ([]VendorSummary, error) {
 	var out []VendorSummary
 	for rows.Next() {
 		var v VendorSummary
@@ -98,7 +102,44 @@ func (s *Store) ListVendors(ctx context.Context) ([]VendorSummary, error) {
 	return out, rows.Err()
 }
 
-func (s *Store) GetVendor(ctx context.Context, slug string) (*VendorDetail, error) {
+// OwnedVendors is the public list shape, scoped to the private services of one
+// person. The dashboard adds these to the catalogue for a signed in visitor, in
+// the browser, so the cached page stays public.
+func (s *Store) OwnedVendors(ctx context.Context, userID int64) ([]VendorSummary, error) {
+	rows, err := s.pool.Query(ctx, `
+		select s.slug,
+		       s.name,
+		       coalesce(s.url, ''),
+		       coalesce(s.category, ''),
+		       coalesce(s.logo_url, ''),
+		       coalesce(ss.status, 'unknown'),
+		       ss.changed_at,
+		       s.last_polled_at,
+		       coalesce(agg.total, 0),
+		       coalesce(agg.degraded, 0)
+		from services s
+		left join service_state ss on ss.service_id = s.id
+		left join lateral (
+			select count(*) as total,
+			       count(*) filter (where cs.status <> 'ok') as degraded
+			from components c
+			join component_state cs on cs.component_id = c.id
+			where c.service_id = s.id and c.active
+		) agg on true
+		where s.active and s.status = 'published' and s.owner_id = $1
+		order by s.name`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("read: owned vendors: %w", err)
+	}
+	defer rows.Close()
+
+	return scanVendorSummaries(rows)
+}
+
+// GetVendor returns one vendor's detail. viewer decides which rows are visible:
+// the public sees the catalogue, an owner sees their own private services, and
+// staff see everything.
+func (s *Store) GetVendor(ctx context.Context, slug string, viewer Viewer) (*VendorDetail, error) {
 	var v VendorDetail
 	var serviceID int64
 
@@ -107,7 +148,10 @@ func (s *Store) GetVendor(ctx context.Context, slug string) (*VendorDetail, erro
 		       coalesce(ss.status, 'unknown'), ss.changed_at, s.last_polled_at
 		from services s
 		left join service_state ss on ss.service_id = s.id
-		where s.slug = $1 and s.active and s.status = 'published'`, slug,
+		where s.slug = $1 and s.active and s.status = 'published'
+		  and (s.owner_id is null
+		       or ($2::bigint > 0 and s.owner_id = $2)
+		       or $3::boolean)`, slug, viewer.UserID, viewer.IsStaff,
 	).Scan(&serviceID, &v.Slug, &v.Name, &v.URL, &v.Category, &v.LogoURL, &v.Status, &v.ChangedAt, &v.LastPolledAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -198,7 +242,7 @@ func (s *Store) FindVendor(ctx context.Context, nameOrSlug string) (string, erro
 	var slug string
 	err := s.pool.QueryRow(ctx, `
 		select slug from services
-		where active and status <> 'rejected'
+		where active and owner_id is null and status <> 'rejected'
 		  and (lower(slug) = lower($1) or lower(name) = lower($1))
 		order by status desc
 		limit 1`, strings.TrimSpace(nameOrSlug)).Scan(&slug)
@@ -229,7 +273,7 @@ func (s *Store) Stats(ctx context.Context) (Stats, error) {
 		       count(*) filter (where coalesce(ss.status, 'unknown') = 'unknown')
 		from services s
 		left join service_state ss on ss.service_id = s.id
-		where s.active and s.status = 'published'`).Scan(&st.Total, &st.Healthy, &st.Degraded, &st.Down, &st.Unknown)
+		where s.active and s.status = 'published' and s.owner_id is null`).Scan(&st.Total, &st.Healthy, &st.Degraded, &st.Down, &st.Unknown)
 	if err != nil {
 		return st, fmt.Errorf("read: stats: %w", err)
 	}

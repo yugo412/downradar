@@ -64,14 +64,24 @@ func run() error {
 		go runRawPayloadCleanup(ctx, st, time.Duration(cfg.RawPayloadDays)*24*time.Hour, log)
 	}
 
+	go runSessionCleanup(ctx, st, log)
+
 	srv := &http.Server{
 		Addr: cfg.HTTPAddr,
 		Handler: httpapi.NewRouter(st, log, httpapi.Options{
-			RateLimitPerMinute: cfg.RateLimitPerMinute,
-			RateLimitBurst:     cfg.RateLimitBurst,
-			SuggestPerHour:     cfg.SuggestPerHour,
-			SuggestBurst:       cfg.SuggestBurst,
-			InternalToken:      cfg.InternalToken,
+			RateLimitPerMinute:  cfg.RateLimitPerMinute,
+			RateLimitBurst:      cfg.RateLimitBurst,
+			SuggestPerHour:      cfg.SuggestPerHour,
+			SuggestBurst:        cfg.SuggestBurst,
+			LoginPerHour:        cfg.LoginPerHour,
+			LoginBurst:          cfg.LoginBurst,
+			PasswordPerHour:     cfg.PasswordPerHour,
+			PasswordBurst:       cfg.PasswordBurst,
+			InternalToken:       cfg.InternalToken,
+			Profiles:            profiles,
+			SessionCookie:       cfg.SessionCookie,
+			SessionTTL:          cfg.SessionTTL,
+			SessionCookieSecure: cfg.SessionCookieSecure,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
@@ -97,6 +107,27 @@ func run() error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+func runSessionCleanup(ctx context.Context, st *store.Store, log *slog.Logger) {
+	ticker := time.NewTicker(6 * time.Hour)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			removed, err := st.DeleteExpiredSessions(ctx)
+			if err != nil {
+				log.Error("session cleanup failed", "error", err)
+				continue
+			}
+			if removed > 0 {
+				log.Info("expired sessions removed", "removed", removed)
+			}
+		}
+	}
 }
 
 func runRawPayloadCleanup(ctx context.Context, st *store.Store, age time.Duration, log *slog.Logger) {

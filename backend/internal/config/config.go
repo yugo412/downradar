@@ -17,6 +17,13 @@ type Config struct {
 	RateLimitBurst        int
 	SuggestPerHour        int
 	SuggestBurst          int
+	LoginPerHour          int
+	LoginBurst            int
+	PasswordPerHour       int
+	PasswordBurst         int
+	SessionCookie         string
+	SessionTTL            time.Duration
+	SessionCookieSecure   bool
 	InternalToken         string
 	RawPayloadDays        int
 	RawPayloadMinInterval time.Duration
@@ -35,6 +42,13 @@ func Load() Config {
 		RateLimitBurst:        envInt("RATE_LIMIT_BURST", 30),
 		SuggestPerHour:        envInt("SUGGEST_RATE_LIMIT_PER_HOUR", 6),
 		SuggestBurst:          envInt("SUGGEST_RATE_LIMIT_BURST", 5),
+		LoginPerHour:          envInt("LOGIN_RATE_LIMIT_PER_HOUR", 20),
+		LoginBurst:            envInt("LOGIN_RATE_LIMIT_BURST", 5),
+		PasswordPerHour:       envInt("PASSWORD_RATE_LIMIT_PER_HOUR", 20),
+		PasswordBurst:         envInt("PASSWORD_RATE_LIMIT_BURST", 5),
+		SessionCookie:         env("SESSION_COOKIE", "dr_session"),
+		SessionTTL:            envDuration("SESSION_TTL", 30*24*time.Hour),
+		SessionCookieSecure:   envBool("SESSION_COOKIE_SECURE", true),
 		InternalToken:         env("INTERNAL_TOKEN", ""),
 		RawPayloadDays:        envInt("RAW_PAYLOAD_RETENTION_DAYS", 7),
 		RawPayloadMinInterval: envDuration("RAW_PAYLOAD_MIN_INTERVAL", time.Hour),
@@ -62,6 +76,15 @@ func envDuration(key string, fallback time.Duration) time.Duration {
 	if v := os.Getenv(key); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			return d
+		}
+	}
+	return fallback
+}
+
+func envBool(key string, fallback bool) bool {
+	if v := os.Getenv(key); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
 		}
 	}
 	return fallback
