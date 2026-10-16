@@ -1,0 +1,212 @@
+{
+  "post_enums": [
+    {
+      "status_page_id": "P67C5DQ",
+      "name": "investigating",
+      "description": "investigating",
+      "rank": 0,
+      "post_type": "incident",
+      "id": "PX1626Y",
+      "layout_settings": {
+        "key": "incident/status/investigating"
+      },
+      "post_enum_type": "status",
+      "is_featured": true
+    },
+    {
+      "status_page_id": "P67C5DQ",
+      "name": "detected",
+      "description": "detected",
+      "rank": 1,
+      "post_type": "incident",
+      "id": "PTRI1U8",
+      "layout_settings": {
+        "key": "incident/status/detected"
+      },
+      "post_enum_type": "status",
+      "is_featured": true
+    },
+    {
+      "status_page_id": "P67C5DQ",
+      "name": "resolved",
+      "description": "resolved",
+      "rank": 2,
+      "post_type": "incident",
+      "id": "PPFX0EI",
+      "layout_settings": {
+        "key": "incident/status/resolved"
+      },
+      "post_enum_type": "status",
+      "is_featured": false
+    },
+    {
+      "status_page_id": "P67C5DQ",
+      "name": "all good",
+      "description": "all good",
+      "rank": 0,
+      "post_type": "incident",
+      "id": "P96902V",
+      "layout_settings": {
+        "key": "incident/severity/all_good"
+      },
+      "post_enum_type": "severity",
+      "is_featured": false
+    },
+    {
+      "status_page_id": "P67C5DQ",
+      "name": "minor",
+      "description": "minor",
+      "rank": 1,
+      "post_type": "incident",
+      "id": "P5WKMQ5",
+      "layout_settings": {
+        "key": "incident/severity/minor"
+      },
+      "post_enum_type": "severity",
+      "is_featured": true
+    },
+    {
+      "status_page_id": "P67C5DQ",
+      "name": "major",
+      "description": "major",
+      "rank": 2,
+      "post_type": "incident",
+      "id": "P1KZLAF",
+      "layout_settings": {
+        "key": "incident/severity/major"
+      },
+      "post_enum_type": "severity",
+      "is_featured": true
+    },
+    {
+      "status_page_id": "P67C5DQ",
+      "name": "operational",
+      "description": "operational",
+      "rank": 0,
+      "post_type": "incident",
+      "id": "PKGILKM",
+      "layout_settings": {
+        "key": "incident/impacts/operational"
+      },
+      "post_enum_type": "impacts",
+      "is_featured": false
+    },
+    {
+      "status_page_id": "P67C5DQ",
+      "name": "partial outage",
+      "description": "partial outage",
+      "rank": 1,
+      "post_type": "incident",
+      "id": "PH7XL8Z",
+      "layout_settings": {
+        "key": "incident/impacts/partial_outage"
+      },
+      "post_enum_type": "impacts",
+      "is_featured": true
+    },
+    {
+      "status_page_id": "P67C5DQ",
+      "name": "outage",
+      "description": "outage",
+      "rank": 2,
+      "post_type": "incident",
+      "id": "PDY9KW9",
+      "layout_settings": {
+        "key": "incident/impacts/outage"
+      },
+      "post_enum_type": "impacts",
+      "is_featured": true
+    },
+    {
+      "status_page_id": "P67C5DQ",
+      "name": "scheduled",
+      "description": "scheduled",
+      "rank": 0,
+      "post_type": "maintenance",
+      "id": "PZLLJGJ",
+      "layout_settings": {
+        "key": "maintenance/status/scheduled"
+      },
+      "post_enum_type": "status",
+      "is_featured": true
+    },
+    {
+      "status_page_id": "P67C5DQ",
+      "name": "in progress",
+      "description": "in progress",
+      "rank": 1,
+      "post_type": "maintenance",
+      "id": "PWPAJ4W",
+      "layout_settings": {
+        "key": "maintenance/status/in_progress"
+      },
+      "post_enum_type": "status",
+      "is_featured": true
+    },
+    {
+      "status_page_id": "P67C5DQ",
+      "name": "completed",
+      "description": "completed",
+      "rank": 2,
+      "post_type": "maintenance",
+      "id": "PSDPIS6",
+      "layout_settings": {
+        "key": "maintenance/status/completed"
+      },
+      "post_enum_type": "status",
+      "is_featured": false
+    },
+    {
+      "status_page_id": "P67C5DQ",
+      "name": "all good",
+      "description": "all good",
+      "rank": 0,
+      "post_type": "maintenance",
+      "id": "PP41HCG",
+      "layout_settings": {
+        "key": "maintenance/severity/all_good"
+      },
+      "post_enum_type": "severity",
+      "is_featured": false
+    },
+    {
+      "status_page_id": "P67C5DQ",
+      "name": "maintenance",
+      "description": "maintenance",
+      "rank": 1,
+      "post_type": "maintenance",
+      "id": "P8UDH0T",
+      "layout_settings": {
+        "key": "maintenance/severity/maintenance"
+      },
+      "post_enum_type": "severity",
+      "is_featured": true
+    },
+    {
+      "status_page_id": "P67C5DQ",
+      "name": "operational",
+      "description": "operational",
+      "rank": 0,
+      "post_type": "maintenance",
+      "id": "P4ISGO3",
+      "layout_settings": {
+        "key": "maintenance/impacts/operational"
+      },
+      "post_enum_type": "impacts",
+      "is_featured": false
+    },
+    {
+      "status_page_id": "P67C5DQ",
+      "name": "maintenance",
+      "description": "maintenance",
+      "rank": 1,
+      "post_type": "maintenance",
+      "id": "P194FYD",
+      "layout_settings": {
+        "key": "maintenance/impacts/maintenance"
+      },
+      "post_enum_type": "impacts",
+      "is_featured": true
+    }
+  ]
+}
