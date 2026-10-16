@@ -87,11 +87,16 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 			h.fail(w, r, err)
 			return
 		}
-		if count >= h.alertLimit {
+		limit, err := h.userAlertLimit(r, *userID)
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		if count >= limit {
 			writeJSON(w, http.StatusConflict, map[string]string{
 				"error": fmt.Sprintf(
-					"your account already has %d alerts, which is the limit. Remove one from your alerts page first.",
-					count),
+					"your account has reached its limit of %d alerts. Remove one from your alerts page first.",
+					limit),
 			})
 			return
 		}
@@ -170,7 +175,12 @@ func (h *handlers) listUserAlerts(w http.ResponseWriter, r *http.Request) {
 	var limit *int
 	used := 0
 	if user.Role == auth.RoleSubscriber {
-		limit = &h.alertLimit
+		value, err := h.userAlertLimit(r, user.ID)
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		limit = &value
 		used, err = h.store.ActiveAlertCount(r.Context(), user.ID, 0)
 		if err != nil {
 			h.fail(w, r, err)
@@ -179,6 +189,20 @@ func (h *handlers) listUserAlerts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"alerts": views, "limit": limit, "used": used})
+}
+
+// userAlertLimit is how many vendors this account may watch at once. It is read
+// from the account's own row, so one subscriber can differ from another; the
+// environment is only the value a new account starts with.
+func (h *handlers) userAlertLimit(r *http.Request, userID int64) (int, error) {
+	limit, ok, err := h.store.UserLimit(r.Context(), userID, store.LimitAlert)
+	if err != nil {
+		return 0, err
+	}
+	if !ok {
+		return h.alertLimit, nil
+	}
+	return limit, nil
 }
 
 type alertStateRequest struct {

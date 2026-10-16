@@ -522,3 +522,46 @@ func TestAlertListReportsTheSubscriberLimit(t *testing.T) {
 		t.Errorf("limit = %d, want none for staff", *limit)
 	}
 }
+
+// The limit is read from the account's own row, so one subscriber can differ
+// from another without touching the environment.
+func TestSubscriberLimitComesFromTheAccountsOwnRow(t *testing.T) {
+	st, router := testRouter(t)
+
+	subscriber := testUser(t, st, auth.RoleSubscriber)
+	cookie := sessionFor(t, st, subscriber)
+
+	if err := st.SetUserLimits(context.Background(), subscriber.ID, map[string]int{store.LimitAlert: 1}); err != nil {
+		t.Fatalf("SetUserLimits: %v", err)
+	}
+
+	first := alertVendor(t, st)
+	second := alertVendor(t, st)
+
+	rec := call(t, router, http.MethodPost, "/api/v1/vendors/"+first+"/alerts",
+		`{"email":"one@example.org"}`, cookie)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("first = %d, want 201: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = call(t, router, http.MethodPost, "/api/v1/vendors/"+second+"/alerts",
+		`{"email":"one@example.org"}`, cookie)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("second = %d, want 409: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "1") {
+		t.Errorf("answer %q does not name the limit", rec.Body.String())
+	}
+
+	// The alerts screen is told the same number, so it warns at the right point.
+	rec = call(t, router, http.MethodGet, "/api/v1/auth/alerts", "", cookie)
+	var body struct {
+		Limit *int `json:"limit"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Limit == nil || *body.Limit != 1 {
+		t.Errorf("limit = %v, want 1 from the account's own row", body.Limit)
+	}
+}

@@ -51,6 +51,9 @@ func run() error {
 
 	st, err := store.New(ctx, cfg.DatabaseURL, store.Options{
 		RawPayloadMinInterval: cfg.RawPayloadMinInterval,
+		DefaultLimits: map[string]int{
+			store.LimitAlert: cfg.AlertLimitPerSubscriber,
+		},
 	})
 	if err != nil {
 		return err
