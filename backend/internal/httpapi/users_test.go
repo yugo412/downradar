@@ -16,6 +16,7 @@ import (
 	"downradar.info/backend/internal/account"
 	"downradar.info/backend/internal/auth"
 	"downradar.info/backend/internal/catalog"
+	"downradar.info/backend/internal/contact"
 	"downradar.info/backend/internal/store"
 )
 
@@ -40,12 +41,20 @@ type sentMail struct {
 	to      string
 	subject string
 	body    string
+	replyTo string
 }
 
 func (m *mailSpy) Send(ctx context.Context, to, subject, body string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.messages = append(m.messages, sentMail{to: to, subject: subject, body: body})
+	return nil
+}
+
+func (m *mailSpy) SendReply(ctx context.Context, to, subject, body, replyTo string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.messages = append(m.messages, sentMail{to: to, subject: subject, body: body, replyTo: replyTo})
 	return nil
 }
 
@@ -95,6 +104,7 @@ func testRouterWithMail(t *testing.T) (*store.Store, http.Handler, *mailSpy) {
 	router := NewRouter(st, quietLogger(), Options{
 		Catalog:             catalog.Catalog{},
 		AccountMailer:       account.New(spy, "https://downradar.test"),
+		ContactMailer:       contact.New(spy, "owner@downradar.test"),
 		RateLimitPerMinute:  60000,
 		RateLimitBurst:      1000,
 		SuggestPerHour:      36000,
@@ -103,6 +113,8 @@ func testRouterWithMail(t *testing.T) (*store.Store, http.Handler, *mailSpy) {
 		AlertBurst:          1000,
 		AccountPerHour:      36000,
 		AccountBurst:        1000,
+		ContactPerHour:      36000,
+		ContactBurst:        1000,
 		LoginPerHour:        36000,
 		LoginBurst:          1000,
 		PasswordPerHour:     36000,

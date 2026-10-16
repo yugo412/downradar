@@ -14,6 +14,7 @@ import (
 	"downradar.info/backend/internal/account"
 	"downradar.info/backend/internal/catalog"
 	"downradar.info/backend/internal/config"
+	"downradar.info/backend/internal/contact"
 	"downradar.info/backend/internal/httpapi"
 	"downradar.info/backend/internal/mail"
 	"downradar.info/backend/internal/notify"
@@ -65,14 +66,16 @@ func run() error {
 	go p.Run(ctx)
 
 	var accountMailer *account.Mailer
+	var contactMailer *contact.Mailer
 	if cfg.SMTPAddr != "" {
 		sender := mail.NewSMTP(cfg.SMTPAddr, cfg.MailFrom, cfg.SMTPUser, cfg.SMTPPassword, 0)
 		accountMailer = account.New(sender, cfg.PublicURL)
+		contactMailer = contact.New(sender, cfg.ContactEmail)
 
 		n := notify.New(st, sender, cfg.PublicURL, cfg.AlertSendInterval, log)
 		go n.Run(ctx)
 	} else {
-		log.Warn("mail is off: SMTP_ADDR is not set, so no email is sent, alerts cannot be subscribed to, and no account can be made from the site")
+		log.Warn("mail is off: SMTP_ADDR is not set, so no email is sent, alerts cannot be subscribed to, the contact form is refused, and no account can be made from the site")
 	}
 
 	go runAuthCleanup(ctx, st, log)
@@ -93,6 +96,8 @@ func run() error {
 			AlertLimitPerSubscriber: cfg.AlertLimitPerSubscriber,
 			AccountPerHour:          cfg.AccountPerHour,
 			AccountBurst:            cfg.AccountBurst,
+			ContactPerHour:          cfg.ContactPerHour,
+			ContactBurst:            cfg.ContactBurst,
 			LoginPerHour:            cfg.LoginPerHour,
 			LoginBurst:              cfg.LoginBurst,
 			PasswordPerHour:         cfg.PasswordPerHour,
@@ -100,6 +105,7 @@ func run() error {
 			InternalToken:           cfg.InternalToken,
 			Catalog:                 cat,
 			AccountMailer:           accountMailer,
+			ContactMailer:           contactMailer,
 			SessionCookie:           cfg.SessionCookie,
 			SessionTTL:              cfg.SessionTTL,
 			SessionCookieSecure:     cfg.SessionCookieSecure,

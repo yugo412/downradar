@@ -36,7 +36,7 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	email, problem := alertEmail(body.Email)
+	email, problem := parseEmail(body.Email)
 	if problem != "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": problem})
 		return
@@ -329,10 +329,11 @@ func (h *handlers) unsubscribeAlert(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// alertEmail normalises an address and refuses anything that is not one. The
+// parseEmail normalises an address and refuses anything that is not one. The
 // same normalisation is used for accounts, so one address cannot subscribe twice
-// by changing its case.
-func alertEmail(raw string) (string, string) {
+// by changing its case. It is shared by the alert and contact forms, which both
+// take an address from a visitor.
+func parseEmail(raw string) (string, string) {
 	email := auth.NormalizeEmail(raw)
 	if email == "" {
 		return "", "an email address is required"

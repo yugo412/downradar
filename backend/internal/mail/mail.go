@@ -35,6 +35,14 @@ func NewSMTP(addr, from, user, password string, timeout time.Duration) *SMTP {
 // Send delivers one message. The context bounds the whole conversation, because
 // net/smtp has no notion of one.
 func (s *SMTP) Send(ctx context.Context, to, subject, body string) error {
+	return s.SendReply(ctx, to, subject, body, "")
+}
+
+// SendReply delivers one message and sets the reply address, so answering goes
+// to whoever wrote in rather than to the site's own mailbox. It is what the
+// contact form needs; the account and alert mail are not answered, so they use
+// Send.
+func (s *SMTP) SendReply(ctx context.Context, to, subject, body, replyTo string) error {
 	host, port, err := net.SplitHostPort(s.addr)
 	if err != nil {
 		return fmt.Errorf("mail: parse address %q: %w", s.addr, err)
@@ -48,7 +56,7 @@ func (s *SMTP) Send(ctx context.Context, to, subject, body string) error {
 	done := make(chan error, 1)
 	go func() {
 		done <- send(s.addr, host, port, auth, envelope(s.from), to,
-			Message(s.from, to, subject, body))
+			MessageReplyTo(s.from, to, subject, body, replyTo))
 	}()
 
 	select {
@@ -147,11 +155,21 @@ func envelope(from string) string {
 // so it can be read and tested on its own, and so the headers cannot depend on
 // the mail server.
 func Message(from, to, subject, body string) []byte {
+	return MessageReplyTo(from, to, subject, body, "")
+}
+
+// MessageReplyTo is Message with a Reply-To header, which is what makes an
+// answer go back to the person who wrote in rather than to the site's own
+// mailbox. An empty replyTo leaves the header out.
+func MessageReplyTo(from, to, subject, body, replyTo string) []byte {
 	var b strings.Builder
 
 	b.WriteString("From: " + header(from) + "\r\n")
 	b.WriteString("To: " + header(to) + "\r\n")
 	b.WriteString("Subject: " + header(subject) + "\r\n")
+	if replyTo != "" {
+		b.WriteString("Reply-To: " + header(replyTo) + "\r\n")
+	}
 	b.WriteString("Date: " + time.Now().UTC().Format(time.RFC1123Z) + "\r\n")
 	b.WriteString("MIME-Version: 1.0\r\n")
 	b.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
