@@ -56,6 +56,15 @@ export default defineNuxtConfig({
   app: {
     head: {
       htmlAttrs: { lang: 'en' },
+      script: [
+        {
+          // Runs in the head, before the first paint, so there is no flash. It
+          // reads the cookie itself instead of relying on the rendered head,
+          // which is cached and has to stay the same for every visitor.
+          innerHTML: `(function(){try{var m=document.cookie.match(/(?:^|;\\s*)theme=(dark|light)/);document.documentElement.dataset.theme=m&&m[1]==='dark'?'dark':'light'}catch(e){document.documentElement.dataset.theme='light'}})()`,
+          tagPosition: 'head',
+        },
+      ],
       titleTemplate: '%s | DownRadar',
       meta: [
         { charset: 'utf-8' },
