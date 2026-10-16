@@ -41,6 +41,22 @@ func CanRemovePublished(role string) bool {
 	return role == RoleAdmin
 }
 
+// CanManageUsers is admin only. A moderator looks after the service catalogue,
+// not after people.
+func CanManageUsers(role string) bool {
+	return role == RoleAdmin
+}
+
+// ValidEmail is deliberately loose: it only rejects what is obviously not an
+// address, and leaves the rest to the person typing it.
+func ValidEmail(email string) bool {
+	if email == "" || len(email) > 160 || strings.ContainsAny(email, " \t\r\n") {
+		return false
+	}
+	at := strings.Index(email, "@")
+	return at > 0 && at < len(email)-1 && strings.Contains(email[at+1:], ".")
+}
+
 const bcryptCost = 12
 
 func HashPassword(plain string) (string, error) {

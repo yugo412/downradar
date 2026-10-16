@@ -25,7 +25,7 @@ func (s *Store) SessionUser(ctx context.Context, tokenHash string) (*User, error
 		select `+userColumns+`
 		from sessions s
 		join users u on u.id = s.user_id
-		where s.token_hash = $1 and s.expires_at > now()`, tokenHash))
+		where s.token_hash = $1 and s.expires_at > now() and u.disabled_at is null`, tokenHash))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}

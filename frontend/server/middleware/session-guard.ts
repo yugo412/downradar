@@ -4,21 +4,18 @@
 // asked the API who the visitor is, and useRequestHeaders does not carry the
 // session cookie there. Reading the h3 event directly does work, and failing
 // closed is the right behaviour when the API cannot be reached.
-const MANAGE_PREFIX = '/services'
-const ACCOUNT_PREFIX = '/account'
+const SESSION_PREFIXES = ['/services', '/account']
+const ADMIN_PREFIX = '/users'
 
 function under(path: string, prefix: string) {
   return path === prefix || path.startsWith(`${prefix}/`)
 }
 
-// Everything under these two prefixes needs a session, and nothing more: the
-// catalogue is for staff, but /services is also where anybody sees the private
-// services they own. Which rows a person may touch is decided by the API.
-const PROTECTED = [MANAGE_PREFIX, ACCOUNT_PREFIX]
-
 export default defineEventHandler(async (event) => {
   const path = event.path.split('?')[0]
-  if (!PROTECTED.some((prefix) => under(path, prefix))) return
+  const needsSession = SESSION_PREFIXES.some((prefix) => under(path, prefix))
+  const needsAdmin = under(path, ADMIN_PREFIX)
+  if (!needsSession && !needsAdmin) return
 
   const config = useRuntimeConfig()
 
@@ -40,5 +37,10 @@ export default defineEventHandler(async (event) => {
 
   if (role === '') {
     return sendRedirect(event, `/login?next=${encodeURIComponent(path)}`, 302)
+  }
+  // /services is where anybody sees the services they own, so a session is
+  // enough there. /users is admin only.
+  if (needsAdmin && role !== 'admin') {
+    return sendRedirect(event, '/', 302)
   }
 })

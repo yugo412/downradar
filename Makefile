@@ -10,9 +10,9 @@ COMPOSE := docker compose -f compose.dev.yml
 # with a directory in the repository. Without this, make finds that directory,
 # decides the target is up to date, and reports success without running
 # anything.
-.PHONY: help dev up reload down reset restart-api reset-limits logs logs-api \
-        logs-web ps psql sql shell-api shell-web test test-local fmt vet tidy \
-        deploy mail
+.PHONY: help dev up reload rebuild down reset restart-api reset-limits logs \
+        logs-api logs-web ps psql sql shell-api shell-web test test-local fmt \
+        vet tidy deploy mail
 
 help:
 > @grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -25,6 +25,9 @@ up: ## Run every service in the background
 
 reload: ## Recreate containers so changes to .env take effect
 > $(COMPOSE) up -d
+
+rebuild: ## After switching branches: recreate api and web so mounts, profiles and caches are fresh
+> $(COMPOSE) up -d --force-recreate api web
 
 down: ## Stop containers, keep all data
 > $(COMPOSE) down

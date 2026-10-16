@@ -36,7 +36,7 @@ func run(email, name, role, password string, reset bool, log *slog.Logger) error
 	name = strings.TrimSpace(name)
 	role = strings.ToLower(strings.TrimSpace(role))
 
-	if !looksLikeEmail(email) {
+	if !auth.ValidEmail(email) {
 		return fmt.Errorf("%q is not an email address", email)
 	}
 	if !reset {
@@ -122,12 +122,4 @@ func reportPassword(generated bool, password, email string) {
 		return
 	}
 	fmt.Fprintf(os.Stderr, "\npassword for %s: %s\n\n", email, password)
-}
-
-func looksLikeEmail(email string) bool {
-	at := strings.Index(email, "@")
-	if at <= 0 || at == len(email)-1 {
-		return false
-	}
-	return !strings.ContainsAny(email, " \t\r\n") && strings.Contains(email[at+1:], ".")
 }
