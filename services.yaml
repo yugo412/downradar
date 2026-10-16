@@ -66,3 +66,13 @@ profiles:
     endpoint: /1.0/status/
     poll_interval_seconds: 300
     active_interval_seconds: 60
+
+  # Sorry is a platform: Pingdom, Postmark and Sorry's own page all answer the
+  # same public API. /api/v1/status gives the page and its overall state,
+  # /api/v1/components the components, and /api/v1/notices the incidents and
+  # maintenance. Components nest one level through parent_id.
+  sorryapp:
+    kind: sorryapp
+    endpoint: /api/v1/
+    poll_interval_seconds: 300
+    active_interval_seconds: 60
