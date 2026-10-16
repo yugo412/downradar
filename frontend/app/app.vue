@@ -51,6 +51,14 @@ async function onSignOut() {
               Users
             </NuxtLink>
 
+            <!-- Alerts stand on their own rather than under the account menu:
+                 they are a thing a person keeps an eye on, not a setting. On a
+                 narrow screen the copy inside the panel below is the one that
+                 shows, so this one is desktop only. -->
+            <NuxtLink v-if="user" to="/alerts" class="btn btn-ghost btn-sm hidden md:inline-flex">
+              Alerts
+            </NuxtLink>
+
             <!-- One menu per concern. Service is where a person manages the
                  services they can see, and the account menu belongs to whoever
                  is signed in. -->
@@ -146,6 +154,10 @@ async function onSignOut() {
               v-if="openMenu === 'nav'"
               class="absolute inset-x-0 top-full z-50 border-b border-base-300 bg-base-100 px-4 pb-4 shadow-lg md:hidden"
             >
+              <NuxtLink to="/alerts" class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200">
+                Alerts
+              </NuxtLink>
+
               <p class="px-3 pb-1 pt-3 text-xs uppercase tracking-wide opacity-50">Service</p>
               <NuxtLink
                 v-for="l in serviceLinks"

@@ -27,12 +27,14 @@ type handlers struct {
 	detector        *detect.Detector
 	readLimiter     *ipLimiter
 	suggestLimiter  *ipLimiter
+	alertLimiter    *ipLimiter
 	loginLimiter    *ipLimiter
 	passwordLimiter *ipLimiter
 	internalToken   string
 	sessionCookie   string
 	sessionTTL      time.Duration
 	sessionSecure   bool
+	alertsEnabled   bool
 	dummyHash       string
 }
 
@@ -41,6 +43,8 @@ type Options struct {
 	RateLimitBurst      int
 	SuggestPerHour      int
 	SuggestBurst        int
+	AlertPerHour        int
+	AlertBurst          int
 	LoginPerHour        int
 	LoginBurst          int
 	PasswordPerHour     int
@@ -50,6 +54,7 @@ type Options struct {
 	SessionCookie       string
 	SessionTTL          time.Duration
 	SessionCookieSecure bool
+	AlertsEnabled       bool
 }
 
 func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
@@ -61,6 +66,11 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	suggestInterval := time.Hour
 	if opts.SuggestPerHour > 0 {
 		suggestInterval = time.Hour / time.Duration(opts.SuggestPerHour)
+	}
+
+	alertInterval := time.Hour
+	if opts.AlertPerHour > 0 {
+		alertInterval = time.Hour / time.Duration(opts.AlertPerHour)
 	}
 
 	loginInterval := time.Hour
@@ -89,12 +99,14 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 		detector:        detect.New(opts.Catalog),
 		readLimiter:     newIPLimiter(readInterval, opts.RateLimitBurst),
 		suggestLimiter:  newIPLimiter(suggestInterval, opts.SuggestBurst),
+		alertLimiter:    newIPLimiter(alertInterval, opts.AlertBurst),
 		loginLimiter:    newIPLimiter(loginInterval, opts.LoginBurst),
 		passwordLimiter: newIPLimiter(passwordInterval, opts.PasswordBurst),
 		internalToken:   opts.InternalToken,
 		sessionCookie:   cookieName,
 		sessionTTL:      sessionTTL,
 		sessionSecure:   opts.SessionCookieSecure,
+		alertsEnabled:   opts.AlertsEnabled,
 		dummyHash:       auth.DummyHash(),
 	}
 
@@ -107,6 +119,29 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	mux.HandleFunc("OPTIONS /api/v1/vendors/{slug}", h.publicRead(h.getVendor))
 	mux.HandleFunc("POST /api/v1/suggest", h.publicWrite(h.suggest))
 	mux.HandleFunc("OPTIONS /api/v1/suggest", h.publicWrite(h.suggest))
+
+	// Alerts need no account, so they are public like the catalogue. The bell on
+	// a vendor page writes one; the two token endpoints are what the unsubscribe
+	// link in the email footer reaches.
+	mux.HandleFunc("POST /api/v1/vendors/{slug}/alerts", h.publicAlert(h.subscribeAlert))
+	mux.HandleFunc("OPTIONS /api/v1/vendors/{slug}/alerts", h.publicAlert(h.subscribeAlert))
+	mux.HandleFunc("GET /api/v1/alerts/{token}", h.publicRead(h.getAlert))
+	mux.HandleFunc("DELETE /api/v1/alerts/{token}", h.publicRead(h.unsubscribeAlert))
+	mux.HandleFunc("OPTIONS /api/v1/alerts/{token}", h.publicRead(h.getAlert))
+
+	// The same path, for somebody signed in: the bell reads whether they already
+	// have an alert here, and the modal's button stops it. Both answer for one
+	// session only, so neither is cacheable.
+	mux.HandleFunc("GET /api/v1/vendors/{slug}/alerts", h.requireAuth(h.getUserAlert))
+	mux.HandleFunc("DELETE /api/v1/vendors/{slug}/alerts", h.requireAuth(h.deleteUserAlert))
+
+	// The account screen lists everything one person has asked to be told about
+	// and lets them pause, resume, end or remove any of it. It lives under auth
+	// with the rest of the account, and {id} is the row's own id rather than the
+	// token, because the session is what proves it is theirs.
+	mux.HandleFunc("GET /api/v1/auth/alerts", h.requireAuth(h.listUserAlerts))
+	mux.HandleFunc("PATCH /api/v1/auth/alerts/{id}", h.requireAuth(h.setUserAlertState))
+	mux.HandleFunc("DELETE /api/v1/auth/alerts/{id}", h.requireAuth(h.deleteUserAlertRow))
 
 	mux.HandleFunc("POST /api/v1/auth/login",
 		h.authEndpoint(h.limited(h.loginLimiter, false,
@@ -163,10 +198,18 @@ func (h *handlers) publicWrite(next http.HandlerFunc) http.HandlerFunc {
 		"you have sent several suggestions already, please try again later", next)
 }
 
+// publicAlert throttles the subscribe endpoint. It is a write that sends email,
+// so it gets its own budget rather than sharing the one for suggestions, and the
+// site's own proxy is not counted, exactly as the other public endpoints do it.
+func (h *handlers) publicAlert(next http.HandlerFunc) http.HandlerFunc {
+	return h.publicEndpoint(h.alertLimiter, true,
+		"you have subscribed to several alerts already, please try again later", next)
+}
+
 func (h *handlers) publicEndpoint(limiter *ipLimiter, skipInternal bool, message string, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type")
 		w.Header().Set("Access-Control-Max-Age", "86400")
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const props = withDefaults(defineProps<{ status: string; size?: 'sm' | 'md' }>(), {
+const props = withDefaults(defineProps<{ status: string; size?: 'xs' | 'sm' | 'md' }>(), {
   size: 'md',
 })
 
@@ -13,14 +13,22 @@ const META: Record<string, { label: string; cls: string }> = {
 }
 
 const meta = computed(() => META[props.status] ?? META.unknown!)
+
+const sizeClass = computed(() => {
+  switch (props.size) {
+    case 'xs':
+      return 'badge-xs'
+    case 'sm':
+      return 'badge-sm'
+    default:
+      return 'badge-md'
+  }
+})
 </script>
 
 <template>
-  <span
-    class="badge gap-1.5 font-medium"
-    :class="[meta.cls, size === 'sm' ? 'badge-sm' : 'badge-md']"
-  >
-    <span class="inline-block h-1.5 w-1.5 rounded-full bg-current" />
+  <span class="badge font-medium" :class="[meta.cls, sizeClass, size === 'xs' ? 'gap-1' : 'gap-1.5']">
+    <span class="inline-block rounded-full bg-current" :class="size === 'xs' ? 'h-1 w-1' : 'h-1.5 w-1.5'" />
     {{ meta.label }}
   </span>
 </template>

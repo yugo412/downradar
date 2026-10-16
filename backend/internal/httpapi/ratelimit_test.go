@@ -248,7 +248,7 @@ func TestPreflightIsNotCounted(t *testing.T) {
 		if rec.Code != http.StatusNoContent {
 			t.Fatalf("preflight got %d, want 204", rec.Code)
 		}
-		if rec.Header().Get("Access-Control-Allow-Methods") != "GET, POST, OPTIONS" {
+		if rec.Header().Get("Access-Control-Allow-Methods") != "GET, POST, DELETE, OPTIONS" {
 			t.Errorf("Allow-Methods = %q", rec.Header().Get("Access-Control-Allow-Methods"))
 		}
 	}

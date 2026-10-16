@@ -14,6 +14,8 @@ import (
 	"downradar.info/backend/internal/catalog"
 	"downradar.info/backend/internal/config"
 	"downradar.info/backend/internal/httpapi"
+	"downradar.info/backend/internal/mail"
+	"downradar.info/backend/internal/notify"
 	"downradar.info/backend/internal/poller"
 	"downradar.info/backend/internal/store"
 )
@@ -61,6 +63,14 @@ func run() error {
 	p := poller.New(st, cat, cfg.PollConcurrency, cfg.PollTick, log)
 	go p.Run(ctx)
 
+	if cfg.SMTPAddr != "" {
+		sender := mail.NewSMTP(cfg.SMTPAddr, cfg.MailFrom, cfg.SMTPUser, cfg.SMTPPassword, 0)
+		n := notify.New(st, sender, cfg.PublicURL, cfg.AlertSendInterval, log)
+		go n.Run(ctx)
+	} else {
+		log.Warn("alerts are off: SMTP_ADDR is not set, so no email is sent and subscriptions are refused")
+	}
+
 	if cfg.RawPayloadDays > 0 {
 		go runRawPayloadCleanup(ctx, st, time.Duration(cfg.RawPayloadDays)*24*time.Hour, log)
 	}
@@ -74,6 +84,8 @@ func run() error {
 			RateLimitBurst:      cfg.RateLimitBurst,
 			SuggestPerHour:      cfg.SuggestPerHour,
 			SuggestBurst:        cfg.SuggestBurst,
+			AlertPerHour:        cfg.AlertPerHour,
+			AlertBurst:          cfg.AlertBurst,
 			LoginPerHour:        cfg.LoginPerHour,
 			LoginBurst:          cfg.LoginBurst,
 			PasswordPerHour:     cfg.PasswordPerHour,
@@ -83,6 +95,7 @@ func run() error {
 			SessionCookie:       cfg.SessionCookie,
 			SessionTTL:          cfg.SessionTTL,
 			SessionCookieSecure: cfg.SessionCookieSecure,
+			AlertsEnabled:       cfg.SMTPAddr != "",
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,

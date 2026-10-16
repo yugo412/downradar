@@ -45,6 +45,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-downradar}:${POSTGRES_PASSWORD:-downradar}@db:5432/${POSTGRES_DB:-downradar}?sslmode=disable
       HTTP_ADDR: ":8080"
@@ -71,6 +73,21 @@ services:
       PASSWORD_RATE_LIMIT_BURST: ${PASSWORD_RATE_LIMIT_BURST:-5}
       RAW_PAYLOAD_MIN_INTERVAL: ${RAW_PAYLOAD_MIN_INTERVAL:-1h}
       RAW_PAYLOAD_RETENTION_DAYS: ${RAW_PAYLOAD_RETENTION_DAYS:-7}
+      # Alerts go out over SMTP. Mailpit catches them in development and shows
+      # them at http://localhost:8026. Without SMTP_ADDR the feature is off: the
+      # API refuses subscriptions rather than taking them and sending nothing.
+      SMTP_ADDR: ${SMTP_ADDR:-mailpit:1025}
+      # Mailpit takes mail without a login, so both stay empty locally. They are
+      # here so a real server can be pointed at without touching this file.
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-DownRadar <alerts@downradar.test>}
+      # A background sender has no request to read the site address from, so the
+      # links it writes into an email come from here.
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:3000}
+      ALERT_SEND_INTERVAL: ${ALERT_SEND_INTERVAL:-5s}
+      ALERT_RATE_LIMIT_PER_HOUR: ${ALERT_RATE_LIMIT_PER_HOUR:-6}
+      ALERT_RATE_LIMIT_BURST: ${ALERT_RATE_LIMIT_BURST:-5}
     ports:
       - "8080:8080"
     volumes:
