@@ -294,7 +294,7 @@ useSeoMeta({
             <div class="mt-3 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs opacity-60">
               <span>{{ v.components }} components</span>
               <span>
-                {{ timeAgo(v.changedAt) }} in this state &middot; checked {{ timeAgo(v.lastPolledAt) }}
+                <LiveAgo :at="v.changedAt" /> in this state &middot; checked <LiveAgo :at="v.lastPolledAt" />
               </span>
             </div>
           </div>

@@ -1,9 +1,11 @@
-export function timeAgo(iso?: string | null): string {
+// The reference time is a parameter so a caller with a ticking clock can pass
+// its own, which is what makes a rendered value move.
+export function timeAgo(iso?: string | null, now: number = Date.now()): string {
   if (!iso) return '—'
   const then = new Date(iso).getTime()
   if (Number.isNaN(then)) return '—'
 
-  const seconds = Math.max(0, Math.floor((Date.now() - then) / 1000))
+  const seconds = Math.max(0, Math.floor((now - then) / 1000))
   if (seconds < 60) return `${seconds}s ago`
 
   const minutes = Math.floor(seconds / 60)
