@@ -90,6 +90,17 @@ export interface AdminService {
 
 export type Visibility = 'public' | 'private'
 
+export interface AdminUser {
+  id: number
+  email: string
+  name: string
+  role: Role
+  disabledAt?: string | null
+  services: number
+  createdAt: string
+  updatedAt: string
+}
+
 export interface AdminProfile {
   name: string
   kind: string

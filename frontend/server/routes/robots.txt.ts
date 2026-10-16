@@ -9,6 +9,7 @@ export default defineEventHandler((event) => {
     'Allow: /',
     'Disallow: /services',
     'Disallow: /account',
+    'Disallow: /users',
     'Disallow: /login',
     '',
     `Sitemap: ${siteUrl}/sitemap.xml`,

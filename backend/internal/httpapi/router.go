@@ -134,6 +134,12 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	mux.HandleFunc("DELETE /api/v1/services/{slug}", h.requireAuth(h.deleteService))
 	mux.HandleFunc("GET /api/v1/services/{slug}/status", h.requireAuth(h.serviceStatus))
 
+	// Managing people is admin only, moderators included out.
+	admins := []string{auth.RoleAdmin}
+	mux.HandleFunc("GET /api/v1/users", h.requireRole(admins, h.listUsers))
+	mux.HandleFunc("PATCH /api/v1/users/{id}", h.requireRole(admins, h.updateUser))
+	mux.HandleFunc("DELETE /api/v1/users/{id}", h.requireRole(admins, h.deleteUser))
+
 	return recoverer(log, requestLogger(log, securityHeaders(mux)))
 }
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { AdminProfile, ServicePayload } from '~/types/api'
 
-definePageMeta({ middleware: 'admin', ssr: false })
+definePageMeta({ middleware: 'authenticated', ssr: false })
 
 useSeoMeta({ title: 'Add service', robots: 'noindex, nofollow' })
 

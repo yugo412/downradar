@@ -1,6 +1,6 @@
 <script setup lang="ts">
 const { githubRepo } = useRuntimeConfig().public
-const { user, signOut } = useAuth()
+const { user, isAdmin, signOut } = useAuth()
 
 const route = useRoute()
 const openMenu = ref<'service' | 'account' | 'nav' | null>(null)
@@ -47,6 +47,10 @@ async function onSignOut() {
                browser, so rendering this from the server would either leak one
                visitor's session into the cached page or break hydration. -->
           <ClientOnly>
+            <NuxtLink v-if="isAdmin" to="/users" class="btn btn-ghost btn-sm">
+              Users
+            </NuxtLink>
+
             <!-- One menu per concern. Service is where a person manages the
                  services they can see, and the account menu belongs to whoever
                  is signed in. -->

@@ -1,5 +1,5 @@
-// Client side only. The server has already been checked by
-// server/middleware/admin-guard.ts, which is the one that can read the cookie.
+// Client side only, and admin only: a moderator looks after the service
+// catalogue, not after people. The server half is in session-guard.ts.
 export default defineNuxtRouteMiddleware(async (to) => {
   if (import.meta.server) return
 
@@ -12,7 +12,7 @@ export default defineNuxtRouteMiddleware(async (to) => {
   if (!user.value) {
     return navigateTo(`/login?next=${encodeURIComponent(to.fullPath)}`)
   }
-  if (user.value.role !== 'admin' && user.value.role !== 'moderator') {
+  if (user.value.role !== 'admin') {
     return navigateTo('/')
   }
 })

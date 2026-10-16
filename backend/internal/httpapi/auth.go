@@ -197,6 +197,14 @@ func (h *handlers) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A disabled account gets the same answer as a wrong password, so the screen
+	// does not reveal which accounts exist.
+	if user.Disabled() {
+		h.log.Warn("sign in refused, account disabled", "email", email, "ip", h.clientIP(r))
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid email or password"})
+		return
+	}
+
 	token, err := auth.NewToken()
 	if err != nil {
 		h.fail(w, r, err)

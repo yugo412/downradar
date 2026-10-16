@@ -256,3 +256,143 @@ func TestDeleteOtherSessionsKeepsTheOneGiven(t *testing.T) {
 		t.Errorf("err = %v, want the other session to be gone", err)
 	}
 }
+
+func TestListUsersCountsWhatEachAccountOwns(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	owner := newTestUser(t, st, "subscriber")
+	newPrivateService(t, st, owner)
+
+	users, err := st.ListUsers(ctx)
+	if err != nil {
+		t.Fatalf("ListUsers: %v", err)
+	}
+
+	var found bool
+	for _, u := range users {
+		if u.ID != owner.ID {
+			continue
+		}
+		found = true
+		if u.Services != 1 {
+			t.Errorf("services = %d, want 1", u.Services)
+		}
+		if u.Disabled() {
+			t.Error("a fresh account should not be disabled")
+		}
+	}
+	if !found {
+		t.Error("the account is missing from the list")
+	}
+}
+
+func TestSetUserEmailAndRole(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	first := newTestUser(t, st, "subscriber")
+	second := newTestUser(t, st, "subscriber")
+
+	newEmail := "zz-renamed-" + uniqueTestEmail()
+	t.Cleanup(func() { dropTestUser(context.Background(), st, newEmail) })
+
+	if err := st.SetUserEmail(ctx, first.ID, newEmail); err != nil {
+		t.Fatalf("SetUserEmail: %v", err)
+	}
+	if err := st.SetUserRole(ctx, first.ID, "moderator"); err != nil {
+		t.Fatalf("SetUserRole: %v", err)
+	}
+
+	found, err := st.UserByID(ctx, first.ID)
+	if err != nil {
+		t.Fatalf("UserByID: %v", err)
+	}
+	if found.Email != newEmail || found.Role != "moderator" {
+		t.Errorf("email/role = %q/%q", found.Email, found.Role)
+	}
+
+	// The unique index is on lower(email), so a taken address has to be refused
+	// however it is capitalised.
+	if err := st.SetUserEmail(ctx, second.ID, strings.ToUpper(newEmail)); !errors.Is(err, ErrEmailTaken) {
+		t.Errorf("err = %v, want ErrEmailTaken", err)
+	}
+}
+
+func TestDisablingAnAccountEndsItsAccess(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	user := newTestUser(t, st, "moderator")
+	tokenHash := testTokenHash("live-session")
+	if err := st.CreateSession(ctx, tokenHash, user.ID, time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	if _, err := st.SessionUser(ctx, tokenHash); err != nil {
+		t.Fatalf("the session should work before disabling: %v", err)
+	}
+
+	if err := st.SetUserDisabled(ctx, user.ID, true); err != nil {
+		t.Fatalf("SetUserDisabled: %v", err)
+	}
+	if _, err := st.SessionUser(ctx, tokenHash); !errors.Is(err, ErrNotFound) {
+		t.Errorf("err = %v, want a disabled account's session to stop resolving", err)
+	}
+
+	// And back on again, which is the whole point of disabling over deleting.
+	if err := st.SetUserDisabled(ctx, user.ID, false); err != nil {
+		t.Fatalf("SetUserDisabled: %v", err)
+	}
+	if _, err := st.SessionUser(ctx, tokenHash); err != nil {
+		t.Errorf("the session should resolve again after re-enabling: %v", err)
+	}
+}
+
+func TestDeletingAnAccountTakesItsPrivateServices(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	owner := newTestUser(t, st, "subscriber")
+	slug := newPrivateService(t, st, owner)
+
+	if err := st.DeleteUser(ctx, owner.ID); err != nil {
+		t.Fatalf("DeleteUser: %v", err)
+	}
+	if _, err := st.UserByID(ctx, owner.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("err = %v, want the account gone", err)
+	}
+	if _, err := st.AdminGetService(ctx, slug); !errors.Is(err, ErrNotFound) {
+		t.Errorf("err = %v, want the private service to go with its owner", err)
+	}
+}
+
+func TestCountEnabledAdmins(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	before, err := st.CountEnabledAdmins(ctx)
+	if err != nil {
+		t.Fatalf("CountEnabledAdmins: %v", err)
+	}
+
+	admin := newTestUser(t, st, "admin")
+	after, err := st.CountEnabledAdmins(ctx)
+	if err != nil {
+		t.Fatalf("CountEnabledAdmins: %v", err)
+	}
+	if after != before+1 {
+		t.Errorf("count went from %d to %d, want one more", before, after)
+	}
+
+	if err := st.SetUserDisabled(ctx, admin.ID, true); err != nil {
+		t.Fatalf("SetUserDisabled: %v", err)
+	}
+	disabled, err := st.CountEnabledAdmins(ctx)
+	if err != nil {
+		t.Fatalf("CountEnabledAdmins: %v", err)
+	}
+	if disabled != before {
+		t.Errorf("a disabled admin was still counted: %d, want %d", disabled, before)
+	}
+}
