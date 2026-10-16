@@ -27,6 +27,7 @@ detect:
   - statuspage-v2
   - statusio
   - sorryapp
+  - pagerduty
 
 profiles:
   # One profile serves dozens of vendors. Change the interval here and every
@@ -98,5 +99,17 @@ profiles:
     kind: sorryapp
     description: Pages hosted by Sorry, such as Pingdom and Postmark.
     endpoint: /api/v1/
+    poll_interval_seconds: 300
+    active_interval_seconds: 60
+
+  # PagerDuty runs its own status pages and they are a platform too. The page
+  # publishes a JSON API at its origin: /api/services is the component list,
+  # /api/impacted_services says which of them are in trouble, /api/post_enums is
+  # the vocabulary the page names its states with, and /api/posts is the
+  # incident and maintenance history. Nothing has to be configured per vendor.
+  pagerduty:
+    kind: pagerduty
+    description: PagerDuty status pages, read from the JSON API the page publishes.
+    endpoint: /api/
     poll_interval_seconds: 300
     active_interval_seconds: 60

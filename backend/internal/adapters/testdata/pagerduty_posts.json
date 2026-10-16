@@ -1,0 +1,49 @@
+{
+  "posts": [
+    {
+      "id": "PX7KMD4",
+      "title": "Incident Workflow, SRE Agent, Search, and Status Page Issues",
+      "post_type": "incident",
+      "first_update_at": 1788474115000,
+      "last_update_at": 1788478164000,
+      "is_featured": 0,
+      "starts_at": null,
+      "ends_at": null,
+      "latest_update": {
+        "id": "P0L4XPS",
+        "status_id": "PPFX0EI",
+        "severity_id": "P5WKMQ5",
+        "reported_at": 1788478164000,
+        "impacts": [
+          {
+            "service_id": "P99LI4Q",
+            "severity_id": "PH7XL8Z"
+          }
+        ]
+      }
+    },
+    {
+      "id": "PB7XK2M",
+      "title": "Elevated error rates on the Events API",
+      "post_type": "incident",
+      "first_update_at": 1792116000000,
+      "last_update_at": 1792116600000,
+      "is_featured": 1,
+      "starts_at": null,
+      "ends_at": null,
+      "latest_update": {
+        "id": "PSJ2ZFH",
+        "status_id": "PX1626Y",
+        "severity_id": "P1KZLAF",
+        "reported_at": 1792116600000,
+        "impacts": [
+          {
+            "service_id": "PDACBTY",
+            "severity_id": "PDY9KW9"
+          }
+        ]
+      }
+    }
+  ],
+  "continuationToken": null
+}

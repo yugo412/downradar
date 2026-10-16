@@ -1,0 +1,28 @@
+{
+  "services": [
+    {
+      "name": "Runbook Automation",
+      "id": "PFSPYI7",
+      "is_active": true,
+      "display_name": "Runbook Automation",
+      "status_page_id": "P67C5DQ",
+      "business_service_id": "P7FO2UQ"
+    },
+    {
+      "name": "Workflow Automation",
+      "id": "PJ1AZXX",
+      "is_active": true,
+      "display_name": "Workflow Automation",
+      "status_page_id": "P67C5DQ",
+      "business_service_id": "P7ZJRUG"
+    },
+    {
+      "name": "Events API (US)",
+      "id": "PDACBTY",
+      "is_active": true,
+      "display_name": "Events API (US)",
+      "status_page_id": "P67C5DQ",
+      "business_service_id": "PNPW0OI"
+    }
+  ]
+}
