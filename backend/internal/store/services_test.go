@@ -175,7 +175,7 @@ func TestProposeServiceIsNotPolledUntilPublished(t *testing.T) {
 		}
 	}
 
-	if _, err := st.GetVendor(ctx, slug); err == nil {
+	if _, err := st.GetVendor(ctx, slug, Public()); err == nil {
 		t.Error("a proposed vendor must not have a public page")
 	}
 }

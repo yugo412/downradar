@@ -132,6 +132,78 @@ duplicate slug or an internal url is rejected before a row exists. The poller
 trusts the table and skips, with a warning, any row naming a profile that is no
 longer declared.
 
+## How a vendor is published
+
+The suggest form writes a row with `status = 'proposed'`. A proposed row is not
+polled and has no public page. A moderator opens `/services`, filters to
+Proposed, and fills in the url and the profile, because a published row without
+a profile would never be polled.
+
+Deleting a proposal removes the row outright: it has no history worth keeping.
+Deleting a published vendor only deactivates it, so its history survives and it
+can be restored from the Removed filter.
+
+## Private services
+
+A service row can belong to one person instead of to the catalogue. Set
+`owner_id` and it becomes private: still polled, but left out of the public
+list, the vendor pages, the stats and the sitemap. Only its owner and the staff
+can see it.
+
+Visibility is a separate question from status. `status` says whether a row is
+polled, `owner_id` says who may see it, which is why a private service is
+`published`: there is nothing to moderate.
+
+Staff move a service either way from the edit form, so a vendor that only
+matters to one person can be taken out of the catalogue and put back later.
+Everybody else can only add and manage their own, and only as private: the
+public catalogue stays curated.
+
+`/services` shows what the viewer may see. Staff get the catalogue plus every
+private service, everybody else gets only their own. A private service has no
+page on the public site, so its detail lives at `/services/{slug}`, which is
+excluded from the page cache for the same reason as the rest of `/services`.
+
+A private service also appears on the home page for its owner, marked `private`.
+That part is fetched and merged in the browser and never rendered on the server,
+which is what keeps the cached home page byte for byte identical for everybody.
+
+## Staff sign in
+
+There is no registration form and no link to the login page. Accounts are made
+from the shell, and `/login` is reached by typing it:
+
+```bash
+cd backend
+go run ./cmd/user -email you@example.com -name "Your Name" -role admin
+go run ./cmd/user -email you@example.com -reset          # new password
+```
+
+With no `-password` the command generates one and prints it once. `-role` takes
+`admin`, `moderator` or `subscriber`.
+
+| Role | Can do |
+| --- | --- |
+| `admin` | everything, including removing a published service |
+| `moderator` | add, edit, publish, and delete a proposal; cannot remove a published service |
+| `subscriber` | add and manage services of their own, which stay private |
+
+Sessions live in an httpOnly, `SameSite=Lax` cookie, and only the hash of the
+token is stored, so a database dump does not hand out working sessions. A
+password reset ends every session the old password opened.
+
+Everyone who is signed in gets their own menu, separate from the Service one:
+`/account/profile` changes the display name, and `/account/password` changes the
+password. The email cannot be changed from there. Changing a password signs out
+every other device and keeps the one that asked, so nobody is thrown out of the
+page they are standing on. Both endpoints only ask for a session, not a role,
+which is what the subscriber role will need.
+
+The management screens render on the client only, so a session never ends up in
+cached HTML. `server/middleware/session-guard.ts` rejects an unauthorised request
+on the server before anything is rendered, and the API checks the role again on
+every call.
+
 ## Architecture notes
 
 - **The poller reads the vendor list from the table on every cycle.** That is
@@ -156,7 +228,9 @@ seed/vendors.yaml         bootstrap vendors, read once by cmd/seed
 backend/                  Go: poller, adapters, store, API
   cmd/server/             entrypoint
   cmd/seed/               imports the bootstrap file into the table
+  cmd/user/               creates an account, or resets its password
   internal/adapters/      one adapter per platform, not per vendor
+  internal/auth/          roles, bcrypt, session tokens
   internal/catalog/       services.yaml -> profiles, with validation
   internal/seed/          seed/vendors.yaml -> targets, with validation
   internal/poller/        reads the table each cycle, scheduling, worker pool
@@ -164,8 +238,9 @@ backend/                  Go: poller, adapters, store, API
   db/migrations/          embedded .sql migrations
 
 frontend/                 Nuxt 4 + Vue 3 + TypeScript + DaisyUI
-  app/pages/              index and per-vendor pages
-  app/components/         StatusBadge and friends
+  app/pages/              index, per-vendor, login, account, and the service screens
+  app/components/         StatusBadge, the status view, the service form and its dialogs
+  server/middleware/      the api proxy, and the session guard on /services and /account
 
 compose.dev.yml           db, mailpit, api, web
 ```

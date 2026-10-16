@@ -9,10 +9,17 @@ export default defineEventHandler((event) => {
   // every visitor would share one rate limit bucket.
   const forwardedFor = getRequestHeader(event, 'x-forwarded-for')
 
+  // Host cannot be set on a fetch request, it is a forbidden header name, so
+  // the host the visitor actually used travels in X-Forwarded-Host instead.
+  // Without it the API would compare the browser's Origin header against its
+  // own address and refuse every write.
+  const host = getRequestHeader(event, 'host')
+
   return proxyRequest(event, `${config.apiBase}${event.path}`, {
     headers: {
       'x-internal-token': config.internalToken,
       accept: 'application/json',
+      ...(host ? { 'x-forwarded-host': host } : {}),
       ...(forwardedFor ? { 'x-forwarded-for': forwardedFor } : {}),
     },
   })

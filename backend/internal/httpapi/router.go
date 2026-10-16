@@ -14,23 +14,40 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"downradar.info/backend/internal/auth"
+	"downradar.info/backend/internal/catalog"
 	"downradar.info/backend/internal/store"
 )
 
 type handlers struct {
-	store          *store.Store
-	log            *slog.Logger
-	readLimiter    *ipLimiter
-	suggestLimiter *ipLimiter
-	internalToken  string
+	store           *store.Store
+	log             *slog.Logger
+	profiles        catalog.Profiles
+	readLimiter     *ipLimiter
+	suggestLimiter  *ipLimiter
+	loginLimiter    *ipLimiter
+	passwordLimiter *ipLimiter
+	internalToken   string
+	sessionCookie   string
+	sessionTTL      time.Duration
+	sessionSecure   bool
+	dummyHash       string
 }
 
 type Options struct {
-	RateLimitPerMinute int
-	RateLimitBurst     int
-	SuggestPerHour     int
-	SuggestBurst       int
-	InternalToken      string
+	RateLimitPerMinute  int
+	RateLimitBurst      int
+	SuggestPerHour      int
+	SuggestBurst        int
+	LoginPerHour        int
+	LoginBurst          int
+	PasswordPerHour     int
+	PasswordBurst       int
+	InternalToken       string
+	Profiles            catalog.Profiles
+	SessionCookie       string
+	SessionTTL          time.Duration
+	SessionCookieSecure bool
 }
 
 func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
@@ -44,12 +61,38 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 		suggestInterval = time.Hour / time.Duration(opts.SuggestPerHour)
 	}
 
+	loginInterval := time.Hour
+	if opts.LoginPerHour > 0 {
+		loginInterval = time.Hour / time.Duration(opts.LoginPerHour)
+	}
+
+	passwordInterval := time.Hour
+	if opts.PasswordPerHour > 0 {
+		passwordInterval = time.Hour / time.Duration(opts.PasswordPerHour)
+	}
+
+	cookieName := opts.SessionCookie
+	if cookieName == "" {
+		cookieName = "dr_session"
+	}
+	sessionTTL := opts.SessionTTL
+	if sessionTTL <= 0 {
+		sessionTTL = 30 * 24 * time.Hour
+	}
+
 	h := &handlers{
-		store:          st,
-		log:            log,
-		readLimiter:    newIPLimiter(readInterval, opts.RateLimitBurst),
-		suggestLimiter: newIPLimiter(suggestInterval, opts.SuggestBurst),
-		internalToken:  opts.InternalToken,
+		store:           st,
+		log:             log,
+		profiles:        opts.Profiles,
+		readLimiter:     newIPLimiter(readInterval, opts.RateLimitBurst),
+		suggestLimiter:  newIPLimiter(suggestInterval, opts.SuggestBurst),
+		loginLimiter:    newIPLimiter(loginInterval, opts.LoginBurst),
+		passwordLimiter: newIPLimiter(passwordInterval, opts.PasswordBurst),
+		internalToken:   opts.InternalToken,
+		sessionCookie:   cookieName,
+		sessionTTL:      sessionTTL,
+		sessionSecure:   opts.SessionCookieSecure,
+		dummyHash:       auth.DummyHash(),
 	}
 
 	mux := http.NewServeMux()
@@ -61,6 +104,35 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	mux.HandleFunc("OPTIONS /api/v1/vendors/{slug}", h.publicRead(h.getVendor))
 	mux.HandleFunc("POST /api/v1/suggest", h.publicWrite(h.suggest))
 	mux.HandleFunc("OPTIONS /api/v1/suggest", h.publicWrite(h.suggest))
+
+	mux.HandleFunc("POST /api/v1/auth/login",
+		h.authEndpoint(h.limited(h.loginLimiter, false,
+			"too many sign in attempts, please try again later", h.login)))
+	mux.HandleFunc("POST /api/v1/auth/logout",
+		h.authEndpoint(h.limited(h.readLimiter, true,
+			"rate limit exceeded, please try again in a moment", h.logout)))
+	mux.HandleFunc("GET /api/v1/auth/me",
+		h.authEndpoint(h.limited(h.readLimiter, true,
+			"rate limit exceeded, please try again in a moment", h.me)))
+
+	// The account screens are for every role, so they only ask for a session.
+	mux.HandleFunc("PATCH /api/v1/auth/profile", h.requireAuth(h.updateProfile))
+	mux.HandleFunc("POST /api/v1/auth/password",
+		h.requireAuth(h.limited(h.passwordLimiter, false,
+			"too many attempts, please try again later", h.changePassword)))
+
+	mux.HandleFunc("GET /api/v1/profiles", h.requireAuth(h.listProfiles))
+	mux.HandleFunc("GET /api/v1/categories", h.requireAuth(h.listCategories))
+
+	// The service endpoints ask for a session, not a role: everybody manages
+	// their own services, and the handlers decide who may touch the catalogue.
+	mux.HandleFunc("GET /api/v1/services", h.requireAuth(h.listServices))
+	mux.HandleFunc("GET /api/v1/services/mine", h.requireAuth(h.myServices))
+	mux.HandleFunc("POST /api/v1/services", h.requireAuth(h.createService))
+	mux.HandleFunc("GET /api/v1/services/{slug}", h.requireAuth(h.getService))
+	mux.HandleFunc("PATCH /api/v1/services/{slug}", h.requireAuth(h.updateService))
+	mux.HandleFunc("DELETE /api/v1/services/{slug}", h.requireAuth(h.deleteService))
+	mux.HandleFunc("GET /api/v1/services/{slug}/status", h.requireAuth(h.serviceStatus))
 
 	return recoverer(log, requestLogger(log, securityHeaders(mux)))
 }
@@ -146,8 +218,9 @@ func (h *handlers) listVendors(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handlers) getVendor(w http.ResponseWriter, r *http.Request) {
-	slug := r.PathValue("slug")
-	v, err := h.store.GetVendor(r.Context(), slug)
+	// The public endpoint always asks as the public, so a private service is not
+	// reachable here no matter who is signed in.
+	detail, err := h.store.GetVendor(r.Context(), r.PathValue("slug"), store.Public())
 	if errors.Is(err, store.ErrNotFound) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "vendor not found"})
 		return
@@ -156,7 +229,7 @@ func (h *handlers) getVendor(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, v)
+	writeJSON(w, http.StatusOK, detail)
 }
 
 type suggestRequest struct {

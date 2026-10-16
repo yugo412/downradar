@@ -34,6 +34,9 @@ func integrationStoreWith(t *testing.T, opts Options) *Store {
 	return st
 }
 
+// integrationStore connects to the database named by DATABASE_URL and applies
+// the migrations. CI gives it an empty database, so a test must create every row
+// it needs and never assume the development seed is loaded.
 func integrationStore(t *testing.T) *Store {
 	t.Helper()
 	return integrationStoreWith(t, Options{})

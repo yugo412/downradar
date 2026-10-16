@@ -4,6 +4,32 @@ import type { Stats, Vendor } from '~/types/api'
 const { data, error } = await useFetch<{ vendors: Vendor[]; count: number }>('/api/v1/vendors')
 const { data: stats } = await useFetch<Stats>('/api/v1/stats')
 
+// The catalogue is rendered on the server and then cached for a minute, so a
+// private service must never be part of it: the owner's own services are
+// fetched and merged in the browser instead. A cached page therefore stays
+// public, no matter who loaded it.
+const { user, loaded } = useAuth()
+const myVendors = ref<Vendor[]>([])
+
+watch(
+  [loaded, user],
+  async () => {
+    if (!loaded.value || !user.value) {
+      myVendors.value = []
+      return
+    }
+    try {
+      const res = await $fetch<{ vendors: Vendor[] }>('/api/v1/services/mine')
+      myVendors.value = res.vendors
+    } catch {
+      myVendors.value = []
+    }
+  },
+  { immediate: true },
+)
+
+const privateSlugs = computed(() => new Set(myVendors.value.map((v) => v.slug)))
+
 const route = useRoute()
 
 // The inputs are bound to a local ref, not to the route query. navigateTo is
@@ -35,7 +61,10 @@ watch(
 
 const worstFirst = ref(true)
 
-const vendors = computed<Vendor[]>(() => data.value?.vendors ?? [])
+const vendors = computed<Vendor[]>(() => [
+  ...(data.value?.vendors ?? []),
+  ...myVendors.value,
+])
 
 const visible = computed(() => {
   const q = query.value.trim().toLowerCase()
@@ -238,7 +267,7 @@ useSeoMeta({
         <NuxtLink
           v-for="v in visible"
           :key="v.slug"
-          :to="`/${v.slug}`"
+          :to="privateSlugs.has(v.slug) ? `/services/${v.slug}` : `/${v.slug}`"
           class="card bg-base-100 border border-base-300 hover:border-primary transition-colors"
         >
           <div class="card-body p-4">
@@ -249,7 +278,16 @@ useSeoMeta({
                   <h2 class="text-lg font-semibold leading-snug">{{ v.name }}</h2>
                   <StatusBadge :status="v.status" size="sm" class="shrink-0" />
                 </div>
-                <p class="text-xs opacity-60">{{ v.category || 'service' }}</p>
+                <p class="flex items-center gap-1.5 text-xs opacity-60">
+                  <span>{{ v.category || 'service' }}</span>
+                  <span
+                    v-if="privateSlugs.has(v.slug)"
+                    class="badge badge-ghost badge-sm"
+                    title="Private: only you can see this one."
+                  >
+                    private
+                  </span>
+                </p>
               </div>
             </div>
 

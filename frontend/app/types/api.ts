@@ -52,3 +52,59 @@ export interface Stats {
 }
 
 export type Health = 'ok' | 'degraded' | 'partial' | 'major' | 'maintenance' | 'unknown'
+
+export type Role = 'admin' | 'moderator' | 'subscriber'
+
+export interface AuthUser {
+  id: number
+  email: string
+  name: string
+  role: Role
+}
+
+export type ServiceStatus = 'proposed' | 'published' | 'rejected'
+
+export interface AdminService {
+  slug: string
+  name: string
+  url: string
+  category?: string
+  logoUrl?: string
+  profile: string
+  endpoint?: string
+  aliases: string[]
+  allowSharedPage: boolean
+  pollIntervalSeconds: number
+  activeIntervalSeconds: number
+  status: ServiceStatus
+  active: boolean
+  ownerId?: number
+  ownerName?: string
+  ownerEmail?: string
+  lastPolledAt?: string | null
+  createdAt: string
+  updatedAt: string
+  components: number
+  hasHistory: boolean
+}
+
+export type Visibility = 'public' | 'private'
+
+export interface AdminProfile {
+  name: string
+  kind: string
+  endpoint?: string
+  pollIntervalSeconds: number
+  activeIntervalSeconds: number
+}
+
+export interface ServicePayload {
+  name: string
+  url: string
+  profile: string
+  category: string
+  logoUrl: string
+  aliases: string[]
+  status?: ServiceStatus
+  visibility?: Visibility
+}

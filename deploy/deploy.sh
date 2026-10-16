@@ -39,6 +39,8 @@ echo "==> building the api and the seed command for linux/amd64"
     go build -trimpath -ldflags="-s -w" -o "$STAGE/downradar-api" ./cmd/server
   CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -trimpath -ldflags="-s -w" -o "$STAGE/downradar-seed" ./cmd/seed
+  CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -trimpath -ldflags="-s -w" -o "$STAGE/downradar-user" ./cmd/user
 )
 
 echo "==> building the web bundle"

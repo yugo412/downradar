@@ -103,13 +103,13 @@ func (s *Store) uniqueSlug(ctx context.Context, base string) (string, error) {
 		if err := s.pool.QueryRow(ctx,
 			`select exists (select 1 from services where slug = $1)`, candidate,
 		).Scan(&exists); err != nil {
-			return "", fmt.Errorf("propose: check slug %s: %w", candidate, err)
+			return "", fmt.Errorf("slug: check %s: %w", candidate, err)
 		}
 		if !exists {
 			return candidate, nil
 		}
 	}
-	return "", fmt.Errorf("propose: no free slug for %q", base)
+	return "", fmt.Errorf("slug: no free slug for %q", base)
 }
 
 const maxSlugLength = 60
