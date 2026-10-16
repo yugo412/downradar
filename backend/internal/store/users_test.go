@@ -264,7 +264,7 @@ func TestListUsersCountsWhatEachAccountOwns(t *testing.T) {
 	owner := newTestUser(t, st, "subscriber")
 	newPrivateService(t, st, owner)
 
-	users, err := st.ListUsers(ctx)
+	users, err := st.ListUsers(ctx, "", "")
 	if err != nil {
 		t.Fatalf("ListUsers: %v", err)
 	}
@@ -395,4 +395,88 @@ func TestCountEnabledAdmins(t *testing.T) {
 	if disabled != before {
 		t.Errorf("a disabled admin was still counted: %d, want %d", disabled, before)
 	}
+}
+
+func containsUser(list []UserView, id int64) bool {
+	for _, u := range list {
+		if u.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func TestListUsersFiltersAndSearches(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	email := fmt.Sprintf("zz-search-%d@example.com", time.Now().UnixNano())
+	user, err := st.CreateUser(ctx, email, "Zz Searchable Person", "subscriber", "h")
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	t.Cleanup(func() { dropTestUser(context.Background(), st, email) })
+
+	cases := []struct {
+		label  string
+		role   string
+		search string
+	}{
+		{"by role", "subscriber", ""},
+		{"by a fragment of the name", "", "searchable"},
+		{"by name ignoring case", "", "SEARCHABLE"},
+		{"by email", "", email},
+		{"by a fragment of the email", "", "zz-search-"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.label, func(t *testing.T) {
+			got, err := st.ListUsers(ctx, tc.role, tc.search)
+			if err != nil {
+				t.Fatalf("ListUsers: %v", err)
+			}
+			if !containsUser(got, user.ID) {
+				t.Errorf("ListUsers(%q, %q) did not return the account", tc.role, tc.search)
+			}
+		})
+	}
+
+	t.Run("the role filter leaves the others out", func(t *testing.T) {
+		got, err := st.ListUsers(ctx, "admin", "")
+		if err != nil {
+			t.Fatalf("ListUsers: %v", err)
+		}
+		if containsUser(got, user.ID) {
+			t.Error("a subscriber came back under the admin filter")
+		}
+		for _, u := range got {
+			if u.Role != "admin" {
+				t.Errorf("%s is not an admin but was returned", u.Email)
+			}
+		}
+	})
+
+	t.Run("a term that matches nothing", func(t *testing.T) {
+		got, err := st.ListUsers(ctx, "", "zz-nothing-matches-this")
+		if err != nil {
+			t.Fatalf("ListUsers: %v", err)
+		}
+		if len(got) != 0 {
+			t.Errorf("got %d accounts, want none", len(got))
+		}
+	})
+
+	t.Run("a percent sign is a literal, not a wildcard", func(t *testing.T) {
+		all, err := st.ListUsers(ctx, "", "")
+		if err != nil {
+			t.Fatalf("ListUsers: %v", err)
+		}
+		wildcard, err := st.ListUsers(ctx, "", "%")
+		if err != nil {
+			t.Fatalf("ListUsers: %v", err)
+		}
+		if len(wildcard) >= len(all) {
+			t.Errorf("searching %% returned %d of %d accounts, so it acted as a wildcard", len(wildcard), len(all))
+		}
+	})
 }

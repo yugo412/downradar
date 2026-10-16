@@ -13,7 +13,22 @@ import (
 )
 
 func (h *handlers) listUsers(w http.ResponseWriter, r *http.Request) {
-	users, err := h.store.ListUsers(r.Context())
+	role := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("role")))
+	if role != "" && !auth.ValidRole(role) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "role must be one of " + strings.Join(auth.Roles(), ", "),
+		})
+		return
+	}
+
+	// A search box is not worth an error message, so a long term is cut short
+	// rather than refused.
+	search := strings.TrimSpace(r.URL.Query().Get("q"))
+	if runes := []rune(search); len(runes) > maxSearchLength {
+		search = string(runes[:maxSearchLength])
+	}
+
+	users, err := h.store.ListUsers(r.Context(), role, search)
 	if err != nil {
 		h.fail(w, r, err)
 		return

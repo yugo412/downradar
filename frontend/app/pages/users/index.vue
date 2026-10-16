@@ -7,11 +7,64 @@ useSeoMeta({ title: 'Users', robots: 'noindex, nofollow' })
 
 const { user: me } = useAuth()
 
+type Filter = 'all' | Role
+
+const filters: { value: Filter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'admin', label: 'Admin' },
+  { value: 'moderator', label: 'Moderator' },
+  { value: 'subscriber', label: 'Subscriber' },
+]
+
+const route = useRoute()
+const router = useRouter()
+
+const requested = String(route.query.role ?? 'all') as Filter
+const filter = ref<Filter>(filters.some((f) => f.value === requested) ? requested : 'all')
+
+// The input keeps its own value and the request is debounced, so typing does not
+// fire one query per keystroke. The URL follows along, so a search is shareable.
+const searchInput = ref(String(route.query.q ?? ''))
+const search = ref(searchInput.value.trim())
+
 const { data, pending, error, refresh } = useFetch<{ users: AdminUser[]; count: number }>(
-  '/api/v1/users',
+  () => `/api/v1/users?role=${filter.value === 'all' ? '' : filter.value}&q=${encodeURIComponent(search.value)}`,
 )
 
 const users = computed(() => data.value?.users ?? [])
+
+function syncUrl() {
+  const query: Record<string, string> = {}
+  if (filter.value !== 'all') query.role = filter.value
+  if (search.value) query.q = search.value
+  router.replace({ query })
+}
+
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+
+watch(searchInput, (value) => {
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => {
+    search.value = value.trim()
+    syncUrl()
+  }, 250)
+})
+
+onBeforeUnmount(() => clearTimeout(searchTimer))
+
+watch(filter, syncUrl)
+
+// Follow the URL when it changes from somewhere else, such as the back button.
+watch(
+  () => route.query.q,
+  (value) => {
+    const next = String(value ?? '')
+    if (next !== searchInput.value.trim()) {
+      searchInput.value = next
+      search.value = next
+    }
+  },
+)
 
 const editing = ref<AdminUser | null>(null)
 const removing = ref<AdminUser | null>(null)
@@ -87,6 +140,33 @@ async function onSaved() {
 
     <p v-if="actionError" role="alert" class="alert alert-error mb-4">{{ actionError }}</p>
 
+    <div class="mb-4 flex flex-wrap items-center gap-3">
+      <input
+        v-model="searchInput"
+        type="search"
+        class="input input-bordered w-full sm:max-w-sm"
+        placeholder="Search by name or email"
+        aria-label="Search accounts"
+      />
+      <span v-if="pending" class="loading loading-spinner loading-sm opacity-60" />
+      <span v-else-if="search" class="text-xs opacity-60">
+        {{ users.length }} match{{ users.length === 1 ? '' : 'es' }}
+      </span>
+    </div>
+
+    <div role="tablist" class="tabs tabs-box mb-4">
+      <button
+        v-for="f in filters"
+        :key="f.value"
+        role="tab"
+        class="tab"
+        :class="{ 'tab-active': filter === f.value }"
+        @click="filter = f.value"
+      >
+        {{ f.label }}
+      </button>
+    </div>
+
     <div v-if="error" role="alert" class="alert alert-error">
       Could not load the accounts. Try again in a moment.
     </div>
@@ -144,7 +224,10 @@ async function onSaved() {
             </td>
           </tr>
           <tr v-if="!users.length">
-            <td colspan="5" class="text-center opacity-60">No accounts yet.</td>
+            <td colspan="5" class="text-center opacity-60">
+              <template v-if="search">Nothing matches &ldquo;{{ search }}&rdquo;.</template>
+              <template v-else>No accounts yet.</template>
+            </td>
           </tr>
         </tbody>
       </table>

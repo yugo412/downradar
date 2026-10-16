@@ -170,14 +170,19 @@ func (s *Store) UserByID(ctx context.Context, id int64) (*User, error) {
 	return u, nil
 }
 
-// ListUsers is the admin screen. It counts owned services, because deleting an
-// account deletes them too.
-func (s *Store) ListUsers(ctx context.Context) ([]UserView, error) {
+// ListUsers is the admin screen. role narrows it to one role and search matches
+// the name or the email, which are the columns the list shows. It counts owned
+// services, because deleting an account deletes them too.
+func (s *Store) ListUsers(ctx context.Context, role, search string) ([]UserView, error) {
 	rows, err := s.pool.Query(ctx, `
 		select `+userColumns+`,
 		       (select count(*) from services s where s.owner_id = u.id)
 		from users u
-		order by u.disabled_at is not null, u.name, u.email`)
+		where ($1 = '' or u.role = $1)
+		  and ($2 = ''
+		       or position(lower($2) in lower(u.name)) > 0
+		       or position(lower($2) in lower(u.email)) > 0)
+		order by u.disabled_at is not null, u.name, u.email`, role, search)
 	if err != nil {
 		return nil, fmt.Errorf("users: list: %w", err)
 	}
