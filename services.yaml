@@ -22,7 +22,8 @@
 #
 # Only platforms that can be recognised from a url alone belong here. A bespoke
 # page (opencode, flashduty, slack) would be probed on every unknown url and
-# never match, so it is left out.
+# never match, so it is left out, and ping is left out because it would match
+# every url there is. It is picked by hand for a service with no status page.
 detect:
   - statuspage-v2
   - statusio
@@ -111,5 +112,16 @@ profiles:
     kind: pagerduty
     description: PagerDuty status pages, read from the JSON API the page publishes.
     endpoint: /api/
+    poll_interval_seconds: 300
+    active_interval_seconds: 60
+
+  # A profile to choose by hand, not one the detect queue can reach: it answers
+  # for any url that is up, so in the queue it would take every page no other
+  # profile could read. There is no status page behind it either, the target is
+  # asked for itself and the answer, or the lack of one, is the report. It is the
+  # profile for a service that has no status page at all.
+  ping:
+    kind: ping
+    description: Watches any web address by asking for it, for a service with no status page.
     poll_interval_seconds: 300
     active_interval_seconds: 60
