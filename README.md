@@ -135,7 +135,9 @@ longer declared.
 A vendor added without a profile is offered to the detect queue: the profiles
 listed under `detect` in `services.yaml` are tried in order and the first one
 whose adapter can read the page wins. The url alone is enough, so its platform
-does not have to be known first.
+does not have to be known first. A service with no status page at all does not
+belong in the queue: `ping` is picked by hand for it, since in the queue it would
+answer for any url that is up and take every page no other profile could read.
 
 ## How a vendor is published
 
@@ -280,9 +282,11 @@ adapter per platform: Atlassian Statuspage, Status.io, Sorry, cron-job.org,
 FlashDuty, PagerDuty and Slack, with a bespoke adapter for OpenCode's own page,
 whose components are slugs and whose incidents have generated ids. The platforms
 that can be recognised from a url alone are also in the detect queue, so a vendor
-can be added before its platform is known. Further platforms (Instatus, RSS, HTML
-scraping) are additional adapters; the adapter interface already separates "how
-to fetch" from "how to interpret".
+can be added before its platform is known. Ping is the profile to pick by hand
+for a service with no status page: it watches the target by asking for it, and a
+request that stops coming back is the outage. Further platforms (Instatus, RSS,
+HTML scraping) are additional adapters; the adapter interface already separates
+"how to fetch" from "how to interpret".
 
 Please respect each provider's `robots.txt` and terms. Attribution and a link
 back to the official status page are shown on every vendor page.
