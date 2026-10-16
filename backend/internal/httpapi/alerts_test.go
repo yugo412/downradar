@@ -384,7 +384,7 @@ func TestUnsubscribeLinkRefusesATokenThatIsNotOne(t *testing.T) {
 	}
 }
 
-func TestAlertEmail(t *testing.T) {
+func TestParseEmail(t *testing.T) {
 	cases := []struct {
 		in      string
 		want    string
@@ -400,15 +400,15 @@ func TestAlertEmail(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		got, problem := alertEmail(tc.in)
+		got, problem := parseEmail(tc.in)
 		if tc.problem == "" {
 			if problem != "" || got != tc.want {
-				t.Errorf("alertEmail(%q) = %q, %q, want %q", tc.in, got, problem, tc.want)
+				t.Errorf("parseEmail(%q) = %q, %q, want %q", tc.in, got, problem, tc.want)
 			}
 			continue
 		}
 		if problem == "" {
-			t.Errorf("alertEmail(%q) = %q, want it refused", tc.in, got)
+			t.Errorf("parseEmail(%q) = %q, want it refused", tc.in, got)
 		}
 	}
 }

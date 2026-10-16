@@ -83,6 +83,10 @@ async function resend() {
               Alerts
             </NuxtLink>
 
+            <NuxtLink to="/contact" class="btn btn-ghost btn-sm hidden md:inline-flex">
+              Contact
+            </NuxtLink>
+
             <!-- A visitor without an account gets these instead of the menus
                  below, and they are hidden on a narrow screen for the same
                  reason: the copies in the panel are the ones that show. -->
@@ -210,6 +214,10 @@ async function resend() {
                   Users
                 </NuxtLink>
 
+                <NuxtLink to="/contact" class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200">
+                  Contact
+                </NuxtLink>
+
                 <template v-if="canManageServices">
                   <p class="px-3 pb-1 pt-3 text-xs uppercase tracking-wide opacity-50">Service</p>
                   <NuxtLink
@@ -253,6 +261,9 @@ async function resend() {
                   class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200"
                 >
                   Create account
+                </NuxtLink>
+                <NuxtLink to="/contact" class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200">
+                  Contact
                 </NuxtLink>
               </template>
             </div>

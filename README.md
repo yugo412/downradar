@@ -275,6 +275,21 @@ somebody else they are out. Both kinds of link are stored hashed, like session
 tokens, so a copy of the table is not a set of working links, and asking for
 another one retires the one before it.
 
+## Contact form
+
+A visitor can write in from `/contact`, which is linked from the navigation and
+from the narrow-screen menu. The form asks for a name, an address, a subject and
+a message, all of them required, and a signed in visitor has the first two filled
+in from their account. The message is mailed to `CONTACT_EMAIL`, which is the
+address the site is run from, and the reply address is set to whoever wrote in,
+so answering is a reply rather than a copy and paste. The subject is prefixed so
+it stands out among the alert and account mail the same inbox receives.
+
+Sending is not queued: the form waits for the mail server, because the person is
+standing on the page waiting to be told it went. It is therefore refused while
+`SMTP_ADDR` is unset, like alerts and account mail, and it has its own rate limit
+so one visitor cannot fill the inbox.
+
 ## Staff sign in
 
 There is no link to the login page from the site, and an administrator is still

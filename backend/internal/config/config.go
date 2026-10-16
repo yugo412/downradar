@@ -32,11 +32,14 @@ type Config struct {
 	SMTPPassword            string
 	MailFrom                string
 	PublicURL               string
+	ContactEmail            string
 	AlertPerHour            int
 	AlertBurst              int
 	AlertLimitPerSubscriber int
 	AccountPerHour          int
 	AccountBurst            int
+	ContactPerHour          int
+	ContactBurst            int
 	AlertSendInterval       time.Duration
 	LogLevel                string
 }
@@ -68,11 +71,14 @@ func Load() Config {
 		SMTPPassword:            env("SMTP_PASSWORD", ""),
 		MailFrom:                env("MAIL_FROM", "DownRadar <alerts@downradar.info>"),
 		PublicURL:               env("PUBLIC_URL", "http://localhost:3000"),
+		ContactEmail:            env("CONTACT_EMAIL", "dedy.yugo.purwanto@gmail.com"),
 		AlertPerHour:            envInt("ALERT_RATE_LIMIT_PER_HOUR", 6),
 		AlertBurst:              envInt("ALERT_RATE_LIMIT_BURST", 5),
 		AlertLimitPerSubscriber: envInt("ALERT_LIMIT_PER_SUBSCRIBER", 10),
 		AccountPerHour:          envInt("ACCOUNT_RATE_LIMIT_PER_HOUR", 5),
 		AccountBurst:            envInt("ACCOUNT_RATE_LIMIT_BURST", 10),
+		ContactPerHour:          envInt("CONTACT_RATE_LIMIT_PER_HOUR", 6),
+		ContactBurst:            envInt("CONTACT_RATE_LIMIT_BURST", 5),
 		AlertSendInterval:       envDuration("ALERT_SEND_INTERVAL", 30*time.Second),
 		LogLevel:                env("LOG_LEVEL", "info"),
 	}

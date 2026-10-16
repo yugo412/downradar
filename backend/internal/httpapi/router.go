@@ -17,6 +17,7 @@ import (
 	"downradar.info/backend/internal/account"
 	"downradar.info/backend/internal/auth"
 	"downradar.info/backend/internal/catalog"
+	"downradar.info/backend/internal/contact"
 	"downradar.info/backend/internal/detect"
 	"downradar.info/backend/internal/store"
 )
@@ -27,10 +28,12 @@ type handlers struct {
 	catalog         catalog.Catalog
 	detector        *detect.Detector
 	accountMailer   *account.Mailer
+	contactMailer   *contact.Mailer
 	readLimiter     *ipLimiter
 	suggestLimiter  *ipLimiter
 	alertLimiter    *ipLimiter
 	accountLimiter  *ipLimiter
+	contactLimiter  *ipLimiter
 	loginLimiter    *ipLimiter
 	passwordLimiter *ipLimiter
 	internalToken   string
@@ -52,6 +55,8 @@ type Options struct {
 	AlertLimitPerSubscriber int
 	AccountPerHour          int
 	AccountBurst            int
+	ContactPerHour          int
+	ContactBurst            int
 	LoginPerHour            int
 	LoginBurst              int
 	PasswordPerHour         int
@@ -59,6 +64,7 @@ type Options struct {
 	InternalToken           string
 	Catalog                 catalog.Catalog
 	AccountMailer           *account.Mailer
+	ContactMailer           *contact.Mailer
 	SessionCookie           string
 	SessionTTL              time.Duration
 	SessionCookieSecure     bool
@@ -84,6 +90,11 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	accountInterval := time.Hour
 	if opts.AccountPerHour > 0 {
 		accountInterval = time.Hour / time.Duration(opts.AccountPerHour)
+	}
+
+	contactInterval := time.Hour
+	if opts.ContactPerHour > 0 {
+		contactInterval = time.Hour / time.Duration(opts.ContactPerHour)
 	}
 
 	loginInterval := time.Hour
@@ -119,10 +130,12 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 		catalog:         opts.Catalog,
 		detector:        detect.New(opts.Catalog),
 		accountMailer:   opts.AccountMailer,
+		contactMailer:   opts.ContactMailer,
 		readLimiter:     newIPLimiter(readInterval, opts.RateLimitBurst),
 		suggestLimiter:  newIPLimiter(suggestInterval, opts.SuggestBurst),
 		alertLimiter:    newIPLimiter(alertInterval, opts.AlertBurst),
 		accountLimiter:  newIPLimiter(accountInterval, opts.AccountBurst),
+		contactLimiter:  newIPLimiter(contactInterval, opts.ContactBurst),
 		loginLimiter:    newIPLimiter(loginInterval, opts.LoginBurst),
 		passwordLimiter: newIPLimiter(passwordInterval, opts.PasswordBurst),
 		internalToken:   opts.InternalToken,
@@ -143,6 +156,8 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	mux.HandleFunc("OPTIONS /api/v1/vendors/{slug}", h.publicRead(h.getVendor))
 	mux.HandleFunc("POST /api/v1/suggest", h.publicWrite(h.suggest))
 	mux.HandleFunc("OPTIONS /api/v1/suggest", h.publicWrite(h.suggest))
+	mux.HandleFunc("POST /api/v1/contact", h.publicContact(h.contact))
+	mux.HandleFunc("OPTIONS /api/v1/contact", h.publicContact(h.contact))
 
 	// Alerts need no account, so they are public like the catalogue. The bell on
 	// a vendor page writes one; the two token endpoints are what the unsubscribe
@@ -250,6 +265,15 @@ func (h *handlers) publicWrite(next http.HandlerFunc) http.HandlerFunc {
 func (h *handlers) publicAlert(next http.HandlerFunc) http.HandlerFunc {
 	return h.publicEndpoint(h.alertLimiter, true,
 		"you have subscribed to several alerts already, please try again later", next)
+}
+
+// publicContact throttles the contact form. It sends email, so it gets its own
+// budget rather than sharing the one for suggestions. Unlike the alert endpoint
+// the site's proxy is not skipped: the real client IP travels with the request,
+// and a form that mails the owner is worth counting per visitor.
+func (h *handlers) publicContact(next http.HandlerFunc) http.HandlerFunc {
+	return h.publicEndpoint(h.contactLimiter, false,
+		"you have sent several messages already, please try again later", next)
 }
 
 func (h *handlers) publicEndpoint(limiter *ipLimiter, skipInternal bool, message string, next http.HandlerFunc) http.HandlerFunc {
