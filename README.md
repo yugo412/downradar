@@ -96,6 +96,12 @@ Services are `downradar-api.service` and `downradar-web.service`, both running
 as the `downradar` user with a memory cap. They read `/var/www/downradar.info/shared/.env`
 via `EnvironmentFile`.
 
+Alerts need three more variables in `shared/.env`: `SMTP_ADDR` for the mail
+server, `MAIL_FROM` for the sender, and `PUBLIC_URL` for the links an email
+carries, which has to be the public address or every unsubscribe link points at
+localhost. Without `SMTP_ADDR` the API starts with the feature off and refuses
+subscriptions instead of taking them and sending nothing.
+
 Two things that are easy to get wrong:
 
 - **Secrets must not be read in `nuxt.config.ts`.** Nuxt inlines those values
@@ -160,6 +166,61 @@ deployed profile does not have to be waited on.
 Deleting a proposal removes the row outright: it has no history worth keeping.
 Deleting a published vendor only deactivates it, so its history survives and it
 can be restored from the Removed filter.
+
+## Alerts
+
+A visitor can ask to be emailed when a vendor changes status. The bell on a
+vendor page opens a modal that takes an address: no account is needed, and a
+subscription belongs to the vendor it was made on.
+
+When the visitor is signed in, the bell also reads back what their account
+already has here. If there is an alert it shows a checked bell and says
+Subscribed, and opening it offers to stop the alert, which is the way out for
+somebody who has not had an email to unsubscribe from yet. An alert made while
+signed out belongs to the address rather than to the account, so the bell does
+not claim it: nothing on the page can say whether that address is theirs.
+
+Signed in visitors also get a screen at `/alerts`, in the navigation beside the
+service menu, listing every subscription their account holds with the address it
+goes to and what it is doing. From there an alert can be paused, which keeps the
+row and stops the email until it is started again, subscribed again after it was
+ended, or deleted outright. Anything still waiting for an address that has just
+been paused or ended is dropped, so starting it again does not deliver last
+week's news. The bell fills the form in with the address of whoever is signed in,
+since that is almost always the one they want.
+
+A visitor who is not signed in gets one alert. With no account behind them the
+address they typed is their whole identity, so that is what the limit is counted
+on, and asking for a second vendor is refused with the name of the vendor that
+address already has an alert for, so there is nothing to guess at, along with a
+pointer to sign in or to unsubscribe from that one. Anyone signed in may have as
+many as they like, and the address they give does not have to be the one on their
+account. The id of a signed in subscriber is recorded with the row, so it can be
+tied to them later without asking again.
+
+An email goes out every time that vendor's overall status changes, in either
+direction, so a recovery is announced as much as an outage. The first status a
+vendor is ever seen in is a baseline rather than a change, so subscribing to one
+that has been up for months does not produce a "it is up" email. Alerts per
+component, and choosing which components or statuses to hear about, are not built
+yet: every subscriber hears about the whole vendor.
+
+Each email ends with an unsubscribe link. It opens a page that asks before it
+acts, because mail clients and link scanners fetch the links they are sent, and a
+link that unsubscribed on a fetch would do it without anyone asking. The link
+carries a token, which is the only handle on the subscription: there is no
+account behind it and no password to lose.
+
+Sending is an outbox rather than something the poller does inline. A status
+change writes one delivery per subscriber in the same transaction that records
+the change, and a loop drains them over SMTP. A mail server that is slow or down
+therefore cannot hold up polling, a delivery that fails is retried a few times
+and then left with its error, and nothing is lost if the process stops between
+the two steps. The feature is off unless `SMTP_ADDR` is set; while it is off the
+API refuses subscriptions, rather than taking them and sending nothing. That
+address is a host and a port: 465 is dialled with TLS from the first byte, which
+is what the port means, and every other port is dialled plainly and upgraded with
+STARTTLS when the server offers it.
 
 ## Private services
 

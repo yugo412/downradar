@@ -189,8 +189,31 @@ func (s *Store) applyServiceState(
 			where service_id = $1`, serviceID, string(status), changedAt); err != nil {
 			return false, fmt.Errorf("apply: update service_state: %w", err)
 		}
+		if err := s.enqueueAlerts(ctx, tx, serviceID, prev, string(status), changedAt); err != nil {
+			return false, err
+		}
 		return true, s.insertEvent(ctx, tx, serviceID, nil, status, changedAt, sourceChangedAt)
 	}
+}
+
+// enqueueAlerts writes one delivery per subscription when a service changes
+// status. It runs in the same transaction as the change itself, so an alert
+// cannot be lost with a crash and cannot be written twice by a retry. A
+// subscription that is paused or was unsubscribed is not written one at all.
+//
+// The first state a service is ever seen in is not a change: nobody is told that
+// a vendor they subscribed to was, as far as we knew, already up. Only a move
+// from one status to another is worth an email.
+func (s *Store) enqueueAlerts(ctx context.Context, tx pgx.Tx, serviceID int64, from, to string, changedAt time.Time) error {
+	if _, err := tx.Exec(ctx, `
+		insert into alert_deliveries (subscription_id, from_status, to_status, changed_at)
+		select id, $2, $3, $4
+		from alert_subscriptions
+		where service_id = $1 and unsubscribed_at is null and paused_at is null`,
+		serviceID, from, to, changedAt); err != nil {
+		return fmt.Errorf("apply: enqueue alerts: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) insertEvent(

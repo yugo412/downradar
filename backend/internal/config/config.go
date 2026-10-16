@@ -27,6 +27,14 @@ type Config struct {
 	InternalToken         string
 	RawPayloadDays        int
 	RawPayloadMinInterval time.Duration
+	SMTPAddr              string
+	SMTPUser              string
+	SMTPPassword          string
+	MailFrom              string
+	PublicURL             string
+	AlertPerHour          int
+	AlertBurst            int
+	AlertSendInterval     time.Duration
 	LogLevel              string
 }
 
@@ -52,6 +60,14 @@ func Load() Config {
 		InternalToken:         env("INTERNAL_TOKEN", ""),
 		RawPayloadDays:        envInt("RAW_PAYLOAD_RETENTION_DAYS", 7),
 		RawPayloadMinInterval: envDuration("RAW_PAYLOAD_MIN_INTERVAL", time.Hour),
+		SMTPAddr:              env("SMTP_ADDR", ""),
+		SMTPUser:              env("SMTP_USER", ""),
+		SMTPPassword:          env("SMTP_PASSWORD", ""),
+		MailFrom:              env("MAIL_FROM", "DownRadar <alerts@downradar.info>"),
+		PublicURL:             env("PUBLIC_URL", "http://localhost:3000"),
+		AlertPerHour:          envInt("ALERT_RATE_LIMIT_PER_HOUR", 6),
+		AlertBurst:            envInt("ALERT_RATE_LIMIT_BURST", 5),
+		AlertSendInterval:     envDuration("ALERT_SEND_INTERVAL", 30*time.Second),
 		LogLevel:              env("LOG_LEVEL", "info"),
 	}
 }

@@ -49,8 +49,33 @@ func New(ctx context.Context, dsn string, opts Options) (*Store, error) {
 
 func (s *Store) Close() { s.pool.Close() }
 
+// migrationLockID is arbitrary but fixed. Two migrators agree on it so that only
+// one of them works at a time.
+const migrationLockID int64 = 85720260116
+
 func (s *Store) Migrate(ctx context.Context) error {
-	_, err := s.pool.Exec(ctx, `
+	// One migrator at a time. Two processes starting together, or the test
+	// packages of one `go test ./...` sharing a database, would otherwise both
+	// decide that a migration is missing and race to apply and record it.
+	//
+	// The lock is taken and released on one connection, because a session level
+	// advisory lock belongs to the session that took it.
+	conn, err := s.pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("store: acquire a connection for the migration lock: %w", err)
+	}
+	defer conn.Release()
+
+	if _, err := conn.Exec(ctx, `select pg_advisory_lock($1)`, migrationLockID); err != nil {
+		return fmt.Errorf("store: take the migration lock: %w", err)
+	}
+	defer func() {
+		// Released on the way out whatever happened, so the next migrator is not
+		// left waiting for this one.
+		_, _ = conn.Exec(context.Background(), `select pg_advisory_unlock($1)`, migrationLockID)
+	}()
+
+	_, err = s.pool.Exec(ctx, `
 		create table if not exists schema_migrations (
 			version    text primary key,
 			applied_at timestamptz not null default now()

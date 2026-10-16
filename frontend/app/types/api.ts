@@ -129,7 +129,35 @@ export interface ServiceCreated {
   visibility: Visibility
 }
 
-export interface ServicePayload {
+// What the unsubscribe page is told about the link it was opened with. The email
+// is masked: the page is reached through a link that can be forwarded.
+export interface AlertSubscription {
+  vendorSlug: string
+  vendorName: string
+  email: string
+  createdAt: string
+  unsubscribedAt?: string | null
+}
+
+// What the bell asks about the signed in visitor: whether their account already
+// has an alert on this vendor, the masked address it goes to, and whether it is
+// paused.
+export interface AlertState {
+  subscribed: boolean
+  email?: string
+  paused?: boolean
+}
+
+// One row on the account's alerts screen.
+export interface AccountAlert {
+  id: number
+  vendorSlug: string
+  vendorName: string
+  vendorStatus: Health
+  email: string
+  state: 'active' | 'paused' | 'unsubscribed'
+  createdAt: string
+}export interface ServicePayload {
   name: string
   url: string
   profile: string

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -43,16 +42,20 @@ func testRouter(t *testing.T) (*store.Store, http.Handler) {
 	// Every request in these tests comes from the same address, so the per-IP
 	// limits would trip part way through and make the result depend on how many
 	// calls a test happens to make. They are the subject of their own tests.
-	router := NewRouter(st, slog.New(slog.NewTextHandler(io.Discard, nil)), Options{
-		Catalog:            catalog.Catalog{},
-		RateLimitPerMinute: 60000,
-		RateLimitBurst:     1000,
-		SuggestPerHour:     36000,
-		SuggestBurst:       1000,
-		LoginPerHour:       36000,
-		LoginBurst:         1000,
-		PasswordPerHour:    36000,
-		PasswordBurst:      1000,
+	router := NewRouter(st, quietLogger(), Options{
+		Catalog:             catalog.Catalog{},
+		RateLimitPerMinute:  60000,
+		RateLimitBurst:      1000,
+		SuggestPerHour:      36000,
+		SuggestBurst:        1000,
+		AlertPerHour:        36000,
+		AlertBurst:          1000,
+		LoginPerHour:        36000,
+		LoginBurst:          1000,
+		PasswordPerHour:     36000,
+		PasswordBurst:       1000,
+		SessionCookieSecure: false,
+		AlertsEnabled:       true,
 	})
 	return st, router
 }
