@@ -78,8 +78,11 @@ services:
       # The vendor registry lives at the repository root so it is easy to
       # find. It is mounted OUTSIDE /app on purpose: mounting it inside the
       # backend bind mount makes Docker create the mountpoint on the host,
-      # which leaves a stray empty backend/services.yaml behind. The API
-      # watches the file and reloads itself, so editing it needs no restart.
+      # which leaves a stray empty backend/services.yaml behind.
+      # The profiles are read once at startup, so a change here needs
+      # `make restart-api`. If the file was replaced rather than edited, the
+      # mount still points at the old inode and the container has to be
+      # recreated instead.
       - ./services.yaml:/etc/downradar/services.yaml:ro
       # The bootstrap file is only read by the seed command and its tests.
       - ./seed:/app/seed:ro

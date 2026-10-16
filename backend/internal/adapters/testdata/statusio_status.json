@@ -1,0 +1,329 @@
+{
+  "result": {
+    "status_overall": {
+      "updated": "2026-10-16T02:00:04.611Z",
+      "status": "Operational",
+      "status_code": 100
+    },
+    "status": [
+      {
+        "id": "52cbb6a6e746d36b13000116",
+        "name": "Public Status Pages",
+        "status": "Operational",
+        "status_code": 100,
+        "containers": [
+          {
+            "id": "52cbb6a5e746d36b13000065",
+            "name": "US-East",
+            "updated": "2026-07-15T04:17:15.467Z",
+            "status": "Operational",
+            "status_code": 100
+          },
+          {
+            "id": "52cbb6a5e746d36b13000062",
+            "name": "US-West",
+            "updated": "2026-07-15T04:17:15.505Z",
+            "status": "Operational",
+            "status_code": 100
+          },
+          {
+            "id": "542228f0ef832a586c000062",
+            "name": "Ireland",
+            "updated": "2026-07-15T04:17:15.431Z",
+            "status": "Operational",
+            "status_code": 100
+          },
+          {
+            "id": "5519e2d62db0a64c4e0000d3",
+            "name": "Toronto",
+            "updated": "2026-07-15T04:17:15.433Z",
+            "status": "Operational",
+            "status_code": 100
+          }
+        ],
+        "updated": "2026-07-15T04:17:15.505Z"
+      },
+      {
+        "id": "691bf59f581add05f1fb3bd9",
+        "name": "Private Status Pages",
+        "status": "Operational",
+        "status_code": 100,
+        "containers": [
+          {
+            "id": "52cbb6a5e746d36b13000065",
+            "name": "US-East",
+            "updated": "2026-07-15T04:17:15.541Z",
+            "status": "Operational",
+            "status_code": 100
+          },
+          {
+            "id": "52cbb6a5e746d36b13000062",
+            "name": "US-West",
+            "updated": "2026-07-15T04:17:15.467Z",
+            "status": "Operational",
+            "status_code": 100
+          },
+          {
+            "id": "542228f0ef832a586c000062",
+            "name": "Ireland",
+            "updated": "2026-07-15T04:17:15.544Z",
+            "status": "Operational",
+            "status_code": 100
+          },
+          {
+            "id": "5519e2d62db0a64c4e0000d3",
+            "name": "Toronto",
+            "updated": "2026-07-15T04:17:15.432Z",
+            "status": "Operational",
+            "status_code": 100
+          }
+        ],
+        "updated": "2026-07-15T04:17:15.544Z"
+      },
+      {
+        "id": "52db5d7217e785692a000091",
+        "name": "Status Notifications",
+        "status": "Operational",
+        "status_code": 100,
+        "containers": [
+          {
+            "id": "5da9d64d2848680c8431b080",
+            "name": "Email",
+            "updated": "2025-10-20T23:39:36.682Z",
+            "status": "Operational",
+            "status_code": 100
+          },
+          {
+            "id": "5da9d651caeed90c64be5e00",
+            "name": "Webhook",
+            "updated": "2025-03-03T15:40:06.657Z",
+            "status": "Operational",
+            "status_code": 100
+          },
+          {
+            "id": "5da9d655caeed90c64be5e01",
+            "name": "SMS",
+            "updated": "2025-03-03T15:40:06.655Z",
+            "status": "Operational",
+            "status_code": 100
+          },
+          {
+            "id": "5da9d667286e580d014f0299",
+            "name": "IRC",
+            "updated": "2025-03-03T15:40:06.658Z",
+            "status": "Operational",
+            "status_code": 100
+          },
+          {
+            "id": "5da9d664fb7b800d0ffbf2d5",
+            "name": "Twitter/X",
+            "updated": "2025-03-03T15:40:06.691Z",
+            "status": "Operational",
+            "status_code": 100
+          },
+          {
+            "id": "60a3f986e5d993052b814ca7",
+            "name": "MS Teams",
+            "updated": "2025-03-03T15:40:06.691Z",
+            "status": "Operational",
+            "status_code": 100
+          },
+          {
+            "id": "5da9d64719830e0ca45d50e8",
+            "name": "Slack",
+            "updated": "2025-03-03T15:40:06.689Z",
+            "status": "Operational",
+            "status_code": 100
+          },
+          {
+            "id": "691bf68fb3ea6205e93851e6",
+            "name": "RSS",
+            "updated": "2025-11-18T04:32:06.946Z",
+            "status": "Operational",
+            "status_code": 100
+          },
+          {
+            "id": "691bf694e55a8105f1495704",
+            "name": "iCalendar",
+            "updated": "2025-11-18T04:32:06.947Z",
+            "status": "Operational",
+            "status_code": 100
+          }
+        ],
+        "updated": "2025-11-18T04:32:06.947Z"
+      },
+      {
+        "id": "52cbb6a6e746d36b13000115",
+        "name": "Developer API",
+        "status": "Operational",
+        "status_code": 100,
+        "containers": [
+          {
+            "id": "52cbb6a5e746d36b13000065",
+            "name": "US-East",
+            "updated": "2026-07-15T04:17:15.469Z",
+            "status": "Operational",
+            "status_code": 100
+          },
+          {
+            "id": "52cbb6a5e746d36b13000062",
+            "name": "US-West",
+            "updated": "2026-07-15T04:17:15.504Z",
+            "status": "Operational",
+            "status_code": 100
+          },
+          {
+            "id": "542228f0ef832a586c000062",
+            "name": "Ireland",
+            "updated": "2026-07-15T04:17:15.506Z",
+            "status": "Operational",
+            "status_code": 100
+          },
+          {
+            "id": "5519e2d62db0a64c4e0000d3",
+            "name": "Toronto",
+            "updated": "2026-07-15T04:17:15.543Z",
+            "status": "Operational",
+            "status_code": 100
+          }
+        ],
+        "updated": "2026-07-15T04:17:15.543Z"
+      },
+      {
+        "id": "59e8c543ed395350bca2da45",
+        "name": "Status API",
+        "status": "Operational",
+        "status_code": 100,
+        "containers": [
+          {
+            "id": "52cbb6a5e746d36b13000065",
+            "name": "US-East",
+            "updated": "2026-07-15T04:17:15.433Z",
+            "status": "Operational",
+            "status_code": 100
+          },
+          {
+            "id": "52cbb6a5e746d36b13000062",
+            "name": "US-West",
+            "updated": "2026-07-15T04:17:15.468Z",
+            "status": "Operational",
+            "status_code": 100
+          },
+          {
+            "id": "542228f0ef832a586c000062",
+            "name": "Ireland",
+            "updated": "2026-07-15T04:17:15.503Z",
+            "status": "Operational",
+            "status_code": 100
+          },
+          {
+            "id": "5519e2d62db0a64c4e0000d3",
+            "name": "Toronto",
+            "updated": "2026-07-15T04:17:15.505Z",
+            "status": "Operational",
+            "status_code": 100
+          }
+        ],
+        "updated": "2026-07-15T04:17:15.505Z"
+      },
+      {
+        "id": "52cbb6a6e746d36b13000114",
+        "name": "Dashboard",
+        "status": "Operational",
+        "status_code": 100,
+        "containers": [
+          {
+            "id": "52cbb6a5e746d36b13000065",
+            "name": "US-East",
+            "updated": "2026-07-15T04:17:15.540Z",
+            "status": "Operational",
+            "status_code": 100
+          },
+          {
+            "id": "52cbb6a5e746d36b13000062",
+            "name": "US-West",
+            "updated": "2026-07-15T04:17:15.434Z",
+            "status": "Operational",
+            "status_code": 100
+          },
+          {
+            "id": "542228f0ef832a586c000062",
+            "name": "Ireland",
+            "updated": "2026-07-15T04:17:15.468Z",
+            "status": "Operational",
+            "status_code": 100
+          },
+          {
+            "id": "5519e2d62db0a64c4e0000d3",
+            "name": "Toronto",
+            "updated": "2026-07-15T04:17:15.545Z",
+            "status": "Operational",
+            "status_code": 100
+          }
+        ],
+        "updated": "2026-07-15T04:17:15.545Z"
+      }
+    ],
+    "incidents": [],
+    "maintenance": {
+      "active": [],
+      "upcoming": [
+        {
+          "_id": "6a5709ac7f1d7d060c5e3b65",
+          "datetime_planned_end": "2026-10-19T04:15:00.000Z",
+          "datetime_planned_start": "2026-10-19T04:00:00.000Z",
+          "name": "Deploy Version 1.8.9",
+          "datetime_open": "2026-07-15T04:16:44.392Z",
+          "messages": [
+            {
+              "details": "We will be deploying the next version of Status.io.\r\n\r\nThere will be no downtime during this maintenance.",
+              "state": 100,
+              "status": 200,
+              "datetime": "2026-07-15T04:16:44.417Z"
+            }
+          ],
+          "containers_affected": [
+            {
+              "_id": "52cbb6a5e746d36b13000065",
+              "name": "US-East"
+            },
+            {
+              "_id": "52cbb6a5e746d36b13000062",
+              "name": "US-West"
+            },
+            {
+              "_id": "542228f0ef832a586c000062",
+              "name": "Ireland"
+            },
+            {
+              "_id": "5519e2d62db0a64c4e0000d3",
+              "name": "Toronto"
+            }
+          ],
+          "components_affected": [
+            {
+              "_id": "52cbb6a6e746d36b13000116",
+              "name": "Public Status Pages"
+            },
+            {
+              "_id": "691bf59f581add05f1fb3bd9",
+              "name": "Private Status Pages"
+            },
+            {
+              "_id": "52cbb6a6e746d36b13000115",
+              "name": "Developer API"
+            },
+            {
+              "_id": "59e8c543ed395350bca2da45",
+              "name": "Status API"
+            },
+            {
+              "_id": "52cbb6a6e746d36b13000114",
+              "name": "Dashboard"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
