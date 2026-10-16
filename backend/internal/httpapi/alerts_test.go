@@ -141,8 +141,8 @@ func TestSubscribeAlertGivesAGuestOneAlert(t *testing.T) {
 		t.Errorf("answer %q does not name %s", body, first)
 	}
 
-	// Anyone signed in may have as many as they like. The address they give does
-	// not have to be the one on their account.
+	// A subscriber may keep a few. The address they give does not have to be the
+	// one on their account.
 	subscriber := testUser(t, st, auth.RoleSubscriber)
 	cookie := sessionFor(t, st, subscriber)
 	if code, body := post(second, cookie); code != http.StatusCreated {
@@ -410,5 +410,115 @@ func TestAlertEmail(t *testing.T) {
 		if problem == "" {
 			t.Errorf("alertEmail(%q) = %q, want it refused", tc.in, got)
 		}
+	}
+}
+
+// A subscriber may keep a few alerts, and the count is per account rather than
+// per address: the address they give does not have to be the one on their
+// account, so counting addresses would let the same person past the cap by
+// typing a different one each time. Staff are not capped.
+func TestSubscriberAlertsAreCapped(t *testing.T) {
+	st, router := testRouter(t)
+
+	subscriber := testUser(t, st, auth.RoleSubscriber)
+	cookie := sessionFor(t, st, subscriber)
+
+	// The default cap, which the router applies when no option is given.
+	const limit = 10
+
+	slugs := make([]string, 0, limit+1)
+	for i := 0; i <= limit; i++ {
+		slugs = append(slugs, alertVendor(t, st))
+	}
+
+	subscribe := func(slug, cookie string) (int, string) {
+		rec := call(t, router, http.MethodPost, "/api/v1/vendors/"+slug+"/alerts",
+			`{"email":"cap@example.org"}`, cookie)
+		return rec.Code, rec.Body.String()
+	}
+
+	for _, slug := range slugs[:limit] {
+		if code, body := subscribe(slug, cookie); code != http.StatusCreated {
+			t.Fatalf("subscribe %s = %d, want 201: %s", slug, code, body)
+		}
+	}
+
+	// The next vendor is one too many.
+	if code, body := subscribe(slugs[limit], cookie); code != http.StatusConflict {
+		t.Errorf("the alert past the limit = %d, want 409: %s", code, body)
+	}
+
+	// Asking again for one that is already there is not a new one, so it is not
+	// refused: the count leaves the vendor being asked about out.
+	if code, body := subscribe(slugs[0], cookie); code != http.StatusCreated {
+		t.Errorf("re-subscribing = %d, want 201: %s", code, body)
+	}
+
+	// Removing one makes room again.
+	rec := call(t, router, http.MethodDelete, "/api/v1/vendors/"+slugs[0]+"/alerts", "", cookie)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete = %d, want 204: %s", rec.Code, rec.Body.String())
+	}
+	if code, body := subscribe(slugs[limit], cookie); code != http.StatusCreated {
+		t.Errorf("after removing one = %d, want 201: %s", code, body)
+	}
+
+	// A moderator may take the same set and more.
+	moderator := testUser(t, st, auth.RoleModerator)
+	modCookie := sessionFor(t, st, moderator)
+	for _, slug := range slugs {
+		if code, body := subscribe(slug, modCookie); code != http.StatusCreated {
+			t.Fatalf("moderator subscribe %s = %d, want 201: %s", slug, code, body)
+		}
+	}
+}
+
+// The alerts screen is told how full the account is, so it can warn before the
+// next alert is refused. Staff are not held to a count, so they are told
+// nothing.
+func TestAlertListReportsTheSubscriberLimit(t *testing.T) {
+	st, router := testRouter(t)
+	slug := alertVendor(t, st)
+
+	read := func(t *testing.T, cookie string) (*int, int) {
+		t.Helper()
+		rec := call(t, router, http.MethodGet, "/api/v1/auth/alerts", "", cookie)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+		}
+		var body struct {
+			Limit *int `json:"limit"`
+			Used  int  `json:"used"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		return body.Limit, body.Used
+	}
+
+	subscriber := testUser(t, st, auth.RoleSubscriber)
+	cookie := sessionFor(t, st, subscriber)
+
+	limit, used := read(t, cookie)
+	if limit == nil || *limit != 10 {
+		t.Errorf("limit = %v, want 10 for a subscriber", limit)
+	}
+	if used != 0 {
+		t.Errorf("used = %d, want 0 before any alert", used)
+	}
+
+	rec := call(t, router, http.MethodPost, "/api/v1/vendors/"+slug+"/alerts",
+		`{"email":"cap@example.org"}`, cookie)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("subscribe = %d, want 201: %s", rec.Code, rec.Body.String())
+	}
+	if _, used := read(t, cookie); used != 1 {
+		t.Errorf("used = %d, want 1 after one alert", used)
+	}
+
+	moderator := testUser(t, st, auth.RoleModerator)
+	modCookie := sessionFor(t, st, moderator)
+	if limit, _ := read(t, modCookie); limit != nil {
+		t.Errorf("limit = %d, want none for staff", *limit)
 	}
 }

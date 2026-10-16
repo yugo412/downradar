@@ -134,7 +134,7 @@ func TestProposeServiceIsNotPolledUntilPublished(t *testing.T) {
 	st := integrationStore(t)
 	ctx := context.Background()
 
-	slug, err := st.ProposeService(ctx, "zz-test Proposed Vendor", "https://status.example.com")
+	slug, err := st.ProposeService(ctx, "zz-test Proposed Vendor", "https://status.example.com", nil)
 	if err != nil {
 		t.Fatalf("ProposeService: %v", err)
 	}
@@ -184,11 +184,11 @@ func TestProposeServiceMakesTheSlugUnique(t *testing.T) {
 	st := integrationStore(t)
 	ctx := context.Background()
 
-	first, err := st.ProposeService(ctx, "zz-test Duplicate Name", "")
+	first, err := st.ProposeService(ctx, "zz-test Duplicate Name", "", nil)
 	if err != nil {
 		t.Fatalf("first: %v", err)
 	}
-	second, err := st.ProposeService(ctx, "zz-test Duplicate Name", "")
+	second, err := st.ProposeService(ctx, "zz-test Duplicate Name", "", nil)
 	if err != nil {
 		t.Fatalf("second: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestProposeServiceAcceptsAMissingURL(t *testing.T) {
 	st := integrationStore(t)
 	ctx := context.Background()
 
-	slug, err := st.ProposeService(ctx, "zz-test No URL", "")
+	slug, err := st.ProposeService(ctx, "zz-test No URL", "", nil)
 	if err != nil {
 		t.Fatalf("ProposeService: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestSeedServicesPublishesAProposedRow(t *testing.T) {
 	st := integrationStore(t)
 	ctx := context.Background()
 
-	slug, err := st.ProposeService(ctx, "zz-test Seeded Later", "https://status.example.com")
+	slug, err := st.ProposeService(ctx, "zz-test Seeded Later", "https://status.example.com", nil)
 	if err != nil {
 		t.Fatalf("ProposeService: %v", err)
 	}

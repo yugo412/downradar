@@ -57,6 +57,22 @@ func ValidEmail(email string) bool {
 	return at > 0 && at < len(email)-1 && strings.Contains(email[at+1:], ".")
 }
 
+// ReservedDomain is the site's own domain. An account there could be mistaken
+// for one of ours, so registering with it is refused rather than explained: the
+// answer says only that the account could not be made.
+const ReservedDomain = "downradar.info"
+
+// OnReservedDomain reports whether an address belongs to the site itself,
+// subdomains included.
+func OnReservedDomain(email string) bool {
+	at := strings.LastIndex(email, "@")
+	if at < 0 {
+		return false
+	}
+	domain := strings.ToLower(email[at+1:])
+	return domain == ReservedDomain || strings.HasSuffix(domain, "."+ReservedDomain)
+}
+
 const bcryptCost = 12
 
 func HashPassword(plain string) (string, error) {

@@ -14,6 +14,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"downradar.info/backend/internal/account"
 	"downradar.info/backend/internal/auth"
 	"downradar.info/backend/internal/catalog"
 	"downradar.info/backend/internal/detect"
@@ -25,9 +26,11 @@ type handlers struct {
 	log             *slog.Logger
 	catalog         catalog.Catalog
 	detector        *detect.Detector
+	accountMailer   *account.Mailer
 	readLimiter     *ipLimiter
 	suggestLimiter  *ipLimiter
 	alertLimiter    *ipLimiter
+	accountLimiter  *ipLimiter
 	loginLimiter    *ipLimiter
 	passwordLimiter *ipLimiter
 	internalToken   string
@@ -35,26 +38,31 @@ type handlers struct {
 	sessionTTL      time.Duration
 	sessionSecure   bool
 	alertsEnabled   bool
+	alertLimit      int
 	dummyHash       string
 }
 
 type Options struct {
-	RateLimitPerMinute  int
-	RateLimitBurst      int
-	SuggestPerHour      int
-	SuggestBurst        int
-	AlertPerHour        int
-	AlertBurst          int
-	LoginPerHour        int
-	LoginBurst          int
-	PasswordPerHour     int
-	PasswordBurst       int
-	InternalToken       string
-	Catalog             catalog.Catalog
-	SessionCookie       string
-	SessionTTL          time.Duration
-	SessionCookieSecure bool
-	AlertsEnabled       bool
+	RateLimitPerMinute      int
+	RateLimitBurst          int
+	SuggestPerHour          int
+	SuggestBurst            int
+	AlertPerHour            int
+	AlertBurst              int
+	AlertLimitPerSubscriber int
+	AccountPerHour          int
+	AccountBurst            int
+	LoginPerHour            int
+	LoginBurst              int
+	PasswordPerHour         int
+	PasswordBurst           int
+	InternalToken           string
+	Catalog                 catalog.Catalog
+	AccountMailer           *account.Mailer
+	SessionCookie           string
+	SessionTTL              time.Duration
+	SessionCookieSecure     bool
+	AlertsEnabled           bool
 }
 
 func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
@@ -71,6 +79,11 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	alertInterval := time.Hour
 	if opts.AlertPerHour > 0 {
 		alertInterval = time.Hour / time.Duration(opts.AlertPerHour)
+	}
+
+	accountInterval := time.Hour
+	if opts.AccountPerHour > 0 {
+		accountInterval = time.Hour / time.Duration(opts.AccountPerHour)
 	}
 
 	loginInterval := time.Hour
@@ -92,14 +105,24 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 		sessionTTL = 30 * 24 * time.Hour
 	}
 
+	// A subscriber may keep a handful of alerts; guests get one and staff are not
+	// capped. Zero means the default rather than no limit, the same way the rate
+	// limits above read it.
+	alertLimit := opts.AlertLimitPerSubscriber
+	if alertLimit <= 0 {
+		alertLimit = 10
+	}
+
 	h := &handlers{
 		store:           st,
 		log:             log,
 		catalog:         opts.Catalog,
 		detector:        detect.New(opts.Catalog),
+		accountMailer:   opts.AccountMailer,
 		readLimiter:     newIPLimiter(readInterval, opts.RateLimitBurst),
 		suggestLimiter:  newIPLimiter(suggestInterval, opts.SuggestBurst),
 		alertLimiter:    newIPLimiter(alertInterval, opts.AlertBurst),
+		accountLimiter:  newIPLimiter(accountInterval, opts.AccountBurst),
 		loginLimiter:    newIPLimiter(loginInterval, opts.LoginBurst),
 		passwordLimiter: newIPLimiter(passwordInterval, opts.PasswordBurst),
 		internalToken:   opts.InternalToken,
@@ -107,6 +130,7 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 		sessionTTL:      sessionTTL,
 		sessionSecure:   opts.SessionCookieSecure,
 		alertsEnabled:   opts.AlertsEnabled,
+		alertLimit:      alertLimit,
 		dummyHash:       auth.DummyHash(),
 	}
 
@@ -146,6 +170,24 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	mux.HandleFunc("POST /api/v1/auth/login",
 		h.authEndpoint(h.limited(h.loginLimiter, false,
 			"too many sign in attempts, please try again later", h.login)))
+
+	// Accounts made from the site. These send email to an address somebody typed,
+	// so they get their own budget rather than sharing the sign in one.
+	mux.HandleFunc("POST /api/v1/auth/register",
+		h.authEndpoint(h.limited(h.accountLimiter, false,
+			"too many accounts have been asked for, please try again later", h.register)))
+	mux.HandleFunc("POST /api/v1/auth/verify",
+		h.authEndpoint(h.limited(h.accountLimiter, false,
+			"too many attempts, please try again later", h.verifyEmail)))
+	mux.HandleFunc("POST /api/v1/auth/verify/resend",
+		h.requireAuth(h.limited(h.accountLimiter, false,
+			"too many attempts, please try again later", h.resendVerification)))
+	mux.HandleFunc("POST /api/v1/auth/forgot",
+		h.authEndpoint(h.limited(h.accountLimiter, false,
+			"too many attempts, please try again later", h.forgotPassword)))
+	mux.HandleFunc("POST /api/v1/auth/reset",
+		h.authEndpoint(h.limited(h.accountLimiter, false,
+			"too many attempts, please try again later", h.resetPassword)))
 	mux.HandleFunc("POST /api/v1/auth/logout",
 		h.authEndpoint(h.limited(h.readLimiter, true,
 			"rate limit exceeded, please try again in a moment", h.logout)))
@@ -165,19 +207,23 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 			"rate limit exceeded, please try again in a moment", h.detectProfile)))
 	mux.HandleFunc("GET /api/v1/categories", h.requireAuth(h.listCategories))
 
-	// The service endpoints ask for a session, not a role: everybody manages
-	// their own services, and the handlers decide who may touch the catalogue.
-	mux.HandleFunc("GET /api/v1/services", h.requireAuth(h.listServices))
-	mux.HandleFunc("GET /api/v1/services/mine", h.requireAuth(h.myServices))
-	mux.HandleFunc("POST /api/v1/services", h.requireAuth(h.createService))
-	mux.HandleFunc("GET /api/v1/services/{slug}", h.requireAuth(h.getService))
-	mux.HandleFunc("PATCH /api/v1/services/{slug}", h.requireAuth(h.updateService))
-	mux.HandleFunc("DELETE /api/v1/services/{slug}", h.requireAuth(h.deleteService))
-	mux.HandleFunc("GET /api/v1/services/{slug}/status", h.requireAuth(h.serviceStatus))
-	mux.HandleFunc("GET /api/v1/services/{slug}/polls", h.requireAuth(h.pollLog))
+	// The service routes are staff only: a subscriber looks after the alerts on
+	// the catalogue, not after the catalogue itself. A service they want added
+	// goes through the public suggestion queue.
+	mux.HandleFunc("GET /api/v1/services", h.requireStaff(h.listServices))
+	mux.HandleFunc("POST /api/v1/services", h.requireStaff(h.createService))
+	mux.HandleFunc("GET /api/v1/services/{slug}", h.requireStaff(h.getService))
+	mux.HandleFunc("PATCH /api/v1/services/{slug}", h.requireStaff(h.updateService))
+	mux.HandleFunc("DELETE /api/v1/services/{slug}", h.requireStaff(h.deleteService))
+	mux.HandleFunc("GET /api/v1/services/{slug}/status", h.requireStaff(h.serviceStatus))
+	mux.HandleFunc("GET /api/v1/services/{slug}/polls", h.requireStaff(h.pollLog))
 	mux.HandleFunc("POST /api/v1/services/{slug}/detect",
-		h.requireAuth(h.limited(h.readLimiter, true,
+		h.requireStaff(h.limited(h.readLimiter, true,
 			"rate limit exceeded, please try again in a moment", h.retryDetection)))
+
+	// The dashboard's own list is a read of the caller's rows, not a management
+	// screen, so any session can ask for it.
+	mux.HandleFunc("GET /api/v1/services/mine", h.requireAuth(h.myServices))
 
 	// Managing people is admin only, moderators included out.
 	admins := []string{auth.RoleAdmin}
@@ -325,7 +371,15 @@ func (h *handlers) suggest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slug, err := h.store.ProposeService(r.Context(), name, pageURL)
+	// A signed in visitor who suggests a service is recorded as its owner, so the
+	// review queue shows who asked for it. That is attribution, not a visibility
+	// choice: approving the suggestion publishes it to the catalogue.
+	var ownerID *int64
+	if user, err := h.authenticate(r); err == nil {
+		ownerID = &user.ID
+	}
+
+	slug, err := h.store.ProposeService(r.Context(), name, pageURL, ownerID)
 	if err != nil {
 		h.fail(w, r, err)
 		return

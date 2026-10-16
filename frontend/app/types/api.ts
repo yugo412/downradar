@@ -71,6 +71,7 @@ export interface AuthUser {
   email: string
   name: string
   role: Role
+  verifiedAt?: string | null
 }
 
 export type ServiceStatus = 'proposed' | 'published' | 'rejected' | 'no_match'
@@ -107,6 +108,7 @@ export interface AdminUser {
   email: string
   name: string
   role: Role
+  verifiedAt?: string | null
   disabledAt?: string | null
   services: number
   createdAt: string

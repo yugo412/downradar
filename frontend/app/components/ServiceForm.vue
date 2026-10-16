@@ -46,7 +46,13 @@ const category = ref(props.initial?.category ?? '')
 const logoUrl = ref(props.initial?.logoUrl ?? '')
 const aliases = ref((props.initial?.aliases ?? []).join(', '))
 const status = ref<ServiceStatus>(props.initial?.status ?? 'published')
-const visibility = ref<Visibility>(props.initial?.ownerId ? 'private' : 'public')
+// A proposal carries the id of whoever suggested it, but that is attribution for
+// the review queue rather than a visibility choice: approving it publishes the
+// row to the catalogue. Any other row with an owner is somebody's private
+// service, and keeps the private default.
+const visibility = ref<Visibility>(
+  props.initial?.ownerId && props.initial?.status !== 'proposed' ? 'private' : 'public',
+)
 
 // A vendor is only polled when it has both a url and a profile, so the form
 // insists on them for anything that is about to be published.

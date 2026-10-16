@@ -74,7 +74,7 @@ func TestAdminListServicesFilters(t *testing.T) {
 	st := integrationStore(t)
 	ctx := context.Background()
 
-	proposed, err := st.ProposeService(ctx, uniqueName("proposed"), "https://status.example.com")
+	proposed, err := st.ProposeService(ctx, uniqueName("proposed"), "https://status.example.com", nil)
 	if err != nil {
 		t.Fatalf("ProposeService: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestDeleteProposalRemovesTheRow(t *testing.T) {
 	st := integrationStore(t)
 	ctx := context.Background()
 
-	slug, err := st.ProposeService(ctx, uniqueName("rejected"), "")
+	slug, err := st.ProposeService(ctx, uniqueName("rejected"), "", nil)
 	if err != nil {
 		t.Fatalf("ProposeService: %v", err)
 	}

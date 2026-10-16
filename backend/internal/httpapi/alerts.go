@@ -63,10 +63,11 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Someone who is not signed in gets one alert: they have no identity but the
-	// address they typed, so there is nothing else to hold them to it. Anyone
-	// signed in may have as many as they like, and the address they give does not
-	// have to be the one on their account.
-	if userID == nil {
+	// address they typed, so there is nothing else to hold them to it. A
+	// subscriber may keep a few, and the address they give does not have to be the
+	// one on their account. Staff are not held to a count.
+	switch {
+	case userID == nil:
 		elsewhere, err := h.store.AlertElsewhere(r.Context(), email, serviceID)
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			h.fail(w, r, err)
@@ -77,6 +78,20 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 				"error": fmt.Sprintf(
 					"that address already has an alert for %s. Unsubscribe from that one first, or sign in to add more.",
 					elsewhere.Name),
+			})
+			return
+		}
+	case user.Role == auth.RoleSubscriber:
+		count, err := h.store.ActiveAlertCount(r.Context(), *userID, serviceID)
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		if count >= h.alertLimit {
+			writeJSON(w, http.StatusConflict, map[string]string{
+				"error": fmt.Sprintf(
+					"your account already has %d alerts, which is the limit. Remove one from your alerts page first.",
+					count),
 			})
 			return
 		}
@@ -128,7 +143,9 @@ func (h *handlers) getAlert(w http.ResponseWriter, r *http.Request) {
 // again. The address is shown in full because it is their own screen and knowing
 // which inbox is the point.
 func (h *handlers) listUserAlerts(w http.ResponseWriter, r *http.Request) {
-	alerts, err := h.store.UserAlerts(r.Context(), h.user(r).ID)
+	user := h.user(r)
+
+	alerts, err := h.store.UserAlerts(r.Context(), user.ID)
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -146,7 +163,22 @@ func (h *handlers) listUserAlerts(w http.ResponseWriter, r *http.Request) {
 			"createdAt":    alert.CreatedAt,
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"alerts": views})
+
+	// The screen says how full the account is, so it can warn before the next
+	// alert is refused. Only a subscriber is held to a count, so staff are told
+	// nothing and the warning stays away.
+	var limit *int
+	used := 0
+	if user.Role == auth.RoleSubscriber {
+		limit = &h.alertLimit
+		used, err = h.store.ActiveAlertCount(r.Context(), user.ID, 0)
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"alerts": views, "limit": limit, "used": used})
 }
 
 type alertStateRequest struct {

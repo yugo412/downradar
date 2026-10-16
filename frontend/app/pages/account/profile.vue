@@ -6,7 +6,7 @@ useSeoMeta({ title: 'Edit profile', robots: 'noindex, nofollow' })
 const { user, updateProfile } = useAuth()
 
 const name = ref(user.value?.name ?? '')
-const email = computed(() => user.value?.email ?? '')
+const email = ref(user.value?.email ?? '')
 const busy = ref(false)
 const error = ref('')
 const saved = ref(false)
@@ -17,7 +17,7 @@ async function save() {
   saved.value = false
 
   try {
-    await updateProfile(name.value)
+    await updateProfile(name.value, email.value.trim())
     saved.value = true
   } catch (err) {
     error.value = apiError(err)
@@ -47,9 +47,16 @@ async function save() {
 
         <label class="form-control w-full">
           <span class="label-text mb-1 text-sm font-medium">Email</span>
-          <input :value="email" type="email" class="input input-bordered w-full" disabled />
+          <input
+            v-model="email"
+            type="email"
+            class="input input-bordered w-full"
+            autocomplete="email"
+            required
+          />
           <span class="label-text-alt mt-1 opacity-60">
-            An address cannot be changed from here.
+            Changing it sends a new confirmation link to the new address, and the old one stops
+            being confirmed.
           </span>
         </label>
 

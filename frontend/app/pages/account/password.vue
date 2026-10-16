@@ -51,44 +51,34 @@ async function save() {
 
     <div class="mt-6 rounded-box border border-base-300 bg-base-100 p-5 shadow-sm">
       <form class="flex flex-col gap-4" @submit.prevent="save">
-        <label class="form-control w-full">
-          <span class="label-text mb-1 text-sm font-medium">Current password</span>
-          <input
-            v-model="currentPassword"
-            type="password"
-            class="input input-bordered w-full"
-            autocomplete="current-password"
-            required
-          />
-        </label>
+        <PasswordInput
+          v-model="currentPassword"
+          label="Current password"
+          autocomplete="current-password"
+          required
+        />
 
-        <label class="form-control w-full">
-          <span class="label-text mb-1 text-sm font-medium">New password</span>
-          <input
-            v-model="newPassword"
-            type="password"
-            class="input input-bordered w-full"
-            autocomplete="new-password"
-            minlength="8"
-            required
-          />
+        <PasswordInput
+          v-model="newPassword"
+          label="New password"
+          autocomplete="new-password"
+          minlength="8"
+          required
+        >
           <span class="label-text-alt mt-1 opacity-60">At least 8 characters.</span>
-        </label>
+        </PasswordInput>
 
-        <label class="form-control w-full">
-          <span class="label-text mb-1 text-sm font-medium">Repeat the new password</span>
-          <input
-            v-model="confirmation"
-            type="password"
-            class="input input-bordered w-full"
-            autocomplete="new-password"
-            minlength="8"
-            required
-          />
+        <PasswordInput
+          v-model="confirmation"
+          label="Repeat the new password"
+          autocomplete="new-password"
+          minlength="8"
+          required
+        >
           <span v-if="mismatch" class="label-text-alt mt-1 text-error">
             Does not match the new password.
           </span>
-        </label>
+        </PasswordInput>
 
         <p v-if="error" role="alert" class="text-sm text-error">{{ error }}</p>
         <p v-if="saved" role="status" class="text-sm text-success">

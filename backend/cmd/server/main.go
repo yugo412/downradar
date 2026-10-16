@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"downradar.info/backend/internal/account"
 	"downradar.info/backend/internal/catalog"
 	"downradar.info/backend/internal/config"
 	"downradar.info/backend/internal/httpapi"
@@ -63,39 +64,46 @@ func run() error {
 	p := poller.New(st, cat, cfg.PollConcurrency, cfg.PollTick, log)
 	go p.Run(ctx)
 
+	var accountMailer *account.Mailer
 	if cfg.SMTPAddr != "" {
 		sender := mail.NewSMTP(cfg.SMTPAddr, cfg.MailFrom, cfg.SMTPUser, cfg.SMTPPassword, 0)
+		accountMailer = account.New(sender, cfg.PublicURL)
+
 		n := notify.New(st, sender, cfg.PublicURL, cfg.AlertSendInterval, log)
 		go n.Run(ctx)
 	} else {
-		log.Warn("alerts are off: SMTP_ADDR is not set, so no email is sent and subscriptions are refused")
+		log.Warn("mail is off: SMTP_ADDR is not set, so no email is sent, alerts cannot be subscribed to, and no account can be made from the site")
 	}
+
+	go runAuthCleanup(ctx, st, log)
 
 	if cfg.RawPayloadDays > 0 {
 		go runRawPayloadCleanup(ctx, st, time.Duration(cfg.RawPayloadDays)*24*time.Hour, log)
 	}
 
-	go runSessionCleanup(ctx, st, log)
-
 	srv := &http.Server{
 		Addr: cfg.HTTPAddr,
 		Handler: httpapi.NewRouter(st, log, httpapi.Options{
-			RateLimitPerMinute:  cfg.RateLimitPerMinute,
-			RateLimitBurst:      cfg.RateLimitBurst,
-			SuggestPerHour:      cfg.SuggestPerHour,
-			SuggestBurst:        cfg.SuggestBurst,
-			AlertPerHour:        cfg.AlertPerHour,
-			AlertBurst:          cfg.AlertBurst,
-			LoginPerHour:        cfg.LoginPerHour,
-			LoginBurst:          cfg.LoginBurst,
-			PasswordPerHour:     cfg.PasswordPerHour,
-			PasswordBurst:       cfg.PasswordBurst,
-			InternalToken:       cfg.InternalToken,
-			Catalog:             cat,
-			SessionCookie:       cfg.SessionCookie,
-			SessionTTL:          cfg.SessionTTL,
-			SessionCookieSecure: cfg.SessionCookieSecure,
-			AlertsEnabled:       cfg.SMTPAddr != "",
+			RateLimitPerMinute:      cfg.RateLimitPerMinute,
+			RateLimitBurst:          cfg.RateLimitBurst,
+			SuggestPerHour:          cfg.SuggestPerHour,
+			SuggestBurst:            cfg.SuggestBurst,
+			AlertPerHour:            cfg.AlertPerHour,
+			AlertBurst:              cfg.AlertBurst,
+			AlertLimitPerSubscriber: cfg.AlertLimitPerSubscriber,
+			AccountPerHour:          cfg.AccountPerHour,
+			AccountBurst:            cfg.AccountBurst,
+			LoginPerHour:            cfg.LoginPerHour,
+			LoginBurst:              cfg.LoginBurst,
+			PasswordPerHour:         cfg.PasswordPerHour,
+			PasswordBurst:           cfg.PasswordBurst,
+			InternalToken:           cfg.InternalToken,
+			Catalog:                 cat,
+			AccountMailer:           accountMailer,
+			SessionCookie:           cfg.SessionCookie,
+			SessionTTL:              cfg.SessionTTL,
+			SessionCookieSecure:     cfg.SessionCookieSecure,
+			AlertsEnabled:           cfg.SMTPAddr != "",
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
@@ -123,7 +131,7 @@ func run() error {
 	return srv.Shutdown(shutdownCtx)
 }
 
-func runSessionCleanup(ctx context.Context, st *store.Store, log *slog.Logger) {
+func runAuthCleanup(ctx context.Context, st *store.Store, log *slog.Logger) {
 	ticker := time.NewTicker(6 * time.Hour)
 	defer ticker.Stop()
 
@@ -139,6 +147,15 @@ func runSessionCleanup(ctx context.Context, st *store.Store, log *slog.Logger) {
 			}
 			if removed > 0 {
 				log.Info("expired sessions removed", "removed", removed)
+			}
+
+			tokens, err := st.DeleteExpiredUserTokens(ctx)
+			if err != nil {
+				log.Error("account link cleanup failed", "error", err)
+				continue
+			}
+			if tokens > 0 {
+				log.Info("expired account links removed", "removed", tokens)
 			}
 		}
 	}
