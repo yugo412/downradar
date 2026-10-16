@@ -202,10 +202,12 @@ address they typed is their whole identity, so that is what the limit is counted
 on, and asking for a second vendor is refused with the name of the vendor that
 address already has an alert for, so there is nothing to guess at, along with a
 pointer to sign in or to unsubscribe from that one. A subscriber may keep up to
-`ALERT_LIMIT_PER_SUBSCRIBER` (ten by default), counted per account; staff are not
-capped. The address they give does not have to be the one on their account. The
-id of a signed in subscriber is recorded with the row, so it can be tied to them
-later without asking again.
+the limit on their own row in `user_limits`, counted per account; staff are not
+capped. That row starts from `ALERT_LIMIT_PER_SUBSCRIBER` (ten by default) and is
+written when the account is made, so one account can differ from another without
+touching the environment. The address they give does not have to be the one on
+their account. The id of a signed in subscriber is recorded with the row, so it
+can be tied to them later without asking again.
 
 An email goes out every time that vendor's overall status changes, in either
 direction, so a recovery is announced as much as an outage. The first status a

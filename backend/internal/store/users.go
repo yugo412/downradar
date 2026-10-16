@@ -68,17 +68,10 @@ func isUniqueViolation(err error) bool {
 // screen are the ones calling this, and neither needs to receive an email to be
 // believed about the address.
 func (s *Store) CreateUser(ctx context.Context, email, name, role, passwordHash string) (*User, error) {
-	u, err := scanUser(s.pool.QueryRow(ctx, `
+	return s.createUser(ctx, email, `
 		insert into users as u (email, name, role, password_hash, verified_at)
 		values ($1, $2, $3, $4, now())
-		returning `+userColumns, email, name, role, passwordHash))
-	if isUniqueViolation(err) {
-		return nil, ErrEmailTaken
-	}
-	if err != nil {
-		return nil, fmt.Errorf("users: create %s: %w", email, err)
-	}
-	return u, nil
+		returning `+userColumns, email, name, role, passwordHash)
 }
 
 // RegisterUser makes an account from the site itself. It is always a subscriber
@@ -86,15 +79,35 @@ func (s *Store) CreateUser(ctx context.Context, email, name, role, passwordHash 
 // chooses, and the address is only theirs once they have followed the link that
 // was sent to it.
 func (s *Store) RegisterUser(ctx context.Context, email, name, passwordHash string) (*User, error) {
-	u, err := scanUser(s.pool.QueryRow(ctx, `
+	return s.createUser(ctx, email, `
 		insert into users as u (email, name, role, password_hash)
 		values ($1, $2, 'subscriber', $3)
-		returning `+userColumns, email, name, passwordHash))
+		returning `+userColumns, email, name, passwordHash)
+}
+
+// createUser inserts an account and the limits it starts with in one
+// transaction, so a failure halfway cannot leave an account with no limits
+// behind it.
+func (s *Store) createUser(ctx context.Context, email, query string, args ...any) (*User, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("users: create begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	u, err := scanUser(tx.QueryRow(ctx, query, args...))
 	if isUniqueViolation(err) {
 		return nil, ErrEmailTaken
 	}
 	if err != nil {
-		return nil, fmt.Errorf("users: register %s: %w", email, err)
+		return nil, fmt.Errorf("users: create %s: %w", email, err)
+	}
+
+	if err := s.insertDefaultLimits(ctx, tx, u.ID); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("users: create commit: %w", err)
 	}
 	return u, nil
 }

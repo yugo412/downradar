@@ -15,10 +15,15 @@ import (
 type Store struct {
 	pool                  *pgxpool.Pool
 	rawPayloadMinInterval time.Duration
+	defaultLimits         map[string]int
 }
 
 type Options struct {
 	RawPayloadMinInterval time.Duration
+	// DefaultLimits is the starting value a new account is given for each kind
+	// of limit, keyed by the Limit* constants. The values come from the
+	// environment; what is read afterwards is the row.
+	DefaultLimits map[string]int
 }
 
 func New(ctx context.Context, dsn string, opts Options) (*Store, error) {
@@ -44,7 +49,11 @@ func New(ctx context.Context, dsn string, opts Options) (*Store, error) {
 	if interval <= 0 {
 		interval = time.Hour
 	}
-	return &Store{pool: pool, rawPayloadMinInterval: interval}, nil
+	return &Store{
+		pool:                  pool,
+		rawPayloadMinInterval: interval,
+		defaultLimits:         opts.DefaultLimits,
+	}, nil
 }
 
 func (s *Store) Close() { s.pool.Close() }

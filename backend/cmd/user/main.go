@@ -66,7 +66,11 @@ func run(email, name, role, password string, reset bool, log *slog.Logger) error
 	defer cancel()
 
 	cfg := config.Load()
-	st, err := store.New(ctx, cfg.DatabaseURL, store.Options{})
+	st, err := store.New(ctx, cfg.DatabaseURL, store.Options{
+		DefaultLimits: map[string]int{
+			store.LimitAlert: cfg.AlertLimitPerSubscriber,
+		},
+	})
 	if err != nil {
 		return err
 	}
