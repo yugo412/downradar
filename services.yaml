@@ -56,3 +56,13 @@ profiles:
     endpoint: /api/status
     poll_interval_seconds: 300
     active_interval_seconds: 60
+
+  # Status.io is a platform: its own page is one example and the same API serves
+  # every customer. The public endpoint is /1.0/status/<page_id>, and the page id
+  # is read from the page itself, so nothing has to be configured per vendor.
+  # Everything else under /1.0 needs an API key and is not used.
+  statusio:
+    kind: statusio
+    endpoint: /1.0/status/
+    poll_interval_seconds: 300
+    active_interval_seconds: 60
