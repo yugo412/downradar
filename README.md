@@ -133,6 +133,11 @@ Each row names a `profile` from `services.yaml`, which decides the adapter, the
 endpoint, the default intervals and the one line description the management
 screens show. A row can override the endpoint and intervals for itself.
 
+A profile can also be marked `visible: false`, which is what a profile written
+for one vendor's own page rather than a platform does. It is then left out of the
+profile picker when a vendor is added, so that stays a list of platforms, while
+the vendor that already uses it still gets it back when it is edited.
+
 Validation moved to the write path with the data: an unknown profile, a
 duplicate slug or an internal url is rejected before a row exists. The poller
 trusts the table and skips, with a warning, any row naming a profile that is no
@@ -332,7 +337,7 @@ every call.
 ## Layout
 
 ```
-services.yaml             adapter profiles: kind, endpoint, intervals
+services.yaml             adapter profiles: kind, endpoint, intervals, visibility
 
 seed/vendors.yaml         bootstrap vendors, read once by cmd/seed
 
@@ -365,14 +370,14 @@ is a row rather than a commit.
 
 Everything is read from a public API that the platform itself publishes, one
 adapter per platform: Atlassian Statuspage, Status.io, Sorry, cron-job.org,
-FlashDuty, PagerDuty and Slack, with a bespoke adapter for OpenCode's own page,
-whose components are slugs and whose incidents have generated ids. The platforms
-that can be recognised from a url alone are also in the detect queue, so a vendor
-can be added before its platform is known. Ping is the profile to pick by hand
-for a service with no status page: it watches the target by asking for it, and a
-request that stops coming back is the outage. Further platforms (Instatus, RSS,
-HTML scraping) are additional adapters; the adapter interface already separates
-"how to fetch" from "how to interpret".
+FlashDuty, PagerDuty, Slack and Better Stack, with a bespoke adapter for
+OpenCode's own page, whose components are slugs and whose incidents have
+generated ids. The platforms that can be recognised from a url alone are also in
+the detect queue, so a vendor can be added before its platform is known. Ping is
+the profile to pick by hand for a service with no status page: it watches the
+target by asking for it, and a request that stops coming back is the outage.
+Further platforms (Instatus, RSS, HTML scraping) are additional adapters; the
+adapter interface already separates "how to fetch" from "how to interpret".
 
 Please respect each provider's `robots.txt` and terms. Attribution and a link
 back to the official status page are shown on every vendor page.

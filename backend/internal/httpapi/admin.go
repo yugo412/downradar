@@ -71,6 +71,7 @@ type profileView struct {
 	Endpoint              string `json:"endpoint,omitempty"`
 	PollIntervalSeconds   int    `json:"pollIntervalSeconds"`
 	ActiveIntervalSeconds int    `json:"activeIntervalSeconds"`
+	Visible               bool   `json:"visible"`
 }
 
 func profileViewOf(name string, p catalog.Profile) profileView {
@@ -81,6 +82,7 @@ func profileViewOf(name string, p catalog.Profile) profileView {
 		Endpoint:              p.Endpoint,
 		PollIntervalSeconds:   p.PollIntervalSeconds,
 		ActiveIntervalSeconds: p.ActiveIntervalSeconds,
+		Visible:               p.Visible,
 	}
 }
 

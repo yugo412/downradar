@@ -60,6 +60,14 @@ const publishing = computed(() => status.value === 'published')
 
 const selectedProfile = computed(() => props.profiles.find((p) => p.name === profile.value))
 
+// Only the profiles a vendor can generally be put on are offered. A profile
+// written for one vendor's own page stays out of the list, unless the vendor
+// being edited already uses it: dropping it from the picker would clear it on
+// the next save.
+const pickableProfiles = computed(() =>
+  props.profiles.filter((p) => p.visible || p.name === props.initial?.profile),
+)
+
 // Detection runs on the page itself, so it is offered as a button rather than
 // being done quietly: a wrong url or a platform without an adapter is worth
 // seeing before anything is saved. Saving with the field empty does the same
@@ -141,7 +149,7 @@ function onSubmit() {
           <span class="label-text mb-1 text-sm font-medium">Adapter profile</span>
           <select v-model="profile" class="select select-bordered w-full">
             <option value="">Not chosen yet</option>
-            <option v-for="p in profiles" :key="p.name" :value="p.name">
+            <option v-for="p in pickableProfiles" :key="p.name" :value="p.name">
               {{ p.name }} ({{ p.kind }})
             </option>
           </select>
