@@ -372,6 +372,13 @@ vendors:
     profile: slack
     aliases: ["slack down", "slack status", "is slack down"]
 
+  - slug: opencode
+    name: OpenCode
+    url: https://status.opencode.ai
+    category: ai
+    profile: opencode
+    aliases: ["opencode down", "opencode status", "is opencode down"]
+
   - slug: linear
     name: Linear
     url: https://linearstatus.com

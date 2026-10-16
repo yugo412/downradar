@@ -45,3 +45,14 @@ profiles:
     kind: slack
     poll_interval_seconds: 300
     active_interval_seconds: 60
+
+  # OpenCode runs a bespoke status page. It is not a Statuspage: /api/v2 does
+  # not exist, and the page has its own JSON API at /api/status. Components are
+  # keyed by a short slug with no display name, and incidents have generated ids
+  # rather than titles, so the adapter reads the slugs as they are and takes an
+  # incident title from the written note where there is one.
+  opencode:
+    kind: opencode
+    endpoint: /api/status
+    poll_interval_seconds: 300
+    active_interval_seconds: 60
