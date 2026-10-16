@@ -122,6 +122,7 @@ export interface AdminProfile {
   endpoint?: string
   pollIntervalSeconds: number
   activeIntervalSeconds: number
+  visible: boolean
 }
 
 export interface ServiceCreated {

@@ -1,0 +1,119 @@
+{
+  "data": {
+    "id": "267071",
+    "type": "status_page",
+    "attributes": {
+      "company_name": "Sumopod",
+      "company_url": "https://sumopod.com",
+      "subdomain": "sumopod",
+      "custom_domain": "status.sumopod.com",
+      "aggregate_state": "degraded",
+      "timezone": "UTC",
+      "created_at": "2024-01-01T00:00:00.000Z",
+      "updated_at": "2026-10-16T10:00:00.000Z"
+    },
+    "relationships": {
+      "sections": {
+        "data": [
+          {"id": "357316", "type": "status_page_section"}
+        ]
+      },
+      "resources": {
+        "data": [
+          {"id": "9028067", "type": "status_page_resource"},
+          {"id": "9028071", "type": "status_page_resource"},
+          {"id": "9028078", "type": "status_page_resource"}
+        ]
+      },
+      "status_reports": {
+        "data": [
+          {"id": "5001", "type": "status_report"}
+        ]
+      }
+    }
+  },
+  "included": [
+    {
+      "id": "357316",
+      "type": "status_page_section",
+      "attributes": {
+        "name": "Dashboard",
+        "position": 0
+      }
+    },
+    {
+      "id": "9028067",
+      "type": "status_page_resource",
+      "attributes": {
+        "status_page_section_id": 357316,
+        "resource_id": 5058562,
+        "resource_type": "Monitor",
+        "public_name": "sumopod.com",
+        "explanation": "",
+        "position": 0,
+        "availability": 0.98,
+        "status": "degraded",
+        "status_history": []
+      }
+    },
+    {
+      "id": "9028071",
+      "type": "status_page_resource",
+      "attributes": {
+        "status_page_section_id": 357316,
+        "resource_id": 5058566,
+        "resource_type": "Monitor",
+        "public_name": "JKT1",
+        "explanation": "",
+        "position": 1,
+        "availability": 1.0,
+        "status": "operational",
+        "status_history": []
+      }
+    },
+    {
+      "id": "9028078",
+      "type": "status_page_resource",
+      "attributes": {
+        "status_page_section_id": 357316,
+        "resource_id": 5058573,
+        "resource_type": "Heartbeat",
+        "public_name": "API worker",
+        "explanation": "",
+        "position": 2,
+        "availability": 1.0,
+        "status": "not_monitored",
+        "status_history": []
+      }
+    },
+    {
+      "id": "5001",
+      "type": "status_report",
+      "attributes": {
+        "title": "Degraded API in JKT1",
+        "report_type": "manual",
+        "starts_at": "2026-10-15T08:00:00.000Z",
+        "ends_at": "2026-10-15T09:30:00.000Z",
+        "affected_resources": [
+          {"status_page_resource_id": "9028067", "status": "degraded"}
+        ],
+        "aggregate_state": "resolved"
+      },
+      "relationships": {
+        "status_updates": {
+          "data": [
+            {"id": "6001", "type": "status_update"}
+          ]
+        }
+      }
+    },
+    {
+      "id": "6001",
+      "type": "status_update",
+      "attributes": {
+        "message": "Everything is back to normal.",
+        "published_at": "2026-10-15T09:30:00.000Z"
+      }
+    }
+  ]
+}

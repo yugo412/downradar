@@ -9,6 +9,10 @@
 # reference a profile by name, and a vendor row can override the endpoint and
 # intervals for itself.
 #
+# A profile written for one vendor's own page sets visible: false. It is then
+# left out of the picker when a vendor is added, so that stays a list of
+# platforms, and it is still offered for the vendor that already uses it.
+#
 # This file is validated at startup. An unknown kind, an unknown field, a
 # non positive interval or a detect queue naming a profile that is not declared
 # stops the server with a clear error.
@@ -29,6 +33,9 @@ detect:
   - statusio
   - sorryapp
   - pagerduty
+  - betterstack
+  - flashduty
+  - cronjob-statuspage
 
 profiles:
   # One profile serves dozens of vendors. Change the interval here and every
@@ -68,6 +75,7 @@ profiles:
     description: Slack's own status page, which reports one system status rather than components.
     poll_interval_seconds: 300
     active_interval_seconds: 60
+    visible: false
 
   # OpenCode runs a bespoke status page. It is not a Statuspage: /api/v2 does
   # not exist, and the page has its own JSON API at /api/status. Components are
@@ -80,6 +88,7 @@ profiles:
     endpoint: /api/status
     poll_interval_seconds: 300
     active_interval_seconds: 60
+    visible: false
 
   # Status.io is a platform: its own page is one example and the same API serves
   # every customer. The public endpoint is /1.0/status/<page_id>, and the page id
@@ -112,6 +121,17 @@ profiles:
     kind: pagerduty
     description: PagerDuty status pages, read from the JSON API the page publishes.
     endpoint: /api/
+    poll_interval_seconds: 300
+    active_interval_seconds: 60
+
+  # Better Stack hosts status pages on their own domains, such as
+  # status.sumopod.com. Each page publishes a JSON:API document at /index.json
+  # with the overall state, the resources and the incident reports, so nothing
+  # has to be configured per vendor.
+  betterstack:
+    kind: betterstack
+    description: Better Stack status pages, read from the JSON document at /index.json.
+    endpoint: /index.json
     poll_interval_seconds: 300
     active_interval_seconds: 60
 

@@ -21,6 +21,10 @@ type Profile struct {
 	PollIntervalSeconds   int
 	ActiveIntervalSeconds int
 	Spec                  map[string]any
+	// Visible says whether the profile is offered when a vendor is added. A
+	// profile written for one vendor's own page is not, so the picker stays a
+	// list of platforms. It defaults to true.
+	Visible bool
 }
 
 type Profiles map[string]Profile
@@ -58,6 +62,7 @@ type profileYAML struct {
 	Endpoint              string         `yaml:"endpoint"`
 	PollIntervalSeconds   int            `yaml:"poll_interval_seconds"`
 	ActiveIntervalSeconds int            `yaml:"active_interval_seconds"`
+	Visible               *bool          `yaml:"visible"`
 	Spec                  map[string]any `yaml:"spec"`
 }
 
@@ -108,6 +113,7 @@ func Load(path string) (Catalog, error) {
 			PollIntervalSeconds:   p.PollIntervalSeconds,
 			ActiveIntervalSeconds: p.ActiveIntervalSeconds,
 			Spec:                  p.Spec,
+			Visible:               p.Visible == nil || *p.Visible,
 		}
 	}
 

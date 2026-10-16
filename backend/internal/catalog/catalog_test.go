@@ -241,3 +241,27 @@ func TestValidateURL(t *testing.T) {
 		}
 	}
 }
+
+// The picker offers only the profiles a vendor can generally be put on, so a
+// profile written for one vendor's own page has to be able to say so.
+func TestLoadReadsVisibility(t *testing.T) {
+	cat, err := Load(writeTemp(t, `
+profiles:
+  shown: {kind: statuspage, poll_interval_seconds: 300, active_interval_seconds: 60}
+  hidden: {kind: statuspage, poll_interval_seconds: 300, active_interval_seconds: 60, visible: false}
+  again: {kind: statuspage, poll_interval_seconds: 300, active_interval_seconds: 60, visible: true}
+`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if !cat.Profiles["shown"].Visible {
+		t.Error("a profile without the field should be offered")
+	}
+	if !cat.Profiles["again"].Visible {
+		t.Error("visible: true should be offered")
+	}
+	if cat.Profiles["hidden"].Visible {
+		t.Error("visible: false should keep the profile out of the picker")
+	}
+}
