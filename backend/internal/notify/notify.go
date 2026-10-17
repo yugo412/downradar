@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"downradar.info/backend/internal/mail"
 	"downradar.info/backend/internal/store"
 )
 
@@ -70,7 +71,17 @@ func (n *Notifier) drain(ctx context.Context) error {
 	}
 
 	for _, alert := range pending {
-		subject, body := n.message(alert)
+		subject, body, err := n.message(alert)
+		if err != nil {
+			// The templates are embedded, so a message that cannot be written is
+			// a mistake in the code. The delivery is left with the error rather
+			// than sent as an empty email.
+			n.log.Error("alert message could not be written", "id", alert.ID, "error", err)
+			if recErr := n.store.FailedAlert(ctx, alert.ID, err.Error()); recErr != nil {
+				n.log.Error("failed to record the alert failure", "id", alert.ID, "error", recErr)
+			}
+			continue
+		}
 
 		if err := n.sender.Send(ctx, alert.Email, subject, body); err != nil {
 			if ctx.Err() != nil {
@@ -97,50 +108,70 @@ func (n *Notifier) drain(ctx context.Context) error {
 // message is what the subscriber reads: what changed, when, where to look, and
 // the way out. What changed is the vendor's own status, or one component of it,
 // so a subscriber who picked components is told which one rather than the
-// vendor's name standing in for it.
-func (n *Notifier) message(alert store.PendingAlert) (string, string) {
+// vendor's name standing in for it. The email itself is written from a template,
+// which is where its wording lives.
+func (n *Notifier) message(alert store.PendingAlert) (string, string, error) {
 	what := alert.VendorName
 	if alert.ComponentName != "" {
 		what = fmt.Sprintf("%s on %s", alert.ComponentName, alert.VendorName)
 	}
 
-	subject := fmt.Sprintf("%s is now %s", what, label(alert.ToStatus))
+	subject := fmt.Sprintf("%s is now %s", what, badgeFor(alert.ToStatus).Label)
 
-	body := fmt.Sprintf(`%s changed status at %s.
-
-%s -> %s
-
-Live status and history: %s/%s
-
-You are getting this email because you asked for alerts about %s.
-Unsubscribe: %s/alerts/unsubscribe?token=%s
-`,
-		what,
-		alert.ChangedAt.UTC().Format("2006-01-02 15:04 MST"),
-		label(alert.FromStatus),
-		label(alert.ToStatus),
-		n.publicURL, alert.VendorSlug,
-		what,
-		n.publicURL, alert.Token,
-	)
-
-	return subject, body
-}
-
-// label is the wording the site uses for a status, so an email and the page a
-// subscriber opens next agree with each other.
-var labels = map[string]string{
-	"ok":          "Operational",
-	"maintenance": "Maintenance",
-	"degraded":    "Degraded",
-	"partial":     "Partial outage",
-	"major":       "Major outage",
-	"unknown":     "Unknown",
-}
-
-func label(status string) string {
-	if text, ok := labels[status]; ok {
-		return text
+	body, err := mail.Render("alert", alertData{
+		VendorName:    alert.VendorName,
+		ComponentName: alert.ComponentName,
+		What:          what,
+		From:          badgeFor(alert.FromStatus),
+		To:            badgeFor(alert.ToStatus),
+		ChangedAt:     alert.ChangedAt.UTC().Format("2006-01-02 15:04 MST"),
+		URL:           fmt.Sprintf("%s/%s", n.publicURL, alert.VendorSlug),
+		Unsubscribe:   fmt.Sprintf("%s/alerts/unsubscribe?token=%s", n.publicURL, alert.Token),
+	})
+	if err != nil {
+		return "", "", err
 	}
-	return status
+	return subject, body, nil
+}
+
+// alertData is what the alert template is written with. What and the two names
+// overlap on purpose: the heading is the vendor and the component under it, while
+// the closing line names the thing the subscriber asked about.
+type alertData struct {
+	VendorName    string
+	ComponentName string
+	What          string
+	From          badge
+	To            badge
+	ChangedAt     string
+	URL           string
+	Unsubscribe   string
+}
+
+// badge is a status as the email draws it: the word the site uses for it, and the
+// colours its badge is filled with. They are the theme's state colours, so an
+// email and the page it links to agree about what "Degraded" looks like.
+type badge struct {
+	Label string
+	Color string
+	Ink   string
+}
+
+var badges = map[string]badge{
+	"ok":          {Label: "Operational", Color: "#007f43", Ink: "#ffffff"},
+	"maintenance": {Label: "Maintenance", Color: "#4ba8c0", Ink: "#ffffff"},
+	"degraded":    {Label: "Degraded", Color: "#ee8134", Ink: "#ffffff"},
+	"partial":     {Label: "Partial outage", Color: "#ee8134", Ink: "#ffffff"},
+	"major":       {Label: "Major outage", Color: "#e93f33", Ink: "#ffffff"},
+	"unknown":     {Label: "Unknown", Color: "#eeeeee", Ink: "#161616"},
+}
+
+// badgeFor is the wording the site uses for a status, so an email and the page a
+// subscriber opens next agree with each other. A status this build does not know
+// is shown as it came rather than as nothing.
+func badgeFor(status string) badge {
+	if b, ok := badges[status]; ok {
+		return b
+	}
+	return badge{Label: status, Color: "#eeeeee", Ink: "#161616"}
 }

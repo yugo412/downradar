@@ -47,7 +47,8 @@ func TestContactMailsTheOwnerAndAnswersToTheSender(t *testing.T) {
 		t.Errorf("subject = %q, want the one that was typed", msg.subject)
 	}
 	// A message is written in paragraphs, so the line breaks have to survive.
-	if !strings.Contains(msg.body, "Line one.\nLine two.") {
+	// They are markup in the email, which is what makes them survive there.
+	if !strings.Contains(msg.body, "Line one.<br />Line two.") {
 		t.Errorf("body = %q, want the line breaks kept", msg.body)
 	}
 }

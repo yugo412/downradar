@@ -68,6 +68,9 @@ app itself, not from fixtures.
   same transaction as the change and drained by `internal/notify`.
 - With no SMTP configured, register, forgot-password, contact and vendor-alert
   posts answer 503 instead of accepting something they cannot send.
+- Every email is HTML written from a template in `internal/mail/templates`, set in
+  one shell that carries the brand and the site's colours. The wording of a
+  message belongs in its template, not in the package that sends it.
 - Error messages that reach a user start lower case.
 - Both themes are custom daisyUI theme blocks in `frontend/app/assets/css/main.css`
   with the built-ins switched off. They share one palette, and the state colours

@@ -65,16 +65,34 @@ func (m *mailSpy) sent() []sentMail {
 }
 
 // tokenFrom pulls the token out of the link in a message body.
+// tokenFrom reads the token out of a link in a message. The link is written in
+// HTML, so the token ends where the markup around it starts rather than at the
+// next space.
 func tokenFrom(t *testing.T, body string) string {
 	t.Helper()
 
-	for _, field := range strings.Fields(body) {
-		if i := strings.Index(field, "token="); i >= 0 {
-			return strings.TrimRight(field[i+len("token="):], ".,)")
-		}
+	i := strings.Index(body, "token=")
+	if i < 0 {
+		t.Fatalf("no token in the message body:\n%s", body)
 	}
-	t.Fatalf("no token in the message body:\n%s", body)
-	return ""
+
+	rest := body[i+len("token="):]
+	if end := strings.IndexFunc(rest, func(r rune) bool { return !tokenRune(r) }); end >= 0 {
+		return rest[:end]
+	}
+	return rest
+}
+
+// tokenRune is what auth.NewToken writes: unpadded base64 of a URL, which is
+// letters, digits, and the two characters that are safe in one.
+func tokenRune(r rune) bool {
+	switch {
+	case r >= '0' && r <= '9', r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z':
+		return true
+	case r == '-', r == '_':
+		return true
+	}
+	return false
 }
 
 func testRouterWithMail(t *testing.T) (*store.Store, http.Handler, *mailSpy) {

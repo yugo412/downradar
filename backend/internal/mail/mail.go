@@ -1,5 +1,6 @@
-// Package mail sends one plain text message over SMTP. It knows nothing about
-// alerts: it is the transport, and the notifier decides what to say.
+// Package mail sends one HTML message over SMTP, from the templates that hold
+// the wording of every email the site sends. It knows nothing about alerts: it is
+// the transport, and the notifier decides what to say.
 package mail
 
 import (
@@ -32,8 +33,8 @@ func NewSMTP(addr, from, user, password string, timeout time.Duration) *SMTP {
 	return &SMTP{addr: addr, from: from, user: user, password: password, timeout: timeout}
 }
 
-// Send delivers one message. The context bounds the whole conversation, because
-// net/smtp has no notion of one.
+// Send delivers one message. The body is the HTML a template wrote, and the
+// context bounds the whole conversation, because net/smtp has no notion of one.
 func (s *SMTP) Send(ctx context.Context, to, subject, body string) error {
 	return s.SendReply(ctx, to, subject, body, "")
 }
@@ -160,7 +161,8 @@ func Message(from, to, subject, body string) []byte {
 
 // MessageReplyTo is Message with a Reply-To header, which is what makes an
 // answer go back to the person who wrote in rather than to the site's own
-// mailbox. An empty replyTo leaves the header out.
+// mailbox. An empty replyTo leaves the header out. The body is HTML, because
+// every email the site sends is written from a template.
 func MessageReplyTo(from, to, subject, body, replyTo string) []byte {
 	var b strings.Builder
 
@@ -172,7 +174,7 @@ func MessageReplyTo(from, to, subject, body, replyTo string) []byte {
 	}
 	b.WriteString("Date: " + time.Now().UTC().Format(time.RFC1123Z) + "\r\n")
 	b.WriteString("MIME-Version: 1.0\r\n")
-	b.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
+	b.WriteString("Content-Type: text/html; charset=utf-8\r\n")
 	b.WriteString("Content-Transfer-Encoding: 8bit\r\n")
 	b.WriteString("\r\n")
 
