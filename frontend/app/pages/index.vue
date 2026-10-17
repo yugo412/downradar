@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Stats, Vendor } from '~/types/api'
+import type { AccountAlert, Stats, Vendor } from '~/types/api'
 
 const { data, error } = await useFetch<{ vendors: Vendor[]; count: number }>('/api/v1/vendors')
 const { data: stats } = await useFetch<Stats>('/api/v1/stats')
@@ -29,6 +29,43 @@ watch(
 )
 
 const privateSlugs = computed(() => new Set(myVendors.value.map((v) => v.slug)))
+
+// How a card says the person reading it already watches that service: the bell
+// the site marks an alert with, in the colour of what the alert is doing. A
+// paused alert is still an alert, so the bell stays and says which it is.
+const marks = ref<Map<string, { label: string; cls: string }>>(new Map())
+
+const MARKS: Record<string, { label: string; cls: string }> = {
+  active: { label: 'You get alerts for this service', cls: 'text-success' },
+  paused: { label: 'Your alerts for this service are paused', cls: 'opacity-40' },
+}
+
+// Read from the account's own alerts once the page is up, because the catalogue
+// itself is cached and served to everyone: nothing about one account can be in
+// that HTML.
+watch(
+  [loaded, user],
+  async () => {
+    if (!loaded.value || !user.value) {
+      marks.value = new Map()
+      return
+    }
+    try {
+      const res = await $fetch<{ alerts: AccountAlert[] }>('/api/v1/auth/alerts')
+      const next = new Map<string, { label: string; cls: string }>()
+      for (const alert of res.alerts) {
+        // A row that was ended is not something they are watching any more.
+        const mark = alert.state === 'unsubscribed' ? undefined : MARKS[alert.state]
+        if (mark) next.set(alert.vendorSlug, mark)
+      }
+      marks.value = next
+    } catch {
+      // Nothing worth saying on the index: the cards go on without a bell.
+      marks.value = new Map()
+    }
+  },
+  { immediate: true },
+)
 
 const route = useRoute()
 
@@ -89,11 +126,15 @@ const visible = computed(() => {
     ? matched.value.filter((v) => statusFilter.value.includes(v.status))
     : matched.value
 
-  return [...base].sort((a, b) =>
+  const sorted = [...base].sort((a, b) =>
     worstFirst.value
       ? severity(b.status) - severity(a.status) || a.name.localeCompare(b.name)
       : a.name.localeCompare(b.name),
   )
+
+  // The mark is carried on the card itself, so a card asks for it once rather
+  // than looking the same service up again in the template.
+  return sorted.map((vendor) => ({ ...vendor, mark: marks.value.get(vendor.slug) ?? null }))
 })
 
 type SuggestState = 'idle' | 'sending' | 'sent' | 'exists' | 'error'
@@ -304,7 +345,17 @@ useSeoMeta({
               <div class="min-w-0 flex-1">
                 <div class="flex items-center justify-between gap-2">
                   <h2 class="text-lg font-semibold leading-snug">{{ v.name }}</h2>
-                  <StatusBadge :status="v.status" size="sm" class="shrink-0" />
+                  <span class="flex shrink-0 items-center gap-1.5">
+                    <span
+                      v-if="v.mark"
+                      role="img"
+                      :aria-label="v.mark.label"
+                      :title="v.mark.label"
+                    >
+                      <BellIcon class="h-4 w-4" :class="v.mark.cls" />
+                    </span>
+                    <StatusBadge :status="v.status" size="sm" />
+                  </span>
                 </div>
                 <p class="flex items-center gap-1.5 text-xs opacity-60">
                   <span>{{ v.category || 'service' }}</span>
