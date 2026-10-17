@@ -155,6 +155,9 @@ func (s *Store) applyComponentState(
 			where component_id = $1`, compID, string(status), changedAt); err != nil {
 			return false, fmt.Errorf("apply: update component_state: %w", err)
 		}
+		if err := s.enqueueComponentAlerts(ctx, tx, compID, prev, string(status), changedAt); err != nil {
+			return false, err
+		}
 		return true, s.insertEvent(ctx, tx, serviceID, &compID, status, changedAt, sourceChangedAt)
 	}
 }
@@ -204,7 +207,7 @@ func (s *Store) applyServiceState(
 //
 // A subscription that watches one component of the vendor is left out: what it
 // asked about is that component, so the change it waits for is the component's
-// own.
+// own, which enqueueComponentAlerts writes.
 //
 // The first state a service is ever seen in is not a change: nobody is told that
 // a vendor they subscribed to was, as far as we knew, already up. Only a move
@@ -219,6 +222,26 @@ func (s *Store) enqueueAlerts(ctx context.Context, tx pgx.Tx, serviceID int64, f
 		  and c.unsubscribed_at is null and c.paused_at is null`,
 		serviceID, from, to, changedAt); err != nil {
 		return fmt.Errorf("apply: enqueue alerts: %w", err)
+	}
+	return nil
+}
+
+// enqueueComponentAlerts is the same bargain for one component: every
+// subscription watching this component is written a delivery, and one watching
+// the vendor as a whole is not, because the vendor's own status is a change of
+// its own. A component's first state is the baseline the rest are read against,
+// not a change, and that is why the caller only reaches here when it was already
+// known in another state.
+func (s *Store) enqueueComponentAlerts(ctx context.Context, tx pgx.Tx, componentID int64, from, to string, changedAt time.Time) error {
+	if _, err := tx.Exec(ctx, `
+		insert into alert_deliveries (channel_id, target_id, from_status, to_status, changed_at)
+		select c.id, t.id, $2, $3, $4
+		from alert_targets t
+		join alert_channels c on c.subscription_id = t.subscription_id
+		where t.component_id = $1
+		  and c.unsubscribed_at is null and c.paused_at is null`,
+		componentID, from, to, changedAt); err != nil {
+		return fmt.Errorf("apply: enqueue component alerts: %w", err)
 	}
 	return nil
 }

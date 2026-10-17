@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"downradar.info/backend/internal/adapters"
 	"downradar.info/backend/internal/auth"
 	"downradar.info/backend/internal/catalog"
 	"downradar.info/backend/internal/store"
@@ -150,6 +151,175 @@ func TestSubscribeAlertGivesAGuestOneAlert(t *testing.T) {
 	}
 	if code, body := post(first, cookie); code != http.StatusCreated {
 		t.Errorf("the other vendor while signed in = %d, want 201: %s", code, body)
+	}
+}
+
+// alertVendorWithComponents writes a vendor the public can see with a poll
+// behind it, so it has components for the bell to list. The identifiers come
+// back in the order the page shows them.
+func alertVendorWithComponents(t *testing.T, st *store.Store, count int) (string, []string) {
+	t.Helper()
+
+	slug := alertVendor(t, st)
+	id, _, err := st.PublicService(context.Background(), slug)
+	if err != nil {
+		t.Fatalf("PublicService: %v", err)
+	}
+
+	components := make([]adapters.ComponentStatus, 0, count)
+	sourceIDs := make([]string, 0, count)
+	for i := 1; i <= count; i++ {
+		sourceIDs = append(sourceIDs, fmt.Sprintf("c%d", i))
+		components = append(components, adapters.ComponentStatus{
+			SourceID: fmt.Sprintf("c%d", i),
+			Name:     fmt.Sprintf("Component %d", i),
+			Position: i,
+			Status:   adapters.HealthOK,
+		})
+	}
+
+	if _, err := st.ApplyReport(context.Background(), id, adapters.Report{
+		Global:     adapters.HealthOK,
+		FetchedAt:  time.Now().UTC(),
+		Components: components,
+	}); err != nil {
+		t.Fatalf("ApplyReport: %v", err)
+	}
+	return slug, sourceIDs
+}
+
+// bellState is what the modal reads before it draws its boxes.
+type bellState struct {
+	Subscribed   bool     `json:"subscribed"`
+	Email        string   `json:"email"`
+	Paused       bool     `json:"paused"`
+	WholeService bool     `json:"wholeService"`
+	Components   []string `json:"components"`
+}
+
+func readBell(t *testing.T, router http.Handler, slug, cookie string) bellState {
+	t.Helper()
+
+	rec := call(t, router, http.MethodGet, "/api/v1/vendors/"+slug+"/alerts", "", cookie)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("bell status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var state bellState
+	if err := json.Unmarshal(rec.Body.Bytes(), &state); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return state
+}
+
+// A subscriber picks what the emails are about: the vendor's own status, or
+// whichever of its components they ticked, or both. The bell reads the selection
+// back, so it opens with the boxes they left ticked rather than starting over.
+func TestSubscribeAlertPicksComponents(t *testing.T) {
+	st, router := testRouter(t)
+	slug, sourceIDs := alertVendorWithComponents(t, st, 2)
+
+	subscriber := testUser(t, st, auth.RoleSubscriber)
+	cookie := sessionFor(t, st, subscriber)
+
+	subscribe := func(body string) (int, string) {
+		t.Helper()
+		rec := call(t, router, http.MethodPost, "/api/v1/vendors/"+slug+"/alerts", body, cookie)
+		return rec.Code, rec.Body.String()
+	}
+
+	// One component, and not the vendor's own status.
+	body := fmt.Sprintf(`{"email":"parts@example.org","wholeService":false,"components":["%s"]}`,
+		sourceIDs[0])
+	if code, out := subscribe(body); code != http.StatusCreated {
+		t.Fatalf("picking a component = %d, want 201: %s", code, out)
+	}
+
+	state := readBell(t, router, slug, cookie)
+	if !state.Subscribed || state.WholeService {
+		t.Errorf("bell = %+v, want a subscription to the component alone", state)
+	}
+	if len(state.Components) != 1 || state.Components[0] != sourceIDs[0] {
+		t.Errorf("components = %v, want %s", state.Components, sourceIDs[0])
+	}
+
+	// The account screen says what each row watches, so a row is more than a
+	// vendor name.
+	rec := call(t, router, http.MethodGet, "/api/v1/auth/alerts", "", cookie)
+	var listed struct {
+		Alerts []struct {
+			WholeService bool     `json:"wholeService"`
+			Components   []string `json:"components"`
+			VendorName   string   `json:"vendorName"`
+		} `json:"alerts"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(listed.Alerts) != 1 || listed.Alerts[0].WholeService {
+		t.Fatalf("rows = %+v, want the one component subscription", listed.Alerts)
+	}
+	if len(listed.Alerts[0].Components) != 1 || listed.Alerts[0].Components[0] != "Component 1" {
+		t.Errorf("row components = %v, want the component by name", listed.Alerts[0].Components)
+	}
+
+	// Both can be watched at once, which is what the two kinds of tick are for.
+	body = fmt.Sprintf(`{"email":"parts@example.org","wholeService":true,"components":["%s","%s"]}`,
+		sourceIDs[0], sourceIDs[1])
+	if code, out := subscribe(body); code != http.StatusCreated {
+		t.Fatalf("picking the vendor and two components = %d, want 201: %s", code, out)
+	}
+	state = readBell(t, router, slug, cookie)
+	if !state.WholeService || len(state.Components) != 2 {
+		t.Errorf("bell = %+v, want the vendor's own status and both components", state)
+	}
+
+	// A request in the older shape, naming nothing, still means the vendor's own
+	// status: only the bell sends this, and a page from before this change does.
+	if code, out := subscribe(`{"email":"parts@example.org"}`); code != http.StatusCreated {
+		t.Fatalf("the older shape = %d, want 201: %s", code, out)
+	}
+	state = readBell(t, router, slug, cookie)
+	if !state.WholeService || len(state.Components) != 0 {
+		t.Errorf("bell = %+v, want only the vendor's own status", state)
+	}
+
+	// A component that is not this vendor's is refused rather than quietly
+	// dropped: what is written has to be what the subscriber was shown.
+	body = fmt.Sprintf(`{"email":"parts@example.org","wholeService":false,"components":["%s","nope"]}`,
+		sourceIDs[0])
+	if code, out := subscribe(body); code != http.StatusBadRequest {
+		t.Errorf("an unknown component = %d, want 400: %s", code, out)
+	}
+}
+
+// A visitor without an account gets one alert, and it is a whole vendor:
+// components are a subscriber's, so naming one is what signing in is for.
+func TestAGuestWatchesWholeVendorsOnly(t *testing.T) {
+	st, router := testRouter(t)
+	slug, sourceIDs := alertVendorWithComponents(t, st, 2)
+
+	post := func(body string) (int, string) {
+		t.Helper()
+		rec := call(t, router, http.MethodPost, "/api/v1/vendors/"+slug+"/alerts", body, "")
+		return rec.Code, rec.Body.String()
+	}
+
+	body := fmt.Sprintf(`{"email":"guest@example.org","wholeService":false,"components":["%s"]}`,
+		sourceIDs[0])
+	if code, out := post(body); code != http.StatusConflict {
+		t.Errorf("a component for a guest = %d, want 409: %s", code, out)
+	}
+
+	// Ticking the vendor as well does not make a component available, because
+	// that would be two things to send mail about.
+	body = fmt.Sprintf(`{"email":"guest@example.org","wholeService":true,"components":["%s"]}`,
+		sourceIDs[0])
+	if code, out := post(body); code != http.StatusConflict {
+		t.Errorf("a component beside the vendor for a guest = %d, want 409: %s", code, out)
+	}
+
+	if code, out := post(`{"email":"guest@example.org"}`); code != http.StatusCreated {
+		t.Errorf("the vendor for a guest = %d, want 201: %s", code, out)
 	}
 }
 
@@ -329,7 +499,7 @@ func TestUnsubscribeLinkResolvesAndThenWorks(t *testing.T) {
 		t.Fatalf("PublicService: %v", err)
 	}
 	token := "token-" + slug
-	if err := st.SubscribeAlert(context.Background(), id, nil, "ann@example.com", token); err != nil {
+	if err := st.SubscribeAlert(context.Background(), id, nil, "ann@example.com", token, store.WholeVendor); err != nil {
 		t.Fatalf("SubscribeAlert: %v", err)
 	}
 
@@ -448,8 +618,9 @@ func TestSubscriberAlertsAreCapped(t *testing.T) {
 		t.Errorf("the alert past the limit = %d, want 409: %s", code, body)
 	}
 
-	// Asking again for one that is already there is not a new one, so it is not
-	// refused: the count leaves the vendor being asked about out.
+	// Asking again for what is already there is not a new thing to watch, so it
+	// is not refused: what the address already watches on this vendor is what the
+	// request replaces.
 	if code, body := subscribe(slugs[0], cookie); code != http.StatusCreated {
 		t.Errorf("re-subscribing = %d, want 201: %s", code, body)
 	}
@@ -470,6 +641,82 @@ func TestSubscriberAlertsAreCapped(t *testing.T) {
 		if code, body := subscribe(slug, modCookie); code != http.StatusCreated {
 			t.Fatalf("moderator subscribe %s = %d, want 201: %s", slug, code, body)
 		}
+	}
+}
+
+// The cap counts vendors rather than the things watched inside one, so a whole
+// status page and several of its components is a single place in it, and a vendor
+// picked only through a component is a vendor all the same.
+func TestSubscriberAlertsAreCappedPerVendor(t *testing.T) {
+	st, router := testRouter(t)
+
+	subscriber := testUser(t, st, auth.RoleSubscriber)
+	cookie := sessionFor(t, st, subscriber)
+
+	const limit = 3
+	if err := st.SetUserLimits(context.Background(), subscriber.ID,
+		map[string]int{store.LimitAlert: limit}); err != nil {
+		t.Fatalf("SetUserLimits: %v", err)
+	}
+
+	used := func() int {
+		t.Helper()
+		rec := call(t, router, http.MethodGet, "/api/v1/auth/alerts", "", cookie)
+		var body struct {
+			Used int `json:"used"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		return body.Used
+	}
+
+	slug, sourceIDs := alertVendorWithComponents(t, st, limit+1)
+
+	quoted := make([]string, 0, len(sourceIDs))
+	for _, id := range sourceIDs {
+		quoted = append(quoted, fmt.Sprintf("%q", id))
+	}
+	rec := call(t, router, http.MethodPost, "/api/v1/vendors/"+slug+"/alerts",
+		`{"email":"parts@example.org","wholeService":true,"components":[`+
+			strings.Join(quoted, ",")+`]}`, cookie)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("a vendor with its components = %d, want 201: %s", rec.Code, rec.Body.String())
+	}
+	if got := used(); got != 1 {
+		t.Errorf("used = %d after one vendor, want 1", got)
+	}
+
+	// Every vendor after that takes a place, and nothing is left by the time the
+	// count is full.
+	for i := 1; i < limit; i++ {
+		other := alertVendor(t, st)
+		rec := call(t, router, http.MethodPost, "/api/v1/vendors/"+other+"/alerts",
+			`{"email":"parts@example.org"}`, cookie)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("vendor %d = %d, want 201: %s", i+1, rec.Code, rec.Body.String())
+		}
+	}
+	if got := used(); got != limit {
+		t.Errorf("used = %d, want %d", got, limit)
+	}
+
+	// A vendor watched only through one of its components is still a vendor.
+	other, ids := alertVendorWithComponents(t, st, 1)
+	rec = call(t, router, http.MethodPost, "/api/v1/vendors/"+other+"/alerts",
+		`{"email":"parts@example.org","wholeService":false,"components":[`+
+			fmt.Sprintf("%q", ids[0])+`]}`, cookie)
+	if rec.Code != http.StatusConflict {
+		t.Errorf("a component past the limit = %d, want 409: %s", rec.Code, rec.Body.String())
+	}
+
+	// Asking again for a vendor that is already watched replaces what is there,
+	// so it fits without a place of its own.
+	rec = call(t, router, http.MethodPost, "/api/v1/vendors/"+slug+"/alerts",
+		`{"email":"parts@example.org","wholeService":false,"components":[`+
+			fmt.Sprintf("%q", sourceIDs[0])+`]}`, cookie)
+	if rec.Code != http.StatusCreated {
+		t.Errorf("changing mind on a watched vendor = %d, want 201: %s", rec.Code, rec.Body.String())
 	}
 }
 

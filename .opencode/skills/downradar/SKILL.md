@@ -58,11 +58,14 @@ app itself, not from fixtures.
 - A subscriber's suggestion keeps `owner_id` as attribution only. Approving it
   clears the owner and publishes the service to the catalogue.
 - Per-user limits live in `user_limits` and are written when the account is made;
-  that row is what is read. The alert limit is the only one so far: a guest gets
-  one active alert, staff are uncapped.
-- Alert subscriptions are email only and per vendor. They fire on the vendor's
-  overall status transition, and delivery is an outbox row written in the same
-  transaction as the change and drained by `internal/notify`.
+  that row is what is read. The alert limit is the only one so far, and it counts
+  vendors rather than the things watched inside one: a guest gets one active alert
+  and it is a whole vendor, staff are uncapped.
+- Alert subscriptions are email only, and watch a vendor's overall status, one of
+  its components, or several things at once. Components are for subscribers, so a
+  signed out visitor is only ever offered the whole vendor. They fire on the
+  transition of whatever is watched, and delivery is an outbox row written in the
+  same transaction as the change and drained by `internal/notify`.
 - With no SMTP configured, register, forgot-password, contact and vendor-alert
   posts answer 503 instead of accepting something they cannot send.
 - Error messages that reach a user start lower case.
