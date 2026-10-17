@@ -43,3 +43,45 @@ export function severity(status: string): number {
 export function isHealthy(status: string): boolean {
   return status === 'ok' || status === 'maintenance'
 }
+
+// The words and the colours a health status is shown with. They live here so the
+// status badge and the filter rows built out of it cannot drift apart.
+const STATUS_META: Record<string, { label: string; cls: string }> = {
+  ok: { label: 'Operational', cls: 'badge-success' },
+  maintenance: { label: 'Maintenance', cls: 'badge-info' },
+  degraded: { label: 'Degraded', cls: 'badge-warning' },
+  partial: { label: 'Partial outage', cls: 'badge-warning' },
+  major: { label: 'Major outage', cls: 'badge-error' },
+  unknown: { label: 'Unknown', cls: 'badge-ghost' },
+}
+
+export function statusMeta(status: string): { label: string; cls: string } {
+  return STATUS_META[status] ?? STATUS_META.unknown!
+}
+
+export interface StatusCount {
+  status: string
+  count: number
+}
+
+// The states a list can be filtered by, each with how many of its rows are in
+// that state, worst first. A state that is already picked is kept even at zero,
+// so it cannot vanish from under the click that is about to unpick it.
+export function statusCounts<T>(
+  items: T[],
+  statusOf: (item: T) => string,
+  picked: string[] = [],
+): StatusCount[] {
+  const counts = new Map<string, number>()
+  for (const item of items) {
+    const status = statusOf(item)
+    counts.set(status, (counts.get(status) ?? 0) + 1)
+  }
+  for (const status of picked) {
+    if (!counts.has(status)) counts.set(status, 0)
+  }
+
+  return [...counts.entries()]
+    .map(([status, count]) => ({ status, count }))
+    .sort((a, b) => severity(b.status) - severity(a.status) || a.status.localeCompare(b.status))
+}

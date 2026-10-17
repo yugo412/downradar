@@ -13,13 +13,24 @@ const openIncidents = computed(() => incidents.value.filter((i) => !i.resolvedAt
 // page stays one cached fetch that everybody gets the same copy of.
 const search = ref('')
 const needle = computed(() => search.value.trim().toLowerCase())
-const shownComponents = computed(() => {
+const matched = computed(() => {
   if (!needle.value) return components.value
   return components.value.filter(
     (c) =>
       c.name.toLowerCase().includes(needle.value) ||
       (c.group ?? '').toLowerCase().includes(needle.value),
   )
+})
+
+// The badge counts are counted after the search, so the number next to a state
+// always agrees with the rows underneath it.
+const statusFilter = ref<string[]>([])
+const statusOptions = computed(() =>
+  statusCounts(matched.value, (c) => c.status, statusFilter.value),
+)
+const shownComponents = computed(() => {
+  if (!statusFilter.value.length) return matched.value
+  return matched.value.filter((c) => statusFilter.value.includes(c.status))
 })
 </script>
 
@@ -48,6 +59,13 @@ const shownComponents = computed(() => {
         aria-label="Search components"
       />
 
+      <StatusFilter
+        v-model="statusFilter"
+        :statuses="statusOptions"
+        label="Filter components by status"
+        class="mb-3"
+      />
+
       <div class="overflow-x-auto bg-base-100 border border-base-300 rounded-box shadow-sm">
         <table class="table">
           <thead>
@@ -61,16 +79,17 @@ const shownComponents = computed(() => {
             <tr v-for="c in shownComponents" :key="c.sourceId">
               <td class="font-medium">{{ c.name }}</td>
               <td><StatusBadge :status="c.status" size="sm" /></td>
-              <td class="text-right text-sm opacity-60">
+              <td class="whitespace-nowrap text-right text-sm opacity-60">
                 <LiveAgo :at="c.changedAt" />
               </td>
             </tr>
             <tr v-if="!shownComponents.length">
               <td colspan="3" class="text-center opacity-60">
-                <template v-if="components.length">
+                <template v-if="!components.length">No components reported yet.</template>
+                <template v-else-if="!matched.length">
                   No component matches “{{ search.trim() }}”.
                 </template>
-                <template v-else>No components reported yet.</template>
+                <template v-else>No component is in the states you picked.</template>
               </td>
             </tr>
           </tbody>
