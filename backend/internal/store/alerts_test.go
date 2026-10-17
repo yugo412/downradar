@@ -39,8 +39,8 @@ func queuedFor(t *testing.T, st *Store, serviceID int64) int {
 	return countRows(t, st, `
 		select count(*)
 		from alert_deliveries d
-		join alert_subscriptions a on a.id = d.subscription_id
-		where a.service_id = $1 and d.sent_at is null`, serviceID)
+		join alert_targets t on t.id = d.target_id
+		where t.service_id = $1 and d.sent_at is null`, serviceID)
 }
 
 func reportWith(status adapters.Health) adapters.Report {
@@ -58,13 +58,14 @@ func TestSubscribeAlertKeepsOneRowPerAddress(t *testing.T) {
 	if err := st.SubscribeAlert(ctx, id, nil, "ann@example.com", "token-one"); err != nil {
 		t.Fatalf("SubscribeAlert: %v", err)
 	}
-	// The address is the subscription, so asking twice is not two subscriptions,
-	// and the token already in an inbox keeps working.
+	// The address and the vendor are the subscription, so asking twice is not
+	// two subscriptions, and the token already in an inbox keeps working.
 	if err := st.SubscribeAlert(ctx, id, nil, "ann@example.com", "token-two"); err != nil {
 		t.Fatalf("SubscribeAlert again: %v", err)
 	}
 
-	if n := countRows(t, st, `select count(*) from alert_subscriptions where service_id = $1`, id); n != 1 {
+	if n := countRows(t, st, `select count(*) from alert_subscriptions a`+
+		` join alert_targets t on t.subscription_id = a.id where t.service_id = $1`, id); n != 1 {
 		t.Errorf("subscriptions = %d, want 1", n)
 	}
 
@@ -130,16 +131,17 @@ func TestUnsubscribeAlertDropsWhatWasStillWaiting(t *testing.T) {
 	if _, err := st.ApplyReport(ctx, id, reportWith(adapters.HealthMajor)); err != nil {
 		t.Fatalf("second poll: %v", err)
 	}
-	if n := countRows(t, st, `select count(*) from alert_deliveries where sent_at is null`+
-		` and subscription_id = (select id from alert_subscriptions where service_id = $1)`, id); n != 1 {
+	if n := countRows(t, st, `select count(*) from alert_deliveries d`+
+		` join alert_targets t on t.id = d.target_id`+
+		` where d.sent_at is null and t.service_id = $1`, id); n != 1 {
 		t.Fatalf("pending deliveries = %d, want 1", n)
 	}
 
 	if err := st.UnsubscribeAlert(ctx, "token-cara"); err != nil {
 		t.Fatalf("UnsubscribeAlert: %v", err)
 	}
-	if n := countRows(t, st, `select count(*) from alert_deliveries where subscription_id =`+
-		` (select id from alert_subscriptions where service_id = $1)`, id); n != 0 {
+	if n := countRows(t, st, `select count(*) from alert_deliveries d`+
+		` join alert_targets t on t.id = d.target_id where t.service_id = $1`, id); n != 0 {
 		t.Errorf("deliveries = %d, want the waiting one dropped", n)
 	}
 }
@@ -219,8 +221,10 @@ func TestPendingAlertsLeavesUnsubscribedAddressesAlone(t *testing.T) {
 
 	// A change that happens after the address has gone is not an alert: the row
 	// stays, but nothing is waiting for it.
-	if _, err := st.pool.Exec(ctx,
-		`update alert_subscriptions set unsubscribed_at = now() where service_id = $1`, id); err != nil {
+	if _, err := st.pool.Exec(ctx, `
+		update alert_channels set unsubscribed_at = now()
+		where subscription_id in (
+			select subscription_id from alert_targets where service_id = $1)`, id); err != nil {
 		t.Fatalf("unsubscribe by hand: %v", err)
 	}
 
@@ -528,7 +532,7 @@ func TestUserAlertFollowsTheAccountNotTheAddress(t *testing.T) {
 
 	var guestStill bool
 	if err := st.pool.QueryRow(ctx,
-		`select unsubscribed_at is null from alert_subscriptions where token = 'token-guest'`).Scan(&guestStill); err != nil {
+		`select unsubscribed_at is null from alert_channels where token = 'token-guest'`).Scan(&guestStill); err != nil {
 		t.Fatalf("read the guest's alert: %v", err)
 	}
 	if !guestStill {
@@ -581,7 +585,8 @@ func TestSubscribeAlertRecordsTheSignedInUser(t *testing.T) {
 	}
 	var userID *int64
 	if err := st.pool.QueryRow(ctx,
-		`select user_id from alert_subscriptions where token = 'token-frank'`).Scan(&userID); err != nil {
+		`select a.user_id from alert_subscriptions a`+
+			` join alert_channels c on c.subscription_id = a.id where c.token = 'token-frank'`).Scan(&userID); err != nil {
 		t.Fatalf("read user_id: %v", err)
 	}
 	if userID != nil {
@@ -604,10 +609,210 @@ func TestSubscribeAlertRecordsTheSignedInUser(t *testing.T) {
 		t.Fatalf("SubscribeAlert signed out again: %v", err)
 	}
 	if err := st.pool.QueryRow(ctx,
-		`select user_id from alert_subscriptions where token = 'token-frank'`).Scan(&userID); err != nil {
+		`select a.user_id from alert_subscriptions a`+
+			` join alert_channels c on c.subscription_id = a.id where c.token = 'token-frank'`).Scan(&userID); err != nil {
 		t.Fatalf("read user_id: %v", err)
 	}
 	if userID == nil || *userID != user.ID {
 		t.Errorf("user_id = %v, want the id it was given", userID)
+	}
+}
+
+// A subscription can arrive more than one way, and the link in a message stops
+// the channel that message came from: the subscription is still active while any
+// of its channels can deliver, and reads as unsubscribed only when none can.
+func TestEachChannelStopsOnItsOwn(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	id := alertService(t, st, uniqueName("alert channels"))
+	email := uniqueTestEmail()
+	t.Cleanup(func() { dropTestUser(context.Background(), st, email) })
+	user, err := st.CreateUser(ctx, email, "Signed In Person", "subscriber", "h")
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	if err := st.SubscribeAlert(ctx, id, &user.ID, "work@example.org", "token-mail"); err != nil {
+		t.Fatalf("SubscribeAlert: %v", err)
+	}
+
+	// The vendor page only makes email channels. A webhook is the shape a second
+	// one takes, so it is written by hand: the point of the change is that the
+	// tables hold it without another one.
+	var subscriptionID int64
+	if err := st.pool.QueryRow(ctx,
+		`select subscription_id from alert_channels where token = 'token-mail'`).Scan(&subscriptionID); err != nil {
+		t.Fatalf("read the subscription: %v", err)
+	}
+	if _, err := st.pool.Exec(ctx, `
+		insert into alert_channels (subscription_id, kind, address, token)
+		values ($1, 'webhook', 'https://hooks.example.com/downradar', 'token-hook')`,
+		subscriptionID); err != nil {
+		t.Fatalf("add a webhook channel: %v", err)
+	}
+
+	if _, err := st.ApplyReport(ctx, id, reportWith(adapters.HealthOK)); err != nil {
+		t.Fatalf("first poll: %v", err)
+	}
+	if _, err := st.ApplyReport(ctx, id, reportWith(adapters.HealthMajor)); err != nil {
+		t.Fatalf("second poll: %v", err)
+	}
+	if n := queuedFor(t, st, id); n != 2 {
+		t.Fatalf("pending = %d, want one per channel", n)
+	}
+
+	// The unsubscribe link stops the channel it came from and leaves the other
+	// one alone, so the person is still reachable the other way.
+	if err := st.UnsubscribeAlert(ctx, "token-mail"); err != nil {
+		t.Fatalf("UnsubscribeAlert: %v", err)
+	}
+	if n := queuedFor(t, st, id); n != 1 {
+		t.Errorf("pending = %d, want only the webhook's alert left", n)
+	}
+
+	view, err := st.UserAlert(ctx, user.ID, id)
+	if err != nil {
+		t.Fatalf("UserAlert: %v", err)
+	}
+	if got := view.State(); got != AlertActive {
+		t.Errorf("state = %q, want active while a channel can still deliver", got)
+	}
+
+	// With the last channel ended the subscription reads as unsubscribed, and the
+	// screen still lists it so it can be started again.
+	if err := st.UnsubscribeAlert(ctx, "token-hook"); err != nil {
+		t.Fatalf("UnsubscribeAlert the webhook: %v", err)
+	}
+	if n := queuedFor(t, st, id); n != 0 {
+		t.Errorf("pending = %d, want nothing left waiting", n)
+	}
+	if _, err := st.UserAlert(ctx, user.ID, id); !errors.Is(err, ErrNotFound) {
+		t.Errorf("UserAlert with every channel ended = %v, want ErrNotFound", err)
+	}
+
+	alerts, err := st.UserAlerts(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("UserAlerts: %v", err)
+	}
+	if len(alerts) != 1 {
+		t.Fatalf("alerts = %d, want the ended subscription still listed", len(alerts))
+	}
+	if got := alerts[0].State(); got != AlertUnsubscribed {
+		t.Errorf("state = %q, want unsubscribed once every channel has ended", got)
+	}
+}
+
+// A subscription that watches one component is not woken by the vendor's own
+// status: what it asked about is that component, and the change it waits for is
+// the component's own.
+func TestAComponentTargetWaitsForTheComponent(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	id := alertService(t, st, uniqueName("alert component"))
+	email := uniqueTestEmail()
+	t.Cleanup(func() { dropTestUser(context.Background(), st, email) })
+	user, err := st.CreateUser(ctx, email, "Signed In Person", "subscriber", "h")
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	// A poll records the vendor's component, which is what a target can point at.
+	if _, err := st.ApplyReport(ctx, id, reportWith(adapters.HealthOK)); err != nil {
+		t.Fatalf("first poll: %v", err)
+	}
+	var componentID int64
+	if err := st.pool.QueryRow(ctx,
+		`select id from components where service_id = $1`, id).Scan(&componentID); err != nil {
+		t.Fatalf("read the component: %v", err)
+	}
+
+	// Nobody can ask for a component yet, so the subscription is written by hand:
+	// what this change is about is that the tables hold it. It goes in with its
+	// target, because a subscription with nothing to watch is not a thing.
+	var subscriptionID int64
+	if err := st.pool.QueryRow(ctx, `
+		with made as (
+			insert into alert_subscriptions (user_id) values ($1) returning id
+		)
+		insert into alert_targets (subscription_id, service_id, component_id)
+		select made.id, $2, $3 from made
+		returning subscription_id`, user.ID, id, componentID).Scan(&subscriptionID); err != nil {
+		t.Fatalf("create the subscription: %v", err)
+	}
+	if _, err := st.pool.Exec(ctx, `
+		insert into alert_channels (subscription_id, kind, address, token)
+		values ($1, 'email', 'component@example.org', 'token-component')`,
+		subscriptionID); err != nil {
+		t.Fatalf("create the channel: %v", err)
+	}
+
+	// The vendor going down is not the change it asked about.
+	if _, err := st.ApplyReport(ctx, id, reportWith(adapters.HealthMajor)); err != nil {
+		t.Fatalf("second poll: %v", err)
+	}
+	if n := queuedFor(t, st, id); n != 0 {
+		t.Errorf("pending = %d, want nothing queued for a component target", n)
+	}
+}
+
+// Purging a vendor takes the alert that only watched it, and leaves one that
+// also watches another vendor: an alert is about what it watches, and a
+// subscription with nothing left would sit on its address and token for ever.
+func TestPurgingAVendorTakesTheAlertThatOnlyWatchedIt(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	goneSlug := uniqueName("alert purge gone")
+	keptSlug := uniqueName("alert purge kept")
+	gone := alertService(t, st, goneSlug)
+	kept := alertService(t, st, keptSlug)
+
+	if err := st.SubscribeAlert(ctx, gone, nil, "anna@example.com", "token-purge-gone"); err != nil {
+		t.Fatalf("SubscribeAlert: %v", err)
+	}
+	if err := st.SubscribeAlert(ctx, kept, nil, "bella@example.com", "token-purge-kept"); err != nil {
+		t.Fatalf("SubscribeAlert: %v", err)
+	}
+
+	// Somebody who follows both vendors, which is what one subscription with two
+	// targets is for.
+	var bothID int64
+	if err := st.pool.QueryRow(ctx, `
+		with made as (
+			insert into alert_subscriptions (user_id) values (null) returning id
+		)
+		insert into alert_targets (subscription_id, service_id)
+		select made.id, $1 from made
+		returning subscription_id`, gone).Scan(&bothID); err != nil {
+		t.Fatalf("create a subscription watching both: %v", err)
+	}
+	if _, err := st.pool.Exec(ctx, `
+		insert into alert_targets (subscription_id, service_id) values ($1, $2)`,
+		bothID, kept); err != nil {
+		t.Fatalf("add the second target: %v", err)
+	}
+	if _, err := st.pool.Exec(ctx, `
+		insert into alert_channels (subscription_id, kind, address, token)
+		values ($1, 'email', 'cara@example.com', $2)`, bothID, uniqueName("token-both")); err != nil {
+		t.Fatalf("add the channel: %v", err)
+	}
+
+	if err := st.PurgeService(ctx, goneSlug); err != nil {
+		t.Fatalf("PurgeService: %v", err)
+	}
+
+	if n := countRows(t, st,
+		`select count(*) from alert_channels where token = $1`, "token-purge-gone"); n != 0 {
+		t.Error("the alert that only watched the purged vendor is still there")
+	}
+	if n := countRows(t, st,
+		`select count(*) from alert_channels where token = $1`, "token-purge-kept"); n != 1 {
+		t.Errorf("the alert on the other vendor = %d, want it kept", n)
+	}
+	if n := countRows(t, st,
+		`select count(*) from alert_targets where subscription_id = $1`, bothID); n != 1 {
+		t.Errorf("targets left = %d, want the other vendor's", n)
 	}
 }

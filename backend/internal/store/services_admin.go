@@ -305,8 +305,8 @@ func (s *Store) DeleteService(ctx context.Context, slug string) (string, error) 
 	}
 
 	if status == string(StatusProposed) {
-		if _, err := tx.Exec(ctx, `delete from services where slug = $1`, slug); err != nil {
-			return "", fmt.Errorf("services: delete %s: %w", slug, err)
+		if _, err := deleteServiceRows(ctx, tx, slug); err != nil {
+			return "", err
 		}
 		if err := tx.Commit(ctx); err != nil {
 			return "", fmt.Errorf("services: delete commit %s: %w", slug, err)
@@ -324,17 +324,77 @@ func (s *Store) DeleteService(ctx context.Context, slug string) (string, error) 
 	return DeleteDeactivated, nil
 }
 
+// deleteServiceRows takes a service away for good and then the subscriptions
+// that were only watching it. The foreign keys take the components, the status
+// events, the poll runs, the raw payloads and the targets with it, but a
+// subscription is not tied to one vendor any more, so what is left with nothing
+// to watch is removed here: otherwise the address and its token would sit in the
+// table for ever. A subscription that watches another vendor as well keeps it.
+//
+// It returns how many services it removed, so a caller can tell a slug that was
+// there from one that was not.
+func deleteServiceRows(ctx context.Context, tx pgx.Tx, slug string) (int64, error) {
+	// Read the watchers before the delete, because the cascade takes the rows
+	// that name them.
+	rows, err := tx.Query(ctx, `
+		select t.subscription_id
+		from alert_targets t
+		join services s on s.id = t.service_id
+		where s.slug = $1`, slug)
+	if err != nil {
+		return 0, fmt.Errorf("services: look up the alerts of %s: %w", slug, err)
+	}
+	var watching []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("services: scan the alerts of %s: %w", slug, err)
+		}
+		watching = append(watching, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("services: the alerts of %s: %w", slug, err)
+	}
+
+	tag, err := tx.Exec(ctx, `delete from services where slug = $1`, slug)
+	if err != nil {
+		return 0, fmt.Errorf("services: delete %s: %w", slug, err)
+	}
+
+	if len(watching) > 0 {
+		if _, err := tx.Exec(ctx, `
+			delete from alert_subscriptions a
+			where a.id = any($1)
+			  and not exists (select 1 from alert_targets t where t.subscription_id = a.id)`,
+			watching); err != nil {
+			return 0, fmt.Errorf("services: delete the alerts of %s: %w", slug, err)
+		}
+	}
+	return tag.RowsAffected(), nil
+}
+
 // PurgeService takes a row away for good. Everything that hangs off it goes with
 // it through the foreign keys: the components, the status events, the poll runs,
-// the raw payloads and the alert subscriptions, including the ones that belong
-// to somebody else.
+// the raw payloads and the targets. A subscription that was only watching this
+// vendor goes with it too, including the ones that belong to somebody else.
 func (s *Store) PurgeService(ctx context.Context, slug string) error {
-	tag, err := s.pool.Exec(ctx, `delete from services where slug = $1`, slug)
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("services: purge %s: %w", slug, err)
+		return fmt.Errorf("services: purge begin: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	removed, err := deleteServiceRows(ctx, tx, slug)
+	if err != nil {
+		return err
+	}
+	if removed == 0 {
 		return ErrNotFound
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("services: purge commit %s: %w", slug, err)
 	}
 	return nil
 }

@@ -216,6 +216,17 @@ that has been up for months does not produce a "it is up" email. Alerts per
 component, and choosing which components or statuses to hear about, are not built
 yet: every subscriber hears about the whole vendor.
 
+What a subscription asks for is already kept apart from the two things around it.
+A subscription is only who wants to hear. What it watches is a target: a vendor's
+overall status today, one of its components later. How it arrives is a channel: an
+address today, a webhook or a chat service later, each with a token of its own, so
+the unsubscribe link in a message stops the channel that message came from and
+leaves the others alone. Pausing from the `/alerts` screen is the subscription
+going quiet, which is every channel it has. Nothing in the product puts more than
+one of each on a subscription yet, and the tables hold the rest so that adding a
+channel or a component is a matter of writing it rather than of reshaping what is
+already stored.
+
 Each email ends with an unsubscribe link. It opens a page that asks before it
 acts, because mail clients and link scanners fetch the links they are sent, and a
 link that unsubscribed on a fetch would do it without anyone asking. The link
