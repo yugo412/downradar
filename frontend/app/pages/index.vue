@@ -66,16 +66,28 @@ const vendors = computed<Vendor[]>(() => [
   ...myVendors.value,
 ])
 
-const visible = computed(() => {
+const matched = computed(() => {
   const q = query.value.trim().toLowerCase()
-  const base = q
-    ? vendors.value.filter(
-        (v) =>
-          v.name.toLowerCase().includes(q) ||
-          v.slug.includes(q) ||
-          (v.category ?? '').toLowerCase().includes(q),
-      )
-    : vendors.value
+  if (!q) return vendors.value
+  return vendors.value.filter(
+    (v) =>
+      v.name.toLowerCase().includes(q) ||
+      v.slug.includes(q) ||
+      (v.category ?? '').toLowerCase().includes(q),
+  )
+})
+
+// The badge counts are counted after the search, so the number next to a state
+// always agrees with the cards underneath it.
+const statusFilter = ref<string[]>([])
+const statusOptions = computed(() =>
+  statusCounts(matched.value, (v) => v.status, statusFilter.value),
+)
+
+const visible = computed(() => {
+  const base = statusFilter.value.length
+    ? matched.value.filter((v) => statusFilter.value.includes(v.status))
+    : matched.value
 
   return [...base].sort((a, b) =>
     worstFirst.value
@@ -184,6 +196,13 @@ useSeoMeta({
       </label>
     </section>
 
+    <StatusFilter
+      v-model="statusFilter"
+      :statuses="statusOptions"
+      label="Filter services by status"
+      class="mb-6"
+    />
+
     <div v-if="error" role="alert" class="alert alert-error">
       <span>Could not load the status list. The API may still be warming up.</span>
     </div>
@@ -194,7 +213,7 @@ useSeoMeta({
     </div>
 
     <template v-else>
-      <div v-if="!visible.length" class="card bg-base-100 border border-base-300">
+      <div v-if="!matched.length" class="card bg-base-100 border border-base-300">
         <div class="card-body gap-3">
           <div>
             <h2 class="text-lg font-semibold">No match for “{{ query }}”</h2>
@@ -260,6 +279,15 @@ useSeoMeta({
 
             <p v-if="suggestState === 'error'" class="text-sm text-error">{{ suggestMessage }}</p>
           </form>
+        </div>
+      </div>
+
+      <div v-else-if="!visible.length" class="card bg-base-100 border border-base-300">
+        <div class="card-body">
+          <h2 class="text-lg font-semibold">No service is in the states you picked</h2>
+          <p class="mt-1 text-sm opacity-70">
+            Clear the status filter to see the rest of the catalogue.
+          </p>
         </div>
       </div>
 

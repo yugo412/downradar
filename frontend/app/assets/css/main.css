@@ -1,15 +1,115 @@
 @import "tailwindcss";
 
+/* Both themes are registered below, so no built-in is pulled in here. */
 @plugin "daisyui" {
-  themes: light --default, dark;
+  themes: false;
+}
+
+/* The light theme is daisyUI's `cmyk`, with three departures. The corner radii are
+   a flat 0.5rem rather than the stock 1rem selector and box. `--color-success` is
+   green, where cmyk ships a magenta that reads badly as "all is well". And the
+   state colours carry a white on-colour rather than the near-black cmyk pairs them
+   with, since each one is only ever used as a solid fill.
+
+   `default: true` is what the old `themes: light --default` did, and it matters for
+   the one visitor the inline script in nuxt.config.ts cannot help: the root has to
+   look right on its own before that script has run. */
+@plugin "daisyui/theme" {
+  name: "cmyk";
+  default: true;
+  prefersdark: false;
+  color-scheme: "light";
+  --color-base-100: oklch(100% 0 0);
+  --color-base-200: oklch(95% 0 0);
+  --color-base-300: oklch(90% 0 0);
+  --color-base-content: oklch(20% 0 0);
+  --color-primary: oklch(71.772% 0.133 239.443);
+  --color-primary-content: oklch(14.354% 0.026 239.443);
+  --color-secondary: oklch(64.476% 0.202 359.339);
+  --color-secondary-content: oklch(12.895% 0.04 359.339);
+  --color-accent: oklch(94.228% 0.189 105.306);
+  --color-accent-content: oklch(18.845% 0.037 105.306);
+  --color-neutral: oklch(21.778% 0 0);
+  --color-neutral-content: oklch(84.355% 0 0);
+  --color-info: oklch(68.475% 0.094 217.284);
+  --color-info-content: oklch(100% 0 0);
+  --color-success: oklch(52% 0.14 155);
+  --color-success-content: oklch(100% 0 0);
+  --color-warning: oklch(71.236% 0.159 52.023);
+  --color-warning-content: oklch(100% 0 0);
+  --color-error: oklch(62.013% 0.208 28.717);
+  --color-error-content: oklch(100% 0 0);
+  --radius-selector: 0.5rem;
+  --radius-field: 0.5rem;
+  --radius-box: 0.5rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+/* The dark counterpart, built from the same palette so a badge means the same thing
+   in either theme; only the surfaces differ. base-200 is the page and base-100 the
+   card on it, as in the light theme, so a card still reads as the raised surface,
+   and base-300 is the lightest of the three because that is what a border has to be
+   on a dark ground. The name stays `dark`, which is the value the cookie and the
+   toggle already carry. */
+@plugin "daisyui/theme" {
+  name: "dark";
+  default: false;
+  prefersdark: false;
+  color-scheme: "dark";
+  --color-base-100: oklch(24% 0 0);
+  --color-base-200: oklch(19% 0 0);
+  --color-base-300: oklch(31% 0 0);
+  --color-base-content: oklch(93% 0 0);
+  --color-primary: oklch(71.772% 0.133 239.443);
+  --color-primary-content: oklch(14.354% 0.026 239.443);
+  --color-secondary: oklch(64.476% 0.202 359.339);
+  --color-secondary-content: oklch(12.895% 0.04 359.339);
+  --color-accent: oklch(94.228% 0.189 105.306);
+  --color-accent-content: oklch(18.845% 0.037 105.306);
+  --color-neutral: oklch(87% 0 0);
+  --color-neutral-content: oklch(20% 0 0);
+  --color-info: oklch(68.475% 0.094 217.284);
+  --color-info-content: oklch(100% 0 0);
+  --color-success: oklch(52% 0.14 155);
+  --color-success-content: oklch(100% 0 0);
+  --color-warning: oklch(71.236% 0.159 52.023);
+  --color-warning-content: oklch(100% 0 0);
+  --color-error: oklch(62.013% 0.208 28.717);
+  --color-error-content: oklch(100% 0 0);
+  --radius-selector: 0.5rem;
+  --radius-field: 0.5rem;
+  --radius-box: 0.5rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
 }
 
 @layer base {
-  html[data-theme="light"] {
+  html[data-theme="cmyk"] {
     color-scheme: light;
   }
 
   html[data-theme="dark"] {
     color-scheme: dark;
   }
+}
+
+/* A state chip on a filter row that is currently on. daisyUI paints a badge with a
+   rule of its own, and that rule sits in a nested layer inside `utilities`, which
+   outranks a plain Tailwind utility like `bg-base-content/70` however specific it
+   is. So this look is written as its own rule, outside any layer, where it wins.
+
+   The fill is base-content dimmed, with base-100 as the text: a faded black on the
+   light theme and a faded white on the dark one, so a picked chip stands out from
+   the page and from the state colours around it either way. */
+.badge-picked {
+  background-color: color-mix(in oklab, var(--color-base-content) 70%, transparent);
+  border-color: transparent;
+  color: var(--color-base-100);
 }

@@ -62,7 +62,7 @@ export default defineNuxtConfig({
           // Runs in the head, before the first paint, so there is no flash. It
           // reads the cookie itself instead of relying on the rendered head,
           // which is cached and has to stay the same for every visitor.
-          innerHTML: `(function(){try{var m=document.cookie.match(/(?:^|;\\s*)theme=(dark|light)/);document.documentElement.dataset.theme=m&&m[1]==='dark'?'dark':'light'}catch(e){document.documentElement.dataset.theme='light'}})()`,
+          innerHTML: `(function(){try{var m=document.cookie.match(/(?:^|;\\s*)theme=(dark|cmyk)/);document.documentElement.dataset.theme=m?m[1]:'cmyk'}catch(e){document.documentElement.dataset.theme='cmyk'}})()`,
           tagPosition: 'head',
         },
       ],
