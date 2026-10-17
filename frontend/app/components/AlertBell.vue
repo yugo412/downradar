@@ -99,6 +99,19 @@ async function check() {
   }
 }
 
+// The button says what the alert is doing rather than only that one exists. A
+// paused alert is still an alert, but nothing is going out, and the bell is the
+// one thing on the page that says so before the dialog is opened.
+const bellLabel = computed(() => {
+  if (paused.value) return 'Paused'
+  return subscribed.value ? 'Subscribed' : 'Get alerts'
+})
+
+const bellClass = computed(() => {
+  if (paused.value) return 'opacity-40'
+  return subscribed.value ? 'text-success' : ''
+})
+
 function start() {
   open.value = true
   error.value = ''
@@ -163,22 +176,8 @@ async function unsubscribe() {
 
 <template>
   <button type="button" class="btn btn-ghost btn-sm gap-2" @click="start">
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      class="h-4 w-4"
-      :class="subscribed ? 'text-success' : ''"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="2"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
-      <path d="M13.7 21a2 2 0 0 1-3.4 0" />
-    </svg>
-    {{ subscribed ? 'Subscribed' : 'Get alerts' }}
+    <BellIcon class="h-4 w-4" :class="bellClass" />
+    {{ bellLabel }}
   </button>
 
   <div
@@ -222,15 +221,15 @@ async function unsubscribe() {
 
       <form v-else class="flex min-h-0 flex-1 flex-col" @submit.prevent="subscribe">
         <div class="px-5 pt-4">
+          <div v-if="paused" class="alert alert-warning mb-3 py-2 text-sm">
+            <span>These emails are paused at the moment, and saving starts them again.</span>
+          </div>
           <p class="text-sm opacity-80">
             Get an email each time {{ name }} changes status, in either direction<template
               v-if="!guest"
             >, or tick the components you would rather hear about on their own</template>.
           </p>
-          <p v-if="subscribed" class="mt-2 text-sm opacity-80">
-            These go to {{ maskedEmail }}.
-            <template v-if="paused">They are paused at the moment, so saving starts them again.</template>
-          </p>
+          <p v-if="subscribed" class="mt-2 text-sm opacity-80">These go to {{ maskedEmail }}.</p>
           <input
             v-model="email"
             type="email"
