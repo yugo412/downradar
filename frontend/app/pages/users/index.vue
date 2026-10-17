@@ -19,6 +19,8 @@ const filters: { value: Filter; label: string }[] = [
 const route = useRoute()
 const router = useRouter()
 
+// Every filter and the sort live in the query string, so a view can be shared,
+// bookmarked, or come back with the back button.
 const requested = String(route.query.role ?? 'all') as Filter
 const filter = ref<Filter>(filters.some((f) => f.value === requested) ? requested : 'all')
 
@@ -33,10 +35,120 @@ const { data, pending, error, refresh } = useFetch<{ users: AdminUser[]; count: 
 
 const users = computed(() => data.value?.users ?? [])
 
+// Sorting happens here rather than in the query, because every row is already in
+// the page and a click should not wait for a round trip. A header sorts by itself
+// first, and clicking the same one again turns it around. Until a header is
+// clicked the list keeps the order the API sent, which puts disabled accounts
+// last.
+type SortKey = 'name' | 'role' | 'alerts' | 'status'
+
+const sortColumns: { key: SortKey; label: string }[] = [
+  { key: 'name', label: 'Account' },
+  { key: 'role', label: 'Role' },
+  { key: 'alerts', label: 'Alerts' },
+  { key: 'status', label: 'Status' },
+]
+
+// ?sort=name&dir=desc. A key nobody knows counts as no key at all, so a
+// hand-edited URL lands on the default order rather than an empty list.
+function requestedSort(): SortKey | '' {
+  const key = String(route.query.sort ?? '')
+  return sortColumns.some((col) => col.key === key) ? (key as SortKey) : ''
+}
+
+const sortKey = ref<SortKey | ''>(requestedSort())
+const sortAsc = ref(route.query.dir !== 'desc')
+
+function sortBy(key: SortKey) {
+  if (sortKey.value === key) {
+    sortAsc.value = !sortAsc.value
+    return
+  }
+  sortKey.value = key
+  sortAsc.value = true
+}
+
+function sortField(target: AdminUser, key: SortKey): string | number {
+  switch (key) {
+    case 'name':
+      return target.name
+    case 'role':
+      return target.role
+    case 'alerts':
+      return target.alerts
+    case 'status':
+      return target.disabledAt ? 1 : 0
+  }
+}
+
+const sorted = computed(() => {
+  const key = sortKey.value
+  if (!key) return users.value
+
+  const direction = sortAsc.value ? 1 : -1
+  return [...users.value].sort((a, b) => {
+    const left = sortField(a, key)
+    const right = sortField(b, key)
+    if (typeof left === 'number' && typeof right === 'number') {
+      return (left - right) * direction
+    }
+    return String(left).localeCompare(String(right)) * direction
+  })
+})
+
+// Paging is here too, beside the sorting, so turning a page does not go back to
+// the API. The count under the search stays the size of the whole result, because
+// that is the question a reader asks there.
+const PAGE_SIZE = 25
+const page = ref(1)
+
+const pageCount = computed(() => Math.max(1, Math.ceil(sorted.value.length / PAGE_SIZE)))
+
+// A page can lose its rows from under it, when the search narrows or an account
+// is deleted. Reading it clamped, rather than leaving it pointing past the end,
+// keeps the list on screen.
+const currentPage = computed(() => Math.min(page.value, pageCount.value))
+
+const paged = computed(() =>
+  sorted.value.slice((currentPage.value - 1) * PAGE_SIZE, currentPage.value * PAGE_SIZE),
+)
+
+const firstRow = computed(() => (sorted.value.length ? (currentPage.value - 1) * PAGE_SIZE + 1 : 0))
+const lastRow = computed(() => Math.min(currentPage.value * PAGE_SIZE, sorted.value.length))
+
+// A filter, a search or a sort is a new list, so it starts at the top.
+watch([filter, search, sortKey, sortAsc], () => {
+  page.value = 1
+})
+
+// What a header says about the sort, to a reader and to a screen reader alike.
+function sortState(key: SortKey) {
+  if (sortKey.value !== key) return 'none'
+  return sortAsc.value ? 'ascending' : 'descending'
+}
+
+// Everything Clear would put back: the role, or an order.
+const clearable = computed(() => filter.value !== 'all' || sortKey.value !== '')
+
+// Clear puts the list back to what the page opens with. The search box is left
+// alone, because a term somebody typed is their own to remove.
+function clearList() {
+  filter.value = 'all'
+  sortKey.value = ''
+  sortAsc.value = true
+}
+
+// The URL follows the page, so the view on screen is the one that can be linked
+// to. Only the search term is followed the other way, because a shared link is
+// how a search usually arrives.
 function syncUrl() {
   const query: Record<string, string> = {}
   if (filter.value !== 'all') query.role = filter.value
   if (search.value) query.q = search.value
+  if (sortKey.value) {
+    query.sort = sortKey.value
+    if (!sortAsc.value) query.dir = 'desc'
+  }
   router.replace({ query })
 }
 
@@ -52,7 +164,7 @@ watch(searchInput, (value) => {
 
 onBeforeUnmount(() => clearTimeout(searchTimer))
 
-watch(filter, syncUrl)
+watch([filter, sortKey, sortAsc], syncUrl)
 
 // Follow the URL when it changes from somewhere else, such as the back button.
 watch(
@@ -154,17 +266,23 @@ async function onSaved() {
       </span>
     </div>
 
-    <div role="tablist" class="tabs tabs-box mb-4">
-      <button
-        v-for="f in filters"
-        :key="f.value"
-        role="tab"
-        class="tab"
-        :class="{ 'tab-active': filter === f.value }"
-        @click="filter = f.value"
-      >
-        {{ f.label }}
-      </button>
+    <div class="mb-4 flex flex-wrap items-center gap-3">
+      <div role="tablist" class="tabs tabs-box">
+        <button
+          v-for="f in filters"
+          :key="f.value"
+          role="tab"
+          class="tab"
+          :class="{ 'tab-active': filter === f.value }"
+          @click="filter = f.value"
+        >
+          {{ f.label }}
+        </button>
+      </div>
+
+      <!-- Clear also drops the sort, which no visible control shows the way back
+           from; the search box is its own to empty and is left alone. -->
+      <button v-if="clearable" type="button" class="link text-xs" @click="clearList">Clear</button>
     </div>
 
     <div v-if="error" role="alert" class="alert alert-error">
@@ -182,18 +300,29 @@ async function onSaved() {
         <table class="table">
           <thead>
             <tr>
-              <th>Account</th>
-              <th>Role</th>
-              <th>Services</th>
-              <th>Status</th>
+              <th v-for="col in sortColumns" :key="col.key" :aria-sort="sortState(col.key)">
+                <button type="button" class="cursor-pointer whitespace-nowrap" @click="sortBy(col.key)">
+                  {{ col.label }}
+                  <span v-if="sortKey === col.key" aria-hidden="true">
+                    {{ sortAsc ? '↑' : '↓' }}
+                  </span>
+                </button>
+              </th>
               <th class="text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="u in users" :key="u.id" class="align-top">
+            <tr v-for="u in paged" :key="u.id" class="align-top">
               <td>
                 <div class="font-medium">
                   {{ u.name }}
+                  <span
+                    v-if="u.verifiedAt"
+                    class="ml-1 text-success"
+                    role="img"
+                    aria-label="Email confirmed"
+                    title="Email confirmed"
+                  >✓</span>
                   <span v-if="isMe(u)" class="badge badge-ghost badge-sm ml-1">you</span>
                 </div>
                 <div class="text-xs break-all opacity-60">{{ u.email }}</div>
@@ -203,17 +332,10 @@ async function onSaved() {
                   {{ u.role }}
                 </span>
               </td>
-              <td class="text-sm opacity-70">{{ u.services }}</td>
+              <td class="text-sm opacity-70">{{ u.alerts }}</td>
               <td>
                 <span v-if="u.disabledAt" class="badge badge-error badge-sm">disabled</span>
                 <span v-else class="badge badge-success badge-sm">active</span>
-                <span
-                  v-if="!u.verifiedAt"
-                  class="badge badge-warning badge-sm ml-1 whitespace-nowrap"
-                  title="This address has not been confirmed"
-                >
-                  unconfirmed
-                </span>
               </td>
               <td>
                 <div class="flex justify-end">
@@ -233,7 +355,7 @@ async function onSaved() {
 
       <ul class="flex flex-col gap-3 md:hidden">
         <li
-          v-for="u in users"
+          v-for="u in paged"
           :key="u.id"
           class="rounded-box border border-base-300 bg-base-100 p-4 shadow-sm"
         >
@@ -241,6 +363,13 @@ async function onSaved() {
             <div class="min-w-0">
               <div class="font-medium">
                 {{ u.name }}
+                <span
+                  v-if="u.verifiedAt"
+                  class="ml-1 text-success"
+                  role="img"
+                  aria-label="Email confirmed"
+                  title="Email confirmed"
+                >✓</span>
                 <span v-if="isMe(u)" class="badge badge-ghost badge-sm ml-1">you</span>
               </div>
               <div class="text-xs break-all opacity-60">{{ u.email }}</div>
@@ -253,11 +382,8 @@ async function onSaved() {
           <div class="mt-2 flex flex-wrap items-center gap-2">
             <span v-if="u.disabledAt" class="badge badge-error badge-sm">disabled</span>
             <span v-else class="badge badge-success badge-sm">active</span>
-            <span v-if="!u.verifiedAt" class="badge badge-warning badge-sm whitespace-nowrap">
-              unconfirmed
-            </span>
             <span class="text-xs opacity-60">
-              {{ u.services }} service{{ u.services === 1 ? '' : 's' }}
+              {{ u.alerts }} alert{{ u.alerts === 1 ? '' : 's' }}
             </span>
           </div>
 
@@ -273,11 +399,39 @@ async function onSaved() {
         </li>
       </ul>
 
+      <div v-if="sorted.length" class="mt-4 flex flex-wrap items-center justify-between gap-3">
+        <p class="text-xs opacity-60">
+          Showing {{ firstRow }}&ndash;{{ lastRow }} of {{ sorted.length }}
+        </p>
+        <div v-if="pageCount > 1" class="join">
+          <button
+            type="button"
+            class="btn btn-sm join-item"
+            :disabled="currentPage === 1"
+            @click="page = currentPage - 1"
+          >
+            Previous
+          </button>
+          <button type="button" class="btn btn-sm join-item" disabled>
+            Page {{ currentPage }} of {{ pageCount }}
+          </button>
+          <button
+            type="button"
+            class="btn btn-sm join-item"
+            :disabled="currentPage === pageCount"
+            @click="page = currentPage + 1"
+          >
+            Next
+          </button>
+        </div>
+      </div>
+
       <p
         v-if="!users.length"
         class="rounded-box border border-base-300 bg-base-100 p-6 text-center text-sm opacity-70 shadow-sm"
       >
         <template v-if="search">Nothing matches &ldquo;{{ search }}&rdquo;.</template>
+        <template v-else-if="filter !== 'all'">Nothing here for that filter.</template>
         <template v-else>No accounts yet.</template>
       </p>
     </template>

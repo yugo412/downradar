@@ -257,33 +257,50 @@ func TestDeleteOtherSessionsKeepsTheOneGiven(t *testing.T) {
 	}
 }
 
-func TestListUsersCountsWhatEachAccountOwns(t *testing.T) {
+func TestListUsersCountsWhatEachAccountOwnsAndHolds(t *testing.T) {
 	st := integrationStore(t)
 	ctx := context.Background()
 
 	owner := newTestUser(t, st, "subscriber")
 	newPrivateService(t, st, owner)
 
-	users, err := st.ListUsers(ctx, "", "")
-	if err != nil {
-		t.Fatalf("ListUsers: %v", err)
+	// An alert on a vendor the public can see is what the column counts, and one
+	// that was unsubscribed stops counting: the same rule as the limit.
+	id := alertService(t, st, uniqueName("user list alert"))
+	token := uniqueName("token")
+	if err := st.SubscribeAlert(ctx, id, &owner.ID, "owner@example.com", token); err != nil {
+		t.Fatalf("SubscribeAlert: %v", err)
 	}
 
-	var found bool
-	for _, u := range users {
-		if u.ID != owner.ID {
-			continue
+	held := func(t *testing.T) UserView {
+		t.Helper()
+
+		users, err := st.ListUsers(ctx, "", "")
+		if err != nil {
+			t.Fatalf("ListUsers: %v", err)
 		}
-		found = true
-		if u.Services != 1 {
-			t.Errorf("services = %d, want 1", u.Services)
+		for _, u := range users {
+			if u.ID == owner.ID {
+				return u
+			}
 		}
-		if u.Disabled() {
-			t.Error("a fresh account should not be disabled")
-		}
+		t.Fatal("the account is missing from the list")
+		return UserView{}
 	}
-	if !found {
-		t.Error("the account is missing from the list")
+
+	u := held(t)
+	if u.Services != 1 || u.Alerts != 1 {
+		t.Errorf("services = %d and alerts = %d, want one of each", u.Services, u.Alerts)
+	}
+	if u.Disabled() {
+		t.Error("a fresh account should not be disabled")
+	}
+
+	if err := st.UnsubscribeAlert(ctx, token); err != nil {
+		t.Fatalf("UnsubscribeAlert: %v", err)
+	}
+	if u := held(t); u.Alerts != 0 {
+		t.Errorf("alerts = %d after unsubscribing, want none", u.Alerts)
 	}
 }
 
