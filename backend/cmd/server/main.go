@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"downradar.info/backend/internal/account"
+	_ "downradar.info/backend/internal/adapters/all"
 	"downradar.info/backend/internal/catalog"
 	"downradar.info/backend/internal/config"
 	"downradar.info/backend/internal/contact"

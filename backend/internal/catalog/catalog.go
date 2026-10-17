@@ -10,6 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"downradar.info/backend/internal/adapters"
+	_ "downradar.info/backend/internal/adapters/all"
 )
 
 // Profile describes how one platform is polled. Vendors reference a profile by
