@@ -26,6 +26,7 @@ export default defineEventHandler(async (event) => {
 
   const entries: string[] = [
     `  <url><loc>${escapeXml(siteUrl)}/</loc><changefreq>hourly</changefreq><priority>1.0</priority></url>`,
+    `  <url><loc>${escapeXml(siteUrl)}/about</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>`,
   ]
 
   for (const vendor of vendors) {
