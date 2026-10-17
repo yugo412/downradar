@@ -25,14 +25,14 @@ type alertRequest struct {
 func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 	if !h.alertsEnabled {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error": "alerts are not available right now",
+			"error": "Alerts are not available right now",
 		})
 		return
 	}
 
 	var body alertRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
 		return
 	}
 
@@ -44,7 +44,7 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 
 	serviceID, name, err := h.store.PublicService(r.Context(), r.PathValue("slug"))
 	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "vendor not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Vendor not found"})
 		return
 	}
 	if err != nil {
@@ -76,7 +76,7 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		if elsewhere != nil {
 			writeJSON(w, http.StatusConflict, map[string]string{
 				"error": fmt.Sprintf(
-					"that address already has an alert for %s. Unsubscribe from that one first, or sign in to add more.",
+					"That address already has an alert for %s. Unsubscribe from that one first, or sign in to add more.",
 					elsewhere.Name),
 			})
 			return
@@ -95,7 +95,7 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		if count >= limit {
 			writeJSON(w, http.StatusConflict, map[string]string{
 				"error": fmt.Sprintf(
-					"your account has reached its limit of %d alerts. Remove one from your alerts page first.",
+					"Your account has reached its limit of %d alerts. Remove one from your alerts page first.",
 					limit),
 			})
 			return
@@ -126,7 +126,7 @@ func (h *handlers) getAlert(w http.ResponseWriter, r *http.Request) {
 
 	view, err := h.store.AlertByToken(r.Context(), r.PathValue("token"))
 	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "this link is not valid"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "This link is not valid"})
 		return
 	}
 	if err != nil {
@@ -214,25 +214,25 @@ type alertStateRequest struct {
 func (h *handlers) setUserAlertState(w http.ResponseWriter, r *http.Request) {
 	var body alertStateRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
 		return
 	}
 	if !store.AlertStateValid(body.State) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "state must be active, paused or unsubscribed",
+			"error": "State must be active, paused or unsubscribed",
 		})
 		return
 	}
 
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "alert not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Alert not found"})
 		return
 	}
 
 	err = h.store.SetUserAlertState(r.Context(), h.user(r).ID, id, body.State)
 	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "alert not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Alert not found"})
 		return
 	}
 	if err != nil {
@@ -249,13 +249,13 @@ func (h *handlers) setUserAlertState(w http.ResponseWriter, r *http.Request) {
 func (h *handlers) deleteUserAlertRow(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "alert not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Alert not found"})
 		return
 	}
 
 	err = h.store.DeleteUserAlert(r.Context(), h.user(r).ID, id)
 	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "alert not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Alert not found"})
 		return
 	}
 	if err != nil {
@@ -274,7 +274,7 @@ func (h *handlers) deleteUserAlertRow(w http.ResponseWriter, r *http.Request) {
 func (h *handlers) getUserAlert(w http.ResponseWriter, r *http.Request) {
 	serviceID, _, err := h.store.PublicService(r.Context(), r.PathValue("slug"))
 	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "vendor not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Vendor not found"})
 		return
 	}
 	if err != nil {
@@ -304,7 +304,7 @@ func (h *handlers) getUserAlert(w http.ResponseWriter, r *http.Request) {
 func (h *handlers) deleteUserAlert(w http.ResponseWriter, r *http.Request) {
 	serviceID, name, err := h.store.PublicService(r.Context(), r.PathValue("slug"))
 	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "vendor not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Vendor not found"})
 		return
 	}
 	if err != nil {
@@ -341,7 +341,7 @@ func (h *handlers) unsubscribeAlert(w http.ResponseWriter, r *http.Request) {
 
 	err := h.store.UnsubscribeAlert(r.Context(), r.PathValue("token"))
 	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "this link is not valid"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "This link is not valid"})
 		return
 	}
 	if err != nil {
@@ -360,15 +360,15 @@ func (h *handlers) unsubscribeAlert(w http.ResponseWriter, r *http.Request) {
 func parseEmail(raw string) (string, string) {
 	email := auth.NormalizeEmail(raw)
 	if email == "" {
-		return "", "an email address is required"
+		return "", "An email address is required"
 	}
 	if len(email) > 254 {
-		return "", "that email address is too long"
+		return "", "That email address is too long"
 	}
 
 	parsed, err := mail.ParseAddress(email)
 	if err != nil || parsed.Address != email || !strings.Contains(email, ".") {
-		return "", "that does not look like an email address"
+		return "", "That does not look like an email address"
 	}
 	return email, ""
 }

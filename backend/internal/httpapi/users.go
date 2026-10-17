@@ -16,7 +16,7 @@ func (h *handlers) listUsers(w http.ResponseWriter, r *http.Request) {
 	role := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("role")))
 	if role != "" && !auth.ValidRole(role) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "role must be one of " + strings.Join(auth.Roles(), ", "),
+			"error": "Role must be one of " + strings.Join(auth.Roles(), ", "),
 		})
 		return
 	}
@@ -52,13 +52,13 @@ type userPayload struct {
 func (h *handlers) findUser(w http.ResponseWriter, r *http.Request) (*store.User, bool) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id <= 0 {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "User not found"})
 		return nil, false
 	}
 
 	user, err := h.store.UserByID(r.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "User not found"})
 		return nil, false
 	}
 	if err != nil {
@@ -76,11 +76,11 @@ func (h *handlers) updateUser(w http.ResponseWriter, r *http.Request) {
 
 	var body userPayload
 	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
 		return
 	}
 	if body.Name == nil && body.Email == nil && body.Role == nil && body.Disabled == nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "nothing to update"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Nothing to update"})
 		return
 	}
 
@@ -102,7 +102,7 @@ func (h *handlers) updateUser(w http.ResponseWriter, r *http.Request) {
 		email = auth.NormalizeEmail(*body.Email)
 		if !auth.ValidEmail(email) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{
-				"error": "that does not look like an email address",
+				"error": "That does not look like an email address",
 			})
 			return
 		}
@@ -111,7 +111,7 @@ func (h *handlers) updateUser(w http.ResponseWriter, r *http.Request) {
 		role = strings.ToLower(clean(sanitize(*body.Role)))
 		if !auth.ValidRole(role) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{
-				"error": "role must be one of " + strings.Join(auth.Roles(), ", "),
+				"error": "Role must be one of " + strings.Join(auth.Roles(), ", "),
 			})
 			return
 		}
@@ -125,7 +125,7 @@ func (h *handlers) updateUser(w http.ResponseWriter, r *http.Request) {
 	if target.Role == auth.RoleAdmin && !target.Disabled() && (role != auth.RoleAdmin || disabled) {
 		if target.ID == actor.ID {
 			writeJSON(w, http.StatusBadRequest, map[string]string{
-				"error": "you cannot disable or demote your own account",
+				"error": "You cannot disable or demote your own account",
 			})
 			return
 		}
@@ -136,7 +136,7 @@ func (h *handlers) updateUser(w http.ResponseWriter, r *http.Request) {
 		}
 		if admins <= 1 {
 			writeJSON(w, http.StatusBadRequest, map[string]string{
-				"error": "this is the last active admin",
+				"error": "This is the last active admin",
 			})
 			return
 		}
@@ -201,7 +201,7 @@ func (h *handlers) deleteUser(w http.ResponseWriter, r *http.Request) {
 	actor := h.user(r)
 	if target.ID == actor.ID {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "you cannot delete your own account",
+			"error": "You cannot delete your own account",
 		})
 		return
 	}
@@ -213,7 +213,7 @@ func (h *handlers) deleteUser(w http.ResponseWriter, r *http.Request) {
 		}
 		if admins <= 1 {
 			writeJSON(w, http.StatusBadRequest, map[string]string{
-				"error": "this is the last active admin",
+				"error": "This is the last active admin",
 			})
 			return
 		}
@@ -221,7 +221,7 @@ func (h *handlers) deleteUser(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.store.DeleteUser(r.Context(), target.ID); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "User not found"})
 			return
 		}
 		h.fail(w, r, err)

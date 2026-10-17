@@ -139,23 +139,23 @@ func Load(path string) (Catalog, error) {
 func ValidateURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil {
-		return fmt.Errorf("invalid url: %w", err)
+		return fmt.Errorf("Invalid url: %w", err)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("scheme %q is not supported (http/https only)", u.Scheme)
+		return fmt.Errorf("Scheme %q is not supported (http/https only)", u.Scheme)
 	}
 	host := u.Hostname()
 	if host == "" {
-		return fmt.Errorf("url has no host")
+		return fmt.Errorf("Url has no host")
 	}
 
 	lower := strings.ToLower(host)
 	if lower == "localhost" || strings.HasSuffix(lower, ".localhost") ||
 		strings.HasSuffix(lower, ".internal") {
-		return fmt.Errorf("host %q is not allowed", host)
+		return fmt.Errorf("Host %q is not allowed", host)
 	}
 	if ip := net.ParseIP(host); ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified()) {
-		return fmt.Errorf("host %q is an internal address and is not allowed", host)
+		return fmt.Errorf("Host %q is an internal address and is not allowed", host)
 	}
 	return nil
 }

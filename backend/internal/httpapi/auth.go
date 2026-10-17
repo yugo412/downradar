@@ -89,7 +89,7 @@ func (h *handlers) checkOrigin(w http.ResponseWriter, r *http.Request) bool {
 	parsed, err := url.Parse(origin)
 	if err != nil || !strings.EqualFold(parsed.Host, h.originHost(r)) {
 		h.log.Warn("refused a cross site request", "origin", origin, "host", h.originHost(r), "path", r.URL.Path)
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "cross site request refused"})
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Cross site request refused"})
 		return false
 	}
 	return true
@@ -148,7 +148,7 @@ func (h *handlers) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return h.authEndpoint(func(w http.ResponseWriter, r *http.Request) {
 		user, err := h.authenticate(r)
 		if errors.Is(err, store.ErrNotFound) {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "sign in required"})
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Sign in required"})
 			return
 		}
 		if err != nil {
@@ -164,7 +164,7 @@ func (h *handlers) requireRole(roles []string, next http.HandlerFunc) http.Handl
 		user := h.user(r)
 		if !slices.Contains(roles, user.Role) {
 			h.log.Warn("role refused", "user", user.Email, "role", user.Role, "path", r.URL.Path)
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "your role cannot do this"})
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "Your role cannot do this"})
 			return
 		}
 		next(w, r)
@@ -180,7 +180,7 @@ func (h *handlers) requireStaff(next http.HandlerFunc) http.HandlerFunc {
 		user := h.user(r)
 		if !auth.CanManageServices(user.Role) {
 			h.log.Warn("role refused", "user", user.Email, "role", user.Role, "path", r.URL.Path)
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "your role cannot do this"})
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "Your role cannot do this"})
 			return
 		}
 		next(w, r)
@@ -190,7 +190,7 @@ func (h *handlers) requireStaff(next http.HandlerFunc) http.HandlerFunc {
 func (h *handlers) login(w http.ResponseWriter, r *http.Request) {
 	var body loginRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
 		return
 	}
 
@@ -199,7 +199,7 @@ func (h *handlers) login(w http.ResponseWriter, r *http.Request) {
 	if errors.Is(err, store.ErrNotFound) {
 		auth.CheckPassword(h.dummyHash, body.Password)
 		h.log.Warn("failed sign in", "email", email, "ip", h.clientIP(r))
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid email or password"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid email or password"})
 		return
 	}
 	if err != nil {
@@ -209,7 +209,7 @@ func (h *handlers) login(w http.ResponseWriter, r *http.Request) {
 
 	if !auth.CheckPassword(user.PasswordHash, body.Password) {
 		h.log.Warn("failed sign in", "email", email, "ip", h.clientIP(r))
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid email or password"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid email or password"})
 		return
 	}
 
@@ -217,7 +217,7 @@ func (h *handlers) login(w http.ResponseWriter, r *http.Request) {
 	// does not reveal which accounts exist.
 	if user.Disabled() {
 		h.log.Warn("sign in refused, account disabled", "email", email, "ip", h.clientIP(r))
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid email or password"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid email or password"})
 		return
 	}
 
@@ -259,7 +259,7 @@ type profileRequest struct {
 
 func validateDisplayName(name string) string {
 	if n := utf8.RuneCountInString(name); n < 2 || n > 80 {
-		return "name must be between 2 and 80 characters"
+		return "Name must be between 2 and 80 characters"
 	}
 	return ""
 }
@@ -270,7 +270,7 @@ func validateDisplayName(name string) string {
 func (h *handlers) updateProfile(w http.ResponseWriter, r *http.Request) {
 	var body profileRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
 		return
 	}
 
@@ -287,13 +287,13 @@ func (h *handlers) updateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	if !auth.ValidEmail(email) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "that does not look like an email address",
+			"error": "That does not look like an email address",
 		})
 		return
 	}
 	if auth.OnReservedDomain(email) {
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
-			"error": "that address cannot be used",
+			"error": "That address cannot be used",
 		})
 		return
 	}
@@ -307,7 +307,7 @@ func (h *handlers) updateProfile(w http.ResponseWriter, r *http.Request) {
 		if err := h.store.SetUserEmail(r.Context(), current.ID, email); err != nil {
 			if errors.Is(err, store.ErrEmailTaken) {
 				writeJSON(w, http.StatusConflict, map[string]string{
-					"error": "that email address is already registered",
+					"error": "That email address is already registered",
 				})
 				return
 			}
@@ -342,7 +342,7 @@ type passwordRequest struct {
 func (h *handlers) changePassword(w http.ResponseWriter, r *http.Request) {
 	var body passwordRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
 		return
 	}
 
@@ -350,7 +350,7 @@ func (h *handlers) changePassword(w http.ResponseWriter, r *http.Request) {
 
 	if !auth.CheckPassword(current.PasswordHash, body.CurrentPassword) {
 		h.log.Warn("password change refused", "user", current.Email, "ip", h.clientIP(r))
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "the current password is not correct"})
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "The current password is not correct"})
 		return
 	}
 	if err := auth.ValidatePassword(body.NewPassword); err != nil {

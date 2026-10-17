@@ -226,8 +226,8 @@ func TestValidateURL(t *testing.T) {
 		"http://10.1.2.3/":      "internal",
 		"http://localhost/":     "not allowed",
 		"http://foo.internal/":  "not allowed",
-		"file:///etc/passwd":    "scheme",
-		"ftp://example.com":     "scheme",
+		"file:///etc/passwd":    "Scheme",
+		"ftp://example.com":     "Scheme",
 		"https://":              "no host",
 	}
 	for raw, want := range bad {

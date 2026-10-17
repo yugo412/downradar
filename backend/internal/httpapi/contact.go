@@ -30,14 +30,14 @@ const (
 func (h *handlers) contact(w http.ResponseWriter, r *http.Request) {
 	if h.contactMailer == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error": "the contact form is not available right now",
+			"error": "The contact form is not available right now",
 		})
 		return
 	}
 
 	var body contactRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 32<<10)).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
 		return
 	}
 
@@ -68,17 +68,17 @@ func (h *handlers) contact(w http.ResponseWriter, r *http.Request) {
 func contactProblem(name, subject, body string) string {
 	switch {
 	case name == "":
-		return "a name is required"
+		return "A name is required"
 	case utf8.RuneCountInString(name) > maxContactName:
-		return "that name is too long"
+		return "That name is too long"
 	case subject == "":
-		return "a subject is required"
+		return "A subject is required"
 	case utf8.RuneCountInString(subject) > maxContactSubject:
-		return "that subject is too long"
+		return "That subject is too long"
 	case body == "":
-		return "a message is required"
+		return "A message is required"
 	case utf8.RuneCountInString(body) > maxContactBody:
-		return "that message is too long"
+		return "That message is too long"
 	}
 	return ""
 }
