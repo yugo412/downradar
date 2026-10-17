@@ -2,6 +2,9 @@ package adapters
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"strings"
 	"time"
 )
 
@@ -103,4 +106,32 @@ func Worst(hs ...Health) Health {
 		}
 	}
 	return worst
+}
+
+// DefaultClient is what an adapter uses unless a test hands it another one: one
+// timeout for every request, and a redirect limit so a page that points at
+// itself cannot hold a poll open.
+func DefaultClient() *http.Client {
+	return &http.Client{
+		Timeout: 20 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return fmt.Errorf("too many redirects")
+			}
+			return nil
+		},
+	}
+}
+
+// LowerSet turns the names a vendor includes into a lookup, so filtering a
+// component is a map miss rather than a scan of the list. Nil means no filter.
+func LowerSet(in []string) map[string]bool {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(in))
+	for _, s := range in {
+		out[strings.ToLower(strings.TrimSpace(s))] = true
+	}
+	return out
 }

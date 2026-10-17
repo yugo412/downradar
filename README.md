@@ -362,7 +362,8 @@ backend/                  Go: poller, adapters, store, API
   cmd/server/             entrypoint
   cmd/seed/               imports the bootstrap file into the table
   cmd/user/               creates an account, or resets its password
-  internal/adapters/      one adapter per platform, not per vendor
+  internal/adapters/      the adapter contract and helpers, one package per platform
+  internal/adapters/all/  imports every adapter package, so each registers itself
   internal/auth/          roles, bcrypt, session tokens
   internal/catalog/       services.yaml -> profiles, with validation
   internal/seed/          seed/vendors.yaml -> targets, with validation
