@@ -646,6 +646,14 @@ func (h *handlers) deleteService(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := h.user(r)
+
+	// A force delete is for a row that was already taken off the site: it wipes
+	// the row and everything recorded against it, so it is an admin's alone.
+	if r.URL.Query().Get("force") == "true" {
+		h.purgeService(w, r, current, user)
+		return
+	}
+
 	if !h.canDeleteService(current, user, h.viewer(r)) {
 		writeJSON(w, http.StatusForbidden, map[string]string{
 			"error": "Only an admin can remove a published service that is not yours",
@@ -665,6 +673,39 @@ func (h *handlers) deleteService(w http.ResponseWriter, r *http.Request) {
 
 	h.log.Info("service deleted", "slug", slug, "outcome", outcome, "by", user.Email)
 	writeJSON(w, http.StatusOK, map[string]any{"slug": slug, "outcome": outcome})
+}
+
+// purgeService deletes a removed row for good, history and all. A service that is
+// still on the site has to be removed first, so the two steps stay apart in the
+// log and in somebody's head.
+func (h *handlers) purgeService(w http.ResponseWriter, r *http.Request, current *store.AdminService, user *store.User) {
+	if !auth.CanPurgeServices(user.Role) {
+		writeJSON(w, http.StatusForbidden, map[string]string{
+			"error": "Only an admin can delete a service for good",
+		})
+		return
+	}
+
+	if current.Active {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "Remove the service before deleting it for good",
+		})
+		return
+	}
+
+	if err := h.store.PurgeService(r.Context(), current.Slug); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "Service not found"})
+			return
+		}
+		h.fail(w, r, err)
+		return
+	}
+
+	h.log.Info("service purged", "slug", current.Slug, "by", user.Email)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"slug": current.Slug, "outcome": store.DeletePermanently,
+	})
 }
 
 func (h *handlers) validateService(name, pageURL, profile, category, logoURL string, aliases []string, status string) string {

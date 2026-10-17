@@ -17,6 +17,13 @@ const { data: detail, refresh: refreshDetail } = useFetch<VendorDetail>(
   () => `/api/v1/services/${slug.value}/status`,
 )
 
+// The row carries the name, so the title can only be filled in once it has
+// arrived. Until then the page says what it is rather than leaving the tag empty.
+useSeoMeta({
+  title: () => meta.value?.service.name ?? 'Service',
+  robots: 'noindex, nofollow',
+})
+
 const editing = ref(false)
 
 async function onSaved() {

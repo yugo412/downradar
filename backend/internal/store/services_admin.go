@@ -25,6 +25,7 @@ type AdminService struct {
 	PollIntervalSeconds   int        `json:"pollIntervalSeconds"`
 	ActiveIntervalSeconds int        `json:"activeIntervalSeconds"`
 	Status                string     `json:"status"`
+	State                 string     `json:"state"`
 	Active                bool       `json:"active"`
 	OwnerID               *int64     `json:"ownerId,omitempty"`
 	OwnerName             string     `json:"ownerName,omitempty"`
@@ -40,6 +41,7 @@ const adminServiceColumns = `
 	s.id, s.slug, s.name, coalesce(s.url, ''), coalesce(s.category, ''), coalesce(s.logo_url, ''),
 	coalesce(s.profile, ''), coalesce(s.endpoint, ''), s.aliases, s.allow_shared_page,
 	s.poll_interval_seconds, s.active_interval_seconds, s.status, s.active,
+	coalesce(st.status, 'unknown'),
 	s.last_polled_at, s.created_at, s.updated_at,
 	s.owner_id, coalesce(u.name, ''), coalesce(u.email, ''),
 	(select count(*) from components c where c.service_id = s.id),
@@ -47,7 +49,8 @@ const adminServiceColumns = `
 
 const adminServiceFrom = `
 	from services s
-	left join users u on u.id = s.owner_id`
+	left join users u on u.id = s.owner_id
+	left join service_state st on st.service_id = s.id`
 
 func scanAdminService(row rowScanner) (*AdminService, error) {
 	var a AdminService
@@ -55,6 +58,7 @@ func scanAdminService(row rowScanner) (*AdminService, error) {
 		&a.ID, &a.Slug, &a.Name, &a.URL, &a.Category, &a.LogoURL,
 		&a.Profile, &a.Endpoint, &a.Aliases, &a.AllowSharedPage,
 		&a.PollIntervalSeconds, &a.ActiveIntervalSeconds, &a.Status, &a.Active,
+		&a.State,
 		&a.LastPolledAt, &a.CreatedAt, &a.UpdatedAt,
 		&a.OwnerID, &a.OwnerName, &a.OwnerEmail,
 		&a.Components, &a.HasHistory,
@@ -318,4 +322,19 @@ func (s *Store) DeleteService(ctx context.Context, slug string) (string, error) 
 		return "", fmt.Errorf("services: deactivate commit %s: %w", slug, err)
 	}
 	return DeleteDeactivated, nil
+}
+
+// PurgeService takes a row away for good. Everything that hangs off it goes with
+// it through the foreign keys: the components, the status events, the poll runs,
+// the raw payloads and the alert subscriptions, including the ones that belong
+// to somebody else.
+func (s *Store) PurgeService(ctx context.Context, slug string) error {
+	tag, err := s.pool.Exec(ctx, `delete from services where slug = $1`, slug)
+	if err != nil {
+		return fmt.Errorf("services: purge %s: %w", slug, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }

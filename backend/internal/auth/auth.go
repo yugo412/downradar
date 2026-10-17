@@ -41,6 +41,12 @@ func CanRemovePublished(role string) bool {
 	return role == RoleAdmin
 }
 
+// CanPurgeServices is admin only: a purge takes a removed row away for good,
+// history and alerts included, and nothing brings it back.
+func CanPurgeServices(role string) bool {
+	return role == RoleAdmin
+}
+
 // CanManageUsers is admin only. A moderator looks after the service catalogue,
 // not after people.
 func CanManageUsers(role string) bool {

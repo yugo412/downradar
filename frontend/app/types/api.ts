@@ -90,6 +90,7 @@ export interface AdminService {
   pollIntervalSeconds: number
   activeIntervalSeconds: number
   status: ServiceStatus
+  state: string
   active: boolean
   ownerId?: number
   ownerName?: string
