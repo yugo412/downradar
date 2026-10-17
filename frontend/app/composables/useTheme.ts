@@ -1,4 +1,6 @@
-export type Theme = 'light' | 'dark'
+// The light theme is called `cmyk`, after the daisyUI palette it is built from;
+// both themes are set up in app/assets/css/main.css.
+export type Theme = 'cmyk' | 'dark'
 
 // The theme is a cookie, and it is applied by the inline script in
 // nuxt.config.ts before the first paint.
@@ -18,7 +20,7 @@ export function useTheme() {
     path: '/',
   })
 
-  const theme = computed<Theme>(() => (cookie.value === 'dark' ? 'dark' : 'light'))
+  const theme = computed<Theme>(() => (cookie.value === 'dark' ? 'dark' : 'cmyk'))
 
   function apply(next: Theme) {
     if (import.meta.client) {
@@ -32,7 +34,7 @@ export function useTheme() {
   }
 
   function toggleTheme() {
-    setTheme(theme.value === 'dark' ? 'light' : 'dark')
+    setTheme(theme.value === 'dark' ? 'cmyk' : 'dark')
   }
 
   return { theme, setTheme, toggleTheme }
