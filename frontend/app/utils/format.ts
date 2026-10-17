@@ -45,17 +45,19 @@ export function isHealthy(status: string): boolean {
 }
 
 // The words and the colours a health status is shown with. They live here so the
-// status badge and the filter rows built out of it cannot drift apart.
-const STATUS_META: Record<string, { label: string; cls: string }> = {
-  ok: { label: 'Operational', cls: 'badge-success' },
-  maintenance: { label: 'Maintenance', cls: 'badge-info' },
-  degraded: { label: 'Degraded', cls: 'badge-warning' },
-  partial: { label: 'Partial outage', cls: 'badge-warning' },
-  major: { label: 'Major outage', cls: 'badge-error' },
-  unknown: { label: 'Unknown', cls: 'badge-ghost' },
+// status badge, the filter rows built out of it and the colour a name is written
+// in cannot drift apart. `cls` fills a badge; `ink` is the same state as a text
+// colour, for places that have no badge to fill.
+const STATUS_META: Record<string, { label: string; cls: string; ink: string }> = {
+  ok: { label: 'Operational', cls: 'badge-success', ink: 'text-success' },
+  maintenance: { label: 'Maintenance', cls: 'badge-info', ink: 'text-info' },
+  degraded: { label: 'Degraded', cls: 'badge-warning', ink: 'text-warning' },
+  partial: { label: 'Partial outage', cls: 'badge-warning', ink: 'text-warning' },
+  major: { label: 'Major outage', cls: 'badge-error', ink: 'text-error' },
+  unknown: { label: 'Unknown', cls: 'badge-ghost', ink: 'text-base-content/60' },
 }
 
-export function statusMeta(status: string): { label: string; cls: string } {
+export function statusMeta(status: string): { label: string; cls: string; ink: string } {
   return STATUS_META[status] ?? STATUS_META.unknown!
 }
 
