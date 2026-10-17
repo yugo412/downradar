@@ -268,7 +268,7 @@ func TestListUsersCountsWhatEachAccountOwnsAndHolds(t *testing.T) {
 	// that was unsubscribed stops counting: the same rule as the limit.
 	id := alertService(t, st, uniqueName("user list alert"))
 	token := uniqueName("token")
-	if err := st.SubscribeAlert(ctx, id, &owner.ID, "owner@example.com", token); err != nil {
+	if err := st.SubscribeAlert(ctx, id, &owner.ID, "owner@example.com", token, WholeVendor); err != nil {
 		t.Fatalf("SubscribeAlert: %v", err)
 	}
 

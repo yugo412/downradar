@@ -60,8 +60,9 @@ app itself, not from fixtures.
 - Per-user limits live in `user_limits` and are written when the account is made;
   that row is what is read. The alert limit is the only one so far: a guest gets
   one active alert, staff are uncapped.
-- Alert subscriptions are email only and per vendor. They fire on the vendor's
-  overall status transition, and delivery is an outbox row written in the same
+- Alert subscriptions are email only, and watch a vendor's overall status, one of
+  its components, or several things at once. They fire on the transition of
+  whatever is watched, and delivery is an outbox row written in the same
   transaction as the change and drained by `internal/notify`.
 - With no SMTP configured, register, forgot-password, contact and vendor-alert
   posts answer 503 instead of accepting something they cannot send.

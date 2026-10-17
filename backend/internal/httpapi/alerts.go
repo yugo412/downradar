@@ -16,12 +16,23 @@ import (
 
 type alertRequest struct {
 	Email string `json:"email"`
+	// What to watch. WholeService is the vendor's own status; Components names
+	// components by the identifiers the vendor page shows, which is what the
+	// person ticking the boxes has to hand. A request that names neither is the
+	// alert as it used to be, the vendor's overall status: the bell only ever sent
+	// that, and a page left open from before this sends it still.
+	WholeService *bool    `json:"wholeService"`
+	Components   []string `json:"components"`
 }
 
 // subscribeAlert takes an address for one vendor. No account is needed, which is
 // the point: the alert is the address. When the visitor happens to be signed in
 // their id is recorded with it, so the row can be tied to them later without
 // asking again, and they are free to give any address they like.
+//
+// Asking again is changing their mind: what the subscription watches becomes
+// what this request names, so the bell can open with the boxes ticked and save
+// the whole selection.
 func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 	if !h.alertsEnabled {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
@@ -52,6 +63,28 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Naming nothing is not a request to watch nothing: it is the older shape of
+	// this request, and it meant the vendor's own status.
+	whole := body.WholeService == nil || *body.WholeService || len(body.Components) == 0
+
+	componentIDs, err := h.store.ComponentIDs(r.Context(), serviceID, body.Components)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "One of those components is not part of this service any more. Reload the page and pick again.",
+		})
+		return
+	}
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	// What this request will watch, which is what the limit counts.
+	watching := len(componentIDs)
+	if whole {
+		watching++
+	}
+
 	var userID *int64
 	user, err := h.authenticate(r)
 	switch {
@@ -63,11 +96,18 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Someone who is not signed in gets one alert: they have no identity but the
-	// address they typed, so there is nothing else to hold them to it. A
-	// subscriber may keep a few, and the address they give does not have to be the
-	// one on their account. Staff are not held to a count.
+	// address they typed, so there is nothing else to hold them to it, and one
+	// alert is one thing watched rather than one vendor. A subscriber may keep a
+	// few, and the address they give does not have to be the one on their
+	// account. Staff are not held to a count.
 	switch {
 	case userID == nil:
+		if watching > 1 {
+			writeJSON(w, http.StatusConflict, map[string]string{
+				"error": "A visitor without an account can watch one thing at a time. Sign in to watch several.",
+			})
+			return
+		}
 		elsewhere, err := h.store.AlertElsewhere(r.Context(), email, serviceID)
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			h.fail(w, r, err)
@@ -82,7 +122,14 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case user.Role == auth.RoleSubscriber:
-		count, err := h.store.ActiveAlertCount(r.Context(), *userID, serviceID)
+		used, err := h.store.ActiveAlertCount(r.Context(), *userID)
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		// What the address already watches here is about to be replaced by this
+		// request, so it is subtracted rather than counted twice.
+		keep, err := h.store.AddressTargetCount(r.Context(), email, serviceID)
 		if err != nil {
 			h.fail(w, r, err)
 			return
@@ -92,7 +139,7 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 			h.fail(w, r, err)
 			return
 		}
-		if count >= limit {
+		if used-keep+watching > limit {
 			writeJSON(w, http.StatusConflict, map[string]string{
 				"error": fmt.Sprintf(
 					"Your account has reached its limit of %d alerts. Remove one from your alerts page first.",
@@ -108,14 +155,16 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.store.SubscribeAlert(r.Context(), serviceID, userID, email, token); err != nil {
+	want := store.AlertTargets{Whole: whole, Components: componentIDs}
+	if err := h.store.SubscribeAlert(r.Context(), serviceID, userID, email, token, want); err != nil {
 		h.fail(w, r, err)
 		return
 	}
 
 	// The answer says nothing about whether the address was already subscribed,
 	// so this cannot be used to ask whether somebody else's is.
-	h.log.Info("alert subscription saved", "vendor", name, "email", email, "signed_in", userID != nil)
+	h.log.Info("alert subscription saved", "vendor", name, "email", email,
+		"signed_in", userID != nil, "whole", whole, "components", len(componentIDs))
 	writeJSON(w, http.StatusCreated, map[string]any{"status": "subscribed"})
 }
 
@@ -166,6 +215,8 @@ func (h *handlers) listUserAlerts(w http.ResponseWriter, r *http.Request) {
 			"email":        alert.Email,
 			"state":        alert.State(),
 			"createdAt":    alert.CreatedAt,
+			"wholeService": alert.WholeService,
+			"components":   alert.Components,
 		})
 	}
 
@@ -181,7 +232,7 @@ func (h *handlers) listUserAlerts(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		limit = &value
-		used, err = h.store.ActiveAlertCount(r.Context(), user.ID, 0)
+		used, err = h.store.ActiveAlertCount(r.Context(), user.ID)
 		if err != nil {
 			h.fail(w, r, err)
 			return
@@ -267,8 +318,9 @@ func (h *handlers) deleteUserAlertRow(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// getUserAlert tells the bell whether this person already has an alert here, and
-// which address it goes to. Only the account link is asked about: an alert made
+// getUserAlert tells the bell whether this person already has an alert here,
+// which address it goes to, and what it watches, so the modal can open with the
+// boxes they left ticked. Only the account link is asked about: an alert made
 // while signed out belongs to the address, and the person at the keyboard may
 // not be the one who made it.
 func (h *handlers) getUserAlert(w http.ResponseWriter, r *http.Request) {
@@ -293,9 +345,11 @@ func (h *handlers) getUserAlert(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"subscribed": true,
-		"email":      maskEmail(view.Email),
-		"paused":     view.State() == store.AlertPaused,
+		"subscribed":   true,
+		"email":        maskEmail(view.Email),
+		"paused":       view.State() == store.AlertPaused,
+		"wholeService": view.WholeService,
+		"components":   view.ComponentIDs,
 	})
 }
 

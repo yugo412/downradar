@@ -145,15 +145,20 @@ export interface AlertSubscription {
 }
 
 // What the bell asks about the signed in visitor: whether their account already
-// has an alert on this vendor, the masked address it goes to, and whether it is
-// paused.
+// has an alert on this vendor, the masked address it goes to, whether it is
+// paused, and what it watches, so the modal opens with what they picked ticked.
+// Components are named by the identifiers the API takes them back as.
 export interface AlertState {
   subscribed: boolean
   email?: string
   paused?: boolean
+  wholeService?: boolean
+  components?: string[]
 }
 
-// One row on the account's alerts screen.
+// One row on the account's alerts screen. A row watches the vendor's own status,
+// some of its components, or both, so it carries what it watches: the components
+// by name, which is what the screen shows.
 export interface AccountAlert {
   id: number
   vendorSlug: string
@@ -162,6 +167,8 @@ export interface AccountAlert {
   email: string
   state: 'active' | 'paused' | 'unsubscribed'
   createdAt: string
+  wholeService: boolean
+  components: string[]
 }export interface ServicePayload {
   name: string
   url: string

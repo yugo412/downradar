@@ -99,7 +99,7 @@ func changedVendor(t *testing.T, st *store.Store, email string) string {
 	if err != nil {
 		t.Fatalf("PublicService: %v", err)
 	}
-	if err := st.SubscribeAlert(ctx, id, nil, email, "token-"+slug); err != nil {
+	if err := st.SubscribeAlert(ctx, id, nil, email, "token-"+slug, store.WholeVendor); err != nil {
 		t.Fatalf("SubscribeAlert: %v", err)
 	}
 
@@ -119,6 +119,68 @@ func changedVendor(t *testing.T, st *store.Store, email string) string {
 		t.Fatalf("second poll: %v", err)
 	}
 	return slug
+}
+
+// changedComponent writes a vendor, subscribes an address to one of its
+// components, and moves that component without moving the vendor's own status,
+// which is one alert waiting to go out about a component.
+func changedComponent(t *testing.T, st *store.Store, email string) (string, string) {
+	t.Helper()
+	ctx := context.Background()
+
+	slug, err := st.CreateService(ctx, store.NewService{
+		Name:                  fmt.Sprintf("Zz Notify Component %d", time.Now().UnixNano()),
+		URL:                   "https://status.example.com",
+		Profile:               "statuspage-v2",
+		PollIntervalSeconds:   300,
+		ActiveIntervalSeconds: 60,
+	})
+	if err != nil {
+		t.Fatalf("CreateService: %v", err)
+	}
+	t.Cleanup(func() {
+		// Unsubscribing first drops anything still waiting, so a test never
+		// leaves a delivery for the running development stack to send.
+		_ = st.UnsubscribeAlert(context.Background(), "token-"+slug)
+		if _, err := st.DeleteService(context.Background(), slug); err != nil {
+			t.Errorf("DeleteService: %v", err)
+		}
+	})
+
+	id, name, err := st.PublicService(ctx, slug)
+	if err != nil {
+		t.Fatalf("PublicService: %v", err)
+	}
+
+	report := func(global, component adapters.Health) adapters.Report {
+		return adapters.Report{
+			Global:    global,
+			FetchedAt: time.Now().UTC(),
+			Components: []adapters.ComponentStatus{
+				{SourceID: "c1", Name: name + " Search", Position: 1, Status: component},
+			},
+		}
+	}
+
+	// The first poll is the baseline a change is read against, and the poll that
+	// gives the component a row for a target to point at.
+	if _, err := st.ApplyReport(ctx, id, report(adapters.HealthOK, adapters.HealthOK)); err != nil {
+		t.Fatalf("first poll: %v", err)
+	}
+
+	componentIDs, err := st.ComponentIDs(ctx, id, []string{"c1"})
+	if err != nil {
+		t.Fatalf("ComponentIDs: %v", err)
+	}
+	if err := st.SubscribeAlert(ctx, id, nil, email, "token-"+slug,
+		store.AlertTargets{Components: componentIDs}); err != nil {
+		t.Fatalf("SubscribeAlert: %v", err)
+	}
+
+	if _, err := st.ApplyReport(ctx, id, report(adapters.HealthOK, adapters.HealthDegraded)); err != nil {
+		t.Fatalf("second poll: %v", err)
+	}
+	return slug, name + " Search"
 }
 
 func TestDrainSendsWhatChanged(t *testing.T) {
@@ -160,6 +222,34 @@ func TestDrainSendsWhatChanged(t *testing.T) {
 	}
 	if got := len(sender.sent()); got != 1 {
 		t.Errorf("sent after a second pass = %d, want 1", got)
+	}
+}
+
+// An alert about a component says which one, because the reader is being told
+// about one part of a page rather than about the vendor as a whole.
+func TestDrainSaysWhichComponentMoved(t *testing.T) {
+	st := testStore(t)
+	_, component := changedComponent(t, st, "bob@example.com")
+
+	sender := &fakeSender{}
+	n := New(st, sender, "https://downradar.info/", time.Second, quietLogger())
+
+	if err := n.drain(context.Background()); err != nil {
+		t.Fatalf("drain: %v", err)
+	}
+
+	sent := sender.sent()
+	if len(sent) != 1 {
+		t.Fatalf("sent = %d messages, want the one about the component", len(sent))
+	}
+	if !strings.Contains(sent[0].subject, component) {
+		t.Errorf("subject = %q, want it to name %s", sent[0].subject, component)
+	}
+	if !strings.Contains(sent[0].body, "Operational -> Degraded") {
+		t.Errorf("body does not say what the component moved from and to:\n%s", sent[0].body)
+	}
+	if !strings.Contains(sent[0].body, "about "+component) {
+		t.Errorf("body does not say what the alert is about:\n%s", sent[0].body)
 	}
 }
 

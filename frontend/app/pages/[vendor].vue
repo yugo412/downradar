@@ -87,7 +87,12 @@ if (vendor.value) {
               Quick edit
             </button>
           </ClientOnly>
-          <AlertBell :slug="vendor.slug" :name="vendor.name" />
+          <AlertBell
+            :slug="vendor.slug"
+            :name="vendor.name"
+            :status="vendor.status"
+            :components="vendor.componentsList ?? []"
+          />
           <!-- The status is what the page is about, so on a narrow screen where
                this row drops below the title it reads first, before the actions.
                From md up the whole row sits to the right and the badge goes back

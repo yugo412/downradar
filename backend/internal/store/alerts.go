@@ -44,6 +44,15 @@ type AlertView struct {
 	CreatedAt      time.Time  `json:"createdAt"`
 	PausedAt       *time.Time `json:"pausedAt,omitempty"`
 	UnsubscribedAt *time.Time `json:"unsubscribedAt,omitempty"`
+
+	// What the subscription watches. WholeService is the vendor's own status;
+	// ComponentIDs are the vendor's identifiers for the components beside it, in
+	// the order they sit on the page, which is what a caller that has to tick the
+	// boxes again needs, while Components carries their names for a screen that
+	// only shows them.
+	WholeService bool     `json:"wholeService"`
+	ComponentIDs []string `json:"-"`
+	Components   []string `json:"-"`
 }
 
 // State is what the row is doing now.
@@ -61,11 +70,12 @@ func (v AlertView) State() string {
 // UserAlerts is everything one account has asked to be told about, newest first.
 // Rows that are paused or were unsubscribed are part of the list: the point of
 // the screen is to show them and offer to start them again. Each one carries the
-// vendor's current health, so a row can say whether the thing it watches is up.
+// vendor's current health, so a row can say whether the thing it watches is up,
+// and the components it watches beside it.
 //
 // A row is a subscription, which can watch several things and arrive several
 // ways, so it takes its first target and its first channel. Everything made from
-// a vendor page has exactly one of each.
+// a vendor page has exactly one channel, and as many targets as were ticked.
 func (s *Store) UserAlerts(ctx context.Context, userID int64) ([]AlertView, error) {
 	rows, err := s.pool.Query(ctx, `
 		select a.id, v.slug, v.name, coalesce(ss.status, 'unknown'),
@@ -73,7 +83,8 @@ func (s *Store) UserAlerts(ctx context.Context, userID int64) ([]AlertView, erro
 		       case when ch.total > 0 and ch.ended < ch.total and ch.live = 0
 		            then ch.last_paused end,
 		       case when ch.total > 0 and ch.ended = ch.total
-		            then ch.last_ended end
+		            then ch.last_ended end,
+		       w.whole, w.components
 		from alert_subscriptions a
 		join lateral (
 			select t.service_id
@@ -84,6 +95,14 @@ func (s *Store) UserAlerts(ctx context.Context, userID int64) ([]AlertView, erro
 		) t on true
 		join services v on v.id = t.service_id
 		left join service_state ss on ss.service_id = v.id
+		left join lateral (
+			select count(*) filter (where t2.component_id is null) > 0 as whole,
+			       coalesce(array_agg(cm.name order by cm.position, cm.name)
+			                filter (where t2.component_id is not null), '{}'::text[]) as components
+			from alert_targets t2
+			left join components cm on cm.id = t2.component_id
+			where t2.subscription_id = a.id
+		) w on true
 		left join lateral (
 			select (array_agg(c.address order by c.id))[1] as address,
 			       count(*) as total,
@@ -105,7 +124,8 @@ func (s *Store) UserAlerts(ctx context.Context, userID int64) ([]AlertView, erro
 	for rows.Next() {
 		var v AlertView
 		if err := rows.Scan(&v.ID, &v.VendorSlug, &v.VendorName, &v.VendorStatus,
-			&v.Email, &v.CreatedAt, &v.PausedAt, &v.UnsubscribedAt); err != nil {
+			&v.Email, &v.CreatedAt, &v.PausedAt, &v.UnsubscribedAt,
+			&v.WholeService, &v.Components); err != nil {
 			return nil, fmt.Errorf("alerts: scan list: %w", err)
 		}
 		out = append(out, v)
@@ -181,17 +201,20 @@ func (s *Store) DeleteUserAlert(ctx context.Context, userID, id int64) error {
 
 // PendingAlert is one message waiting to go out. It carries the change it is
 // about, so an alert describes the moment it happened even if the status has
-// moved on by the time the mail server takes it.
+// moved on by the time the mail server takes it. ComponentName is set when the
+// subscription watches one component of the vendor rather than the vendor
+// itself, and the message says which one it was about.
 type PendingAlert struct {
-	ID         int64
-	Email      string
-	VendorName string
-	VendorSlug string
-	Token      string
-	FromStatus string
-	ToStatus   string
-	ChangedAt  time.Time
-	Attempts   int
+	ID            int64
+	Email         string
+	VendorName    string
+	VendorSlug    string
+	ComponentName string
+	Token         string
+	FromStatus    string
+	ToStatus      string
+	ChangedAt     time.Time
+	Attempts      int
 }
 
 // PublicService returns the id and name of a vendor the open API can serve,
@@ -214,14 +237,86 @@ func (s *Store) PublicService(ctx context.Context, slug string) (int64, string, 
 	return id, name, nil
 }
 
+// AlertTargets is what a subscription is to watch: the vendor's own status, or
+// named components of it, or both. A component is named by its row id, which is
+// what a target points at.
+type AlertTargets struct {
+	Whole      bool
+	Components []int64
+}
+
+// WholeVendor is the alert the bell used to be the only kind of: the vendor's
+// overall status and nothing else.
+var WholeVendor = AlertTargets{Whole: true}
+
+// ComponentIDs resolves components named by the vendor's own identifiers, which
+// is what a page has to hand, to the rows a target points at. The whole set is
+// refused if any of them is not one of this vendor's live components, because a
+// subscription is written against the list the subscriber was shown.
+func (s *Store) ComponentIDs(ctx context.Context, serviceID int64, sourceIDs []string) ([]int64, error) {
+	if len(sourceIDs) == 0 {
+		return nil, nil
+	}
+
+	asked := map[string]bool{}
+	for _, id := range sourceIDs {
+		asked[id] = true
+	}
+
+	rows, err := s.pool.Query(ctx, `
+		select id from components
+		where service_id = $1 and active and source_id = any($2)
+		order by position, id`, serviceID, sourceIDs)
+	if err != nil {
+		return nil, fmt.Errorf("alerts: component ids: %w", err)
+	}
+	defer rows.Close()
+
+	var out []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("alerts: scan component id: %w", err)
+		}
+		out = append(out, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(out) != len(asked) {
+		return nil, ErrNotFound
+	}
+	return out, nil
+}
+
+// AddressTargetCount is what one address watches on one vendor, which is the set
+// a subscribe is about to replace. It is what makes the limit arithmetic exact
+// for a subscriber who is changing their mind: what they already have here does
+// not count twice, and what they add does.
+func (s *Store) AddressTargetCount(ctx context.Context, email string, serviceID int64) (int, error) {
+	var count int
+	err := s.pool.QueryRow(ctx, `
+		select count(*)
+		from alert_targets t
+		join alert_channels c on c.subscription_id = t.subscription_id
+		where c.kind = 'email' and c.address = $1 and t.service_id = $2`, email, serviceID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("alerts: address targets for %s: %w", email, err)
+	}
+	return count, nil
+}
+
 // SubscribeAlert records one address against one vendor, as a subscription with
-// a single target and a single channel, which is what somebody asking on a
-// vendor page is asking for. An address that unsubscribed before is subscribed
-// again rather than refused, and keeps its token, so an old email's unsubscribe
-// link still reaches this row. A user id is only kept if one is given, so
-// subscribing while signed out never clears a link that was made while signed
-// in.
-func (s *Store) SubscribeAlert(ctx context.Context, serviceID int64, userID *int64, email, token string) error {
+// a single email channel, and sets what it watches. Asking again is somebody
+// changing their mind, so the set of targets becomes what was asked for: what is
+// no longer watched goes, and anything still waiting for it goes with it. The
+// channel keeps its token, so an old email's unsubscribe link still reaches this
+// row, and asking again clears a pause or an unsubscribing rather than leaving
+// the subscriber with a row that is not being sent.
+//
+// A user id is only kept if one is given, so subscribing while signed out never
+// clears a link that was made while signed in.
+func (s *Store) SubscribeAlert(ctx context.Context, serviceID int64, userID *int64, email, token string, want AlertTargets) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("alerts: begin tx: %w", err)
@@ -233,17 +328,15 @@ func (s *Store) SubscribeAlert(ctx context.Context, serviceID int64, userID *int
 		select c.id, c.subscription_id
 		from alert_channels c
 		join alert_targets t on t.subscription_id = c.subscription_id
-		where c.kind = 'email' and c.address = $1
-		  and t.service_id = $2 and t.component_id is null
+		where c.kind = 'email' and c.address = $1 and t.service_id = $2
 		order by c.id
 		limit 1`, email, serviceID).Scan(&channelID, &subscriptionID)
 
 	switch {
 	case err == nil:
-		// The row is already there, so asking again is somebody changing their
-		// mind: it ends the unsubscribing instead of adding a second one.
 		if _, err := tx.Exec(ctx, `
-			update alert_channels set unsubscribed_at = null, updated_at = now()
+			update alert_channels
+			set unsubscribed_at = null, paused_at = null, updated_at = now()
 			where id = $1`, channelID); err != nil {
 			return fmt.Errorf("alerts: subscribe %s: %w", email, err)
 		}
@@ -261,11 +354,6 @@ func (s *Store) SubscribeAlert(ctx context.Context, serviceID int64, userID *int
 			return fmt.Errorf("alerts: subscribe %s: %w", email, err)
 		}
 		if _, err := tx.Exec(ctx, `
-			insert into alert_targets (subscription_id, service_id)
-			values ($1, $2)`, subscriptionID, serviceID); err != nil {
-			return fmt.Errorf("alerts: subscribe %s: %w", email, err)
-		}
-		if _, err := tx.Exec(ctx, `
 			insert into alert_channels (subscription_id, kind, address, token)
 			values ($1, 'email', $2, $3)`, subscriptionID, email, token); err != nil {
 			return fmt.Errorf("alerts: subscribe %s: %w", email, err)
@@ -275,9 +363,50 @@ func (s *Store) SubscribeAlert(ctx context.Context, serviceID int64, userID *int
 		return fmt.Errorf("alerts: subscribe %s: %w", email, err)
 	}
 
+	if err := setAlertTargets(ctx, tx, subscriptionID, serviceID, want); err != nil {
+		return fmt.Errorf("alerts: subscribe %s: %w", email, err)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("alerts: subscribe commit: %w", err)
 	}
+	return nil
+}
+
+// setAlertTargets makes one subscription watch exactly what was asked for. A
+// target that is still wanted is left where it is, so a message already queued
+// about it is not thrown away by an unrelated change of mind; the partial unique
+// indexes are what says which of them is already there.
+func setAlertTargets(ctx context.Context, tx pgx.Tx, subscriptionID, serviceID int64, want AlertTargets) error {
+	if _, err := tx.Exec(ctx, `
+		delete from alert_targets
+		where subscription_id = $1
+		  and (($2 = false and component_id is null)
+		       or (component_id is not null and component_id <> all(coalesce($3::bigint[], '{}'))))`,
+		subscriptionID, want.Whole, want.Components); err != nil {
+		return fmt.Errorf("drop targets: %w", err)
+	}
+
+	if want.Whole {
+		if _, err := tx.Exec(ctx, `
+			insert into alert_targets (subscription_id, service_id)
+			values ($1, $2)
+			on conflict (subscription_id, service_id) where component_id is null do nothing`,
+			subscriptionID, serviceID); err != nil {
+			return fmt.Errorf("add the vendor target: %w", err)
+		}
+	}
+
+	if len(want.Components) > 0 {
+		if _, err := tx.Exec(ctx, `
+			insert into alert_targets (subscription_id, service_id, component_id)
+			select $1, $2, c from unnest($3::bigint[]) as c
+			on conflict (subscription_id, component_id) where component_id is not null do nothing`,
+			subscriptionID, serviceID, want.Components); err != nil {
+			return fmt.Errorf("add the component targets: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -318,26 +447,26 @@ func (s *Store) AlertElsewhere(ctx context.Context, email string, serviceID int6
 	return &ref, nil
 }
 
-// ActiveAlertCount is how many things this account still has that can arrive,
-// leaving out one vendor so re-subscribing to it is not counted twice. It counts
-// what is watched rather than how many channels watch it: an address hearing
-// about one vendor by email and by webhook is still one alert. A vendor removed
+// ActiveAlertCount is how many things this account still has that can arrive. It
+// counts what is watched rather than how many channels watch it: an address
+// hearing about one vendor by email and by webhook is still one alert, and a
+// vendor followed through three of its components is three. A vendor removed
 // from the catalogue is not polled any more, so its alert is not holding a
 // place. It is what caps a subscriber; guests are held by AlertElsewhere and
 // staff are not held at all.
-func (s *Store) ActiveAlertCount(ctx context.Context, userID, exceptServiceID int64) (int, error) {
+func (s *Store) ActiveAlertCount(ctx context.Context, userID int64) (int, error) {
 	var count int
 	err := s.pool.QueryRow(ctx, `
 		select count(*)
 		from alert_targets t
 		join alert_subscriptions a on a.id = t.subscription_id
 		join services v on v.id = t.service_id
-		where a.user_id = $1 and t.service_id <> $2
+		where a.user_id = $1
 		  and v.active and v.status = 'published' and v.owner_id is null
 		  and exists (
 			select 1 from alert_channels c
 			where c.subscription_id = a.id and c.unsubscribed_at is null
-		  )`, userID, exceptServiceID).Scan(&count)
+		  )`, userID).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("alerts: active count for user %d: %w", userID, err)
 	}
@@ -406,6 +535,10 @@ func (s *Store) UnsubscribeAlert(ctx context.Context, token string) error {
 // to offer an alert or to say it already has one, so it looks at the link to the
 // account rather than at the address: the address they gave does not have to be
 // the one on their account. A paused one still counts as held.
+//
+// It also says what the subscription watches, so the bell can open with the
+// boxes the person left ticked. ComponentIDs are the vendor's own identifiers,
+// which is what the page has to hand.
 func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertView, error) {
 	var view AlertView
 	err := s.pool.QueryRow(ctx, `
@@ -413,10 +546,25 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 		       case when ch.total > 0 and ch.ended < ch.total and ch.live = 0
 		            then ch.last_paused end,
 		       case when ch.total > 0 and ch.ended = ch.total
-		            then ch.last_ended end
+		            then ch.last_ended end,
+		       w.whole, w.components
 		from alert_subscriptions a
-		join alert_targets t on t.subscription_id = a.id
+		join lateral (
+			select t.service_id
+			from alert_targets t
+			where t.subscription_id = a.id and t.service_id = $2
+			order by t.id
+			limit 1
+		) t on true
 		join services v on v.id = t.service_id
+		left join lateral (
+			select count(*) filter (where t2.component_id is null) > 0 as whole,
+			       coalesce(array_agg(cm.source_id order by cm.position, cm.source_id)
+			                filter (where t2.component_id is not null), '{}'::text[]) as components
+			from alert_targets t2
+			left join components cm on cm.id = t2.component_id
+			where t2.subscription_id = a.id
+		) w on true
 		left join lateral (
 			select (array_agg(c.address order by c.id))[1] as address,
 			       count(*) as total,
@@ -427,7 +575,7 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 			from alert_channels c
 			where c.subscription_id = a.id
 		) ch on true
-		where a.user_id = $1 and t.service_id = $2
+		where a.user_id = $1
 		  and exists (
 			select 1 from alert_channels c
 			where c.subscription_id = a.id and c.unsubscribed_at is null
@@ -435,7 +583,8 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 		order by a.id
 		limit 1`, userID, serviceID,
 	).Scan(&view.ID, &view.VendorSlug, &view.VendorName, &view.Email,
-		&view.CreatedAt, &view.PausedAt, &view.UnsubscribedAt)
+		&view.CreatedAt, &view.PausedAt, &view.UnsubscribedAt,
+		&view.WholeService, &view.ComponentIDs)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -504,12 +653,13 @@ func (s *Store) UnsubscribeUserAlert(ctx context.Context, userID, serviceID int6
 // PendingAlerts is the next batch for the sender, oldest first.
 func (s *Store) PendingAlerts(ctx context.Context, maxAttempts, limit int) ([]PendingAlert, error) {
 	rows, err := s.pool.Query(ctx, `
-		select d.id, c.address, s.name, s.slug, c.token,
+		select d.id, c.address, s.name, s.slug, coalesce(cm.name, ''), c.token,
 		       d.from_status, d.to_status, d.changed_at, d.attempts
 		from alert_deliveries d
 		join alert_channels c on c.id = d.channel_id
 		join alert_targets t on t.id = d.target_id
 		join services s on s.id = t.service_id
+		left join components cm on cm.id = t.component_id
 		where d.sent_at is null and d.attempts < $1
 		  and c.unsubscribed_at is null and c.paused_at is null
 		order by d.id
@@ -522,8 +672,8 @@ func (s *Store) PendingAlerts(ctx context.Context, maxAttempts, limit int) ([]Pe
 	var out []PendingAlert
 	for rows.Next() {
 		var p PendingAlert
-		if err := rows.Scan(&p.ID, &p.Email, &p.VendorName, &p.VendorSlug, &p.Token,
-			&p.FromStatus, &p.ToStatus, &p.ChangedAt, &p.Attempts); err != nil {
+		if err := rows.Scan(&p.ID, &p.Email, &p.VendorName, &p.VendorSlug, &p.ComponentName,
+			&p.Token, &p.FromStatus, &p.ToStatus, &p.ChangedAt, &p.Attempts); err != nil {
 			return nil, fmt.Errorf("alerts: scan pending: %w", err)
 		}
 		out = append(out, p)
