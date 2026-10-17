@@ -385,9 +385,9 @@ is a row rather than a commit.
 
 ## Data sources
 
-Everything is read from a public API that the platform itself publishes, one
-adapter per platform: Atlassian Statuspage, Status.io, Sorry, cron-job.org,
-FlashDuty, PagerDuty, Slack and Better Stack, with a bespoke adapter for
+Everything is read from what the platform itself publishes, one adapter per
+platform: Atlassian Statuspage, Status.io, Sorry, cron-job.org, FlashDuty,
+PagerDuty, Slack, Better Stack and SolarWinds, with a bespoke adapter for
 OpenCode's own page, whose components are slugs and whose incidents have
 generated ids. The platforms that can be recognised from a url alone are also in
 the detect queue, so a vendor can be added before its platform is known. Ping is

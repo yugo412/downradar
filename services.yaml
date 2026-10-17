@@ -34,6 +34,7 @@ detect:
   - sorryapp
   - pagerduty
   - betterstack
+  - solarwinds
   - flashduty
   - cronjob-statuspage
 
@@ -132,6 +133,17 @@ profiles:
     kind: betterstack
     description: Better Stack status pages, read from the JSON document at /index.json.
     endpoint: /index.json
+    poll_interval_seconds: 300
+    active_interval_seconds: 60
+
+  # SolarWinds (Squadcast) hosts status pages as a product, such as
+  # status.flip.id. A page is a Next.js app with no API of its own: its
+  # components, which arrive as groups with their children, its incidents and its
+  # maintenance windows all sit in the __NEXT_DATA__ script the page embeds, so
+  # nothing has to be configured per vendor.
+  solarwinds:
+    kind: solarwinds
+    description: Pages hosted by SolarWinds (Squadcast), read from the data embedded in the page.
     poll_interval_seconds: 300
     active_interval_seconds: 60
 
