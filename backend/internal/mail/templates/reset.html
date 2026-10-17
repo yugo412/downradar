@@ -1,0 +1,24 @@
+{{/* Somebody who has forgotten their password. The link works once and expires
+     in an hour, which is shorter than the confirmation link: a working reset in
+     an old inbox is worth more to a stranger than an unconfirmed address. */}}
+{{define "reset"}}
+<p style="margin:0 0 16px;">Hello {{.Name}},</p>
+<p style="margin:0 0 20px;">
+  Someone asked to reset the password for this address. If it was you, choose a new one here.
+</p>
+<p style="margin:0 0 20px;">
+  <a
+    href="{{.URL}}"
+    style="display:inline-block;padding:10px 18px;border-radius:8px;background:#45aeee;color:#020b13;font-weight:600;text-decoration:none;"
+    >Choose a new password</a
+  >
+</p>
+<p style="margin:0 0 16px;font-size:13px;color:#6f6f6f;">
+  If the button does not work, open this link in a browser:<br />
+  <a href="{{.URL}}" style="color:#161616;word-break:break-all;">{{.URL}}</a>
+</p>
+<p style="margin:0;font-size:13px;color:#6f6f6f;">
+  The link works once and expires in an hour. If it was not you, nothing has changed and you can
+  ignore this email.
+</p>
+{{end}}

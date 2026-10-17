@@ -20,7 +20,7 @@ func TestMessageCarriesWhatAMailServerNeeds(t *testing.T) {
 		"To: ann@example.com\r\n",
 		"Subject: Example is now Degraded\r\n",
 		"MIME-Version: 1.0\r\n",
-		"Content-Type: text/plain; charset=utf-8\r\n",
+		"Content-Type: text/html; charset=utf-8\r\n",
 		"\r\nline one\r\nline two",
 	} {
 		if !strings.Contains(msg, want) {

@@ -255,6 +255,11 @@ address is a host and a port: 465 is dialled with TLS from the first byte, which
 is what the port means, and every other port is dialled plainly and upgraded with
 STARTTLS when the server offers it.
 
+Every email is written as HTML from a template rather than as a string in the code
+that sends it. The templates are in `internal/mail/templates`, one file per
+message beside the shell they are all set in, and they carry the site's own
+colours, so an alert looks like the page it links to.
+
 ## Private services
 
 A service row can belong to one person instead of to the catalogue. Set
@@ -388,6 +393,7 @@ backend/                  Go: poller, adapters, store, API
   internal/adapters/all/  imports every adapter package, so each registers itself
   internal/auth/          roles, bcrypt, session tokens
   internal/catalog/       services.yaml -> profiles, with validation
+  internal/mail/          SMTP, and the HTML templates every email is written from
   internal/seed/          seed/vendors.yaml -> targets, with validation
   internal/poller/        reads the table each cycle, scheduling, worker pool
   internal/store/         the only package that speaks SQL

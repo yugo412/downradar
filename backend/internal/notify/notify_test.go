@@ -207,13 +207,18 @@ func TestDrainSendsWhatChanged(t *testing.T) {
 
 	body := sent[0].body
 	for _, want := range []string{
-		"Operational -> Major outage",
+		"Operational",  // where it was
+		"Major outage", // where it went
 		"https://downradar.info/" + slug,
-		"Unsubscribe: https://downradar.info/alerts/unsubscribe?token=token-" + slug,
+		"https://downradar.info/alerts/unsubscribe?token=token-" + slug,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body does not contain %q:\n%s", want, body)
 		}
+	}
+	// The reader is told what the email is about, in the words the site uses.
+	if !strings.Contains(body, "changes status") {
+		t.Errorf("body does not say what it is about:\n%s", body)
 	}
 
 	// A delivered alert is done: the next pass has nothing to do.
@@ -245,11 +250,16 @@ func TestDrainSaysWhichComponentMoved(t *testing.T) {
 	if !strings.Contains(sent[0].subject, component) {
 		t.Errorf("subject = %q, want it to name %s", sent[0].subject, component)
 	}
-	if !strings.Contains(sent[0].body, "Operational -> Degraded") {
-		t.Errorf("body does not say what the component moved from and to:\n%s", sent[0].body)
-	}
-	if !strings.Contains(sent[0].body, "about "+component) {
-		t.Errorf("body does not say what the alert is about:\n%s", sent[0].body)
+	body := sent[0].body
+	for _, want := range []string{
+		component,                    // the heading names it
+		"Operational",                // where it was
+		"Degraded",                   // where it went
+		"when " + component + " on ", // and the closing line says what was asked for
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body does not contain %q:\n%s", want, body)
+		}
 	}
 }
 

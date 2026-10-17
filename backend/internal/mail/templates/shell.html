@@ -1,0 +1,43 @@
+{{/* The shell every email is set in. It carries what they all share: the brand,
+     the surface the message is written on, and the page colour behind it. The
+     colours are the site's own theme, written out as hex because a mail client
+     does not read oklch: base-200 is the page, base-100 the card, base-300 the
+     border, and the dot is the site's error colour. */}}
+{{define "shell"}}<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+  </head>
+  <body
+    style="margin:0;padding:24px 16px;background:#eeeeee;color:#161616;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;"
+  >
+    <table
+      role="presentation"
+      cellpadding="0"
+      cellspacing="0"
+      border="0"
+      width="100%"
+      style="max-width:520px;margin:0 auto;"
+    >
+      <tr>
+        <td style="padding:0 0 14px;">
+          <span
+            style="display:inline-block;width:8px;height:8px;border-radius:999px;background:#e93f33;vertical-align:middle;"
+          ></span>
+          <span style="font-size:17px;font-weight:600;letter-spacing:-0.01em;vertical-align:middle;"
+            >DownRadar</span
+          >
+          <div style="font-size:12px;color:#6f6f6f;">Official status pages, aggregated</div>
+        </td>
+      </tr>
+      <tr>
+        <td style="background:#ffffff;border:1px solid #dedede;border-radius:8px;padding:24px;">
+          {{.Body}}
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
+{{end}}
