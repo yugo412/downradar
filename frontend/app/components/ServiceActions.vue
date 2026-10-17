@@ -4,6 +4,7 @@ import type { AdminService } from '~/types/api'
 defineProps<{
   service: AdminService
   canRemove: boolean
+  canPurge: boolean
   retrying: boolean
 }>()
 
@@ -13,6 +14,7 @@ const emit = defineEmits<{
   retry: []
   restore: []
   remove: []
+  purge: []
 }>()
 </script>
 
@@ -43,6 +45,16 @@ const emit = defineEmits<{
 
     <button v-if="!service.active" type="button" class="link" @click="emit('restore')">
       Restore
+    </button>
+
+    <button
+      v-if="!service.active && canPurge"
+      type="button"
+      class="link text-error"
+      title="Delete this service and everything it has recorded. This cannot be undone."
+      @click="emit('purge')"
+    >
+      Force delete
     </button>
 
     <button

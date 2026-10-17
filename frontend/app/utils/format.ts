@@ -59,6 +59,11 @@ export function statusMeta(status: string): { label: string; cls: string } {
   return STATUS_META[status] ?? STATUS_META.unknown!
 }
 
+// The states a page can name. Kept beside the words they are shown with, so a URL
+// naming one the app does not know is dropped rather than left as a picked filter
+// with nothing under it.
+export const HEALTH_STATES = Object.keys(STATUS_META)
+
 export interface StatusCount {
   status: string
   count: number
