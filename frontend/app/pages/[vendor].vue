@@ -88,7 +88,11 @@ if (vendor.value) {
             </button>
           </ClientOnly>
           <AlertBell :slug="vendor.slug" :name="vendor.name" />
-          <StatusBadge :status="vendor.status" />
+          <!-- The status is what the page is about, so on a narrow screen where
+               this row drops below the title it reads first, before the actions.
+               From md up the whole row sits to the right and the badge goes back
+               to the end of it. -->
+          <StatusBadge :status="vendor.status" class="order-first md:order-none" />
         </div>
       </header>
 

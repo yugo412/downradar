@@ -74,10 +74,14 @@ async function onSaved() {
             </svg>
             Quick edit
           </button>
-          <StatusBadge v-if="detail" :status="detail.status" />
+          <StatusBadge
+            v-if="detail"
+            :status="detail.status"
+            class="order-first md:order-none"
+          />
           <span
             v-else
-            class="badge badge-sm"
+            class="badge badge-sm order-first whitespace-nowrap md:order-none"
             :class="serviceStatusClass(meta.service.status, meta.service.active)"
           >
             {{ serviceStatusLabel(meta.service.status, meta.service.active) }}
