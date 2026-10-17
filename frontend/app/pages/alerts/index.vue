@@ -73,6 +73,26 @@ const STATE: Record<AccountAlert['state'], { label: string; cls: string }> = {
 function stateOf(alert: AccountAlert) {
   return STATE[alert.state] ?? STATE.unsubscribed
 }
+
+// What a row watches, which is not always the vendor as a whole: the bell lets
+// the components of a status page be ticked off one by one, and the vendor's own
+// status can be watched alongside them.
+function watches(alert: AccountAlert) {
+  const parts = alert.wholeService ? ['The whole service'] : []
+  parts.push(...(alert.components ?? []))
+  return parts.join(' · ') || 'The whole service'
+}
+
+// What stops arriving when the row goes. A row that watches components is about
+// those rather than about the vendor, so the confirmation says which.
+function deleteMessage(alert: AccountAlert) {
+  const components = alert.components ?? []
+  const about =
+    components.length && !alert.wholeService
+      ? `${components.join(', ')} on ${alert.vendorName}`
+      : alert.vendorName
+  return `You will not get any more emails about ${about}, and the row disappears from this list.`
+}
 </script>
 
 <template>
@@ -80,8 +100,8 @@ function stateOf(alert: AccountAlert) {
     <header class="mb-6">
       <h1 class="text-2xl font-bold tracking-tight">Alerts</h1>
       <p class="mt-1 text-sm opacity-70">
-        You get an email each time one of these services changes status. Every email carries an
-        unsubscribe link as well.
+        You get an email each time one of these changes status, a whole service or the
+        components of one you picked. Every email carries an unsubscribe link as well.
       </p>
     </header>
 
@@ -91,7 +111,8 @@ function stateOf(alert: AccountAlert) {
 
     <p v-if="atLimit" class="alert alert-warning mb-6">
       <span>
-        Your account has reached its limit of {{ limit }} alerts. Remove one before adding another.
+        Your account has reached its limit of {{ limit }} service{{ limit === 1 ? '' : 's' }}.
+        Remove one before adding another.
       </span>
     </p>
 
@@ -129,6 +150,7 @@ function stateOf(alert: AccountAlert) {
                 <div class="mt-1">
                   <StatusBadge :status="alert.vendorStatus" size="xs" />
                 </div>
+                <p class="mt-1 text-xs opacity-70">{{ watches(alert) }}</p>
               </td>
               <td class="text-sm break-all opacity-70">{{ alert.email }}</td>
               <td class="text-sm whitespace-nowrap opacity-70">{{ formatDate(alert.createdAt) }}</td>
@@ -166,6 +188,7 @@ function stateOf(alert: AccountAlert) {
               <div class="mt-1">
                 <StatusBadge :status="alert.vendorStatus" size="xs" />
               </div>
+              <p class="mt-1 text-xs opacity-70">{{ watches(alert) }}</p>
             </div>
             <span class="badge badge-sm shrink-0 whitespace-nowrap" :class="stateOf(alert).cls">
               {{ stateOf(alert).label }}
@@ -190,7 +213,7 @@ function stateOf(alert: AccountAlert) {
     <ConfirmDialog
       v-if="deleting"
       heading="Delete this alert?"
-      :message="`You will not get any more emails about ${deleting.vendorName}, and the row disappears from this list.`"
+      :message="deleteMessage(deleting)"
       confirm-label="Delete"
       :busy="busy === deleting.id"
       :error="error"

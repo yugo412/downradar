@@ -95,9 +95,16 @@ func (n *Notifier) drain(ctx context.Context) error {
 }
 
 // message is what the subscriber reads: what changed, when, where to look, and
-// the way out.
+// the way out. What changed is the vendor's own status, or one component of it,
+// so a subscriber who picked components is told which one rather than the
+// vendor's name standing in for it.
 func (n *Notifier) message(alert store.PendingAlert) (string, string) {
-	subject := fmt.Sprintf("%s is now %s", alert.VendorName, label(alert.ToStatus))
+	what := alert.VendorName
+	if alert.ComponentName != "" {
+		what = fmt.Sprintf("%s on %s", alert.ComponentName, alert.VendorName)
+	}
+
+	subject := fmt.Sprintf("%s is now %s", what, label(alert.ToStatus))
 
 	body := fmt.Sprintf(`%s changed status at %s.
 
@@ -108,12 +115,12 @@ Live status and history: %s/%s
 You are getting this email because you asked for alerts about %s.
 Unsubscribe: %s/alerts/unsubscribe?token=%s
 `,
-		alert.VendorName,
+		what,
 		alert.ChangedAt.UTC().Format("2006-01-02 15:04 MST"),
 		label(alert.FromStatus),
 		label(alert.ToStatus),
 		n.publicURL, alert.VendorSlug,
-		alert.VendorName,
+		what,
 		n.publicURL, alert.Token,
 	)
 

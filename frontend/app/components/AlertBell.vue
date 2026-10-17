@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import type { AlertState } from '~/types/api'
+import type { AlertState, ComponentStatus } from '~/types/api'
 
 const props = defineProps<{
   slug: string
   name: string
+  status: string
+  components: ComponentStatus[]
 }>()
 
 const { user } = useAuth()
@@ -15,11 +17,64 @@ const subscribed = ref(false)
 const paused = ref(false)
 const maskedEmail = ref('')
 
+// What the alert watches: the vendor's own status, and the components it was
+// told about by the identifiers the API takes back.
+const whole = ref(true)
+const picked = ref<string[]>([])
+
 const open = ref(false)
 const email = ref('')
 const busy = ref(false)
 const error = ref('')
-const step = ref<'form' | 'already' | 'subscribed' | 'stopped'>('form')
+const step = ref<'form' | 'subscribed' | 'stopped'>('form')
+
+// A status page can report hundreds of components, so the list is searchable.
+// The list is already on the page, so the filter runs in the browser: it is
+// instant, and opening the modal costs no request of its own.
+const search = ref('')
+const needle = computed(() => search.value.trim().toLowerCase())
+const matched = computed(() => {
+  if (!needle.value) return props.components
+  return props.components.filter(
+    (c) =>
+      c.name.toLowerCase().includes(needle.value) ||
+      (c.group ?? '').toLowerCase().includes(needle.value),
+  )
+})
+
+const nothingPicked = computed(() => !whole.value && picked.value.length === 0)
+
+// What the visitor may pick. A component is a subscriber's: a visitor without an
+// account gets one alert, and that is a whole service, so the boxes are there to
+// be seen rather than ticked.
+const guest = computed(() => !user.value)
+
+// The statuses the list can be narrowed to, counted after the search so that the
+// number on a chip always agrees with the rows under it.
+const statusFilter = ref<string[]>([])
+const statusOptions = computed(() =>
+  statusCounts(matched.value, (c) => c.status, statusFilter.value),
+)
+const shownComponents = computed(() => {
+  if (!statusFilter.value.length) return matched.value
+  return matched.value.filter((c) => statusFilter.value.includes(c.status))
+})
+
+// What was asked for, said in one phrase, so the confirmation reads as a
+// sentence about what will arrive rather than about a selection.
+const watched = computed(() => {
+  const names = picked.value.length
+  if (names === 0) return props.name
+  if (names === 1) {
+    const one = props.components.find((c) => c.sourceId === picked.value[0])
+    if (one) {
+      return whole.value ? `${props.name} and ${one.name}` : `${one.name} on ${props.name}`
+    }
+  }
+  return whole.value
+    ? `${props.name} and ${names} of its components`
+    : `${names} components of ${props.name}`
+})
 
 watch(user, () => void check(), { immediate: true })
 
@@ -27,6 +82,8 @@ async function check() {
   subscribed.value = false
   paused.value = false
   maskedEmail.value = ''
+  whole.value = true
+  picked.value = []
   if (!user.value) return
 
   try {
@@ -34,6 +91,8 @@ async function check() {
     subscribed.value = state.subscribed
     paused.value = state.paused ?? false
     maskedEmail.value = state.email ?? ''
+    whole.value = state.wholeService ?? true
+    picked.value = state.components ?? []
   } catch {
     // Not worth an error on a public page: the bell simply goes on offering an
     // alert, and the modal is where anything that goes wrong is said.
@@ -43,7 +102,9 @@ async function check() {
 function start() {
   open.value = true
   error.value = ''
-  step.value = subscribed.value ? 'already' : 'form'
+  search.value = ''
+  statusFilter.value = []
+  step.value = 'form'
 
   // Whoever is signed in almost always wants their own address, so it is filled
   // in for them. Anything already typed is left alone.
@@ -61,11 +122,17 @@ async function subscribe() {
   try {
     await $fetch(`/api/v1/vendors/${props.slug}/alerts`, {
       method: 'POST',
-      body: { email: email.value.trim() },
+      body: {
+        email: email.value.trim(),
+        wholeService: whole.value,
+        components: picked.value,
+      },
     })
     // Only an account can be read back later, so a signed out visitor's alert
-    // does not change what the bell says.
+    // does not change what the bell says. Saving is asking for the emails, so it
+    // starts them again if they were paused.
     subscribed.value = !!user.value
+    paused.value = false
     step.value = 'subscribed'
   } catch (err) {
     error.value = apiError(err)
@@ -81,7 +148,10 @@ async function unsubscribe() {
   try {
     await $fetch(`/api/v1/vendors/${props.slug}/alerts`, { method: 'DELETE' })
     subscribed.value = false
+    paused.value = false
     maskedEmail.value = ''
+    whole.value = true
+    picked.value = []
     step.value = 'stopped'
   } catch (err) {
     error.value = apiError(err)
@@ -118,7 +188,9 @@ async function unsubscribe() {
     aria-modal="true"
     @click.self="close"
   >
-    <div class="w-full max-w-md rounded-box border border-base-300 bg-base-100 shadow-xl">
+    <div
+      class="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-box border border-base-300 bg-base-100 shadow-xl"
+    >
       <div class="flex items-center justify-between border-b border-base-300 px-5 py-3">
         <h2 class="text-lg font-semibold">Email alerts</h2>
         <button type="button" class="btn btn-ghost btn-sm" aria-label="Close" @click="close">
@@ -128,7 +200,8 @@ async function unsubscribe() {
 
       <div v-if="step === 'subscribed'" class="px-5 py-4">
         <p class="text-sm">
-          {{ email.trim() }} will get an email whenever {{ name }} changes status.
+          {{ email.trim() }} will get an email each time {{ watched }} changes, in either
+          direction.
         </p>
         <p class="mt-2 text-sm opacity-70">Every email has a link to stop them again.</p>
         <div class="mt-4 flex justify-end">
@@ -138,62 +211,127 @@ async function unsubscribe() {
 
       <div v-else-if="step === 'stopped'" class="px-5 py-4">
         <p class="text-sm">You will not get any more emails about {{ name }}.</p>
+        <p v-if="user" class="mt-2 text-sm opacity-70">
+          You can start them again from
+          <NuxtLink to="/alerts" class="link">your alerts page</NuxtLink>.
+        </p>
         <div class="mt-4 flex justify-end">
           <button type="button" class="btn btn-sm" @click="close">Close</button>
         </div>
       </div>
 
-      <div v-else-if="step === 'already'" class="px-5 py-4">
-        <p v-if="paused" class="text-sm">
-          Your alerts for {{ name }} are paused, and they go to {{ maskedEmail }}. You can start
-          them again from your alerts page.
-        </p>
-        <p v-else class="text-sm">
-          You already get an email whenever {{ name }} changes status. It goes to {{ maskedEmail }}.
-        </p>
-        <p v-if="error" role="alert" class="mt-3 text-sm text-error">{{ error }}</p>
-        <div class="mt-4 flex flex-wrap items-center justify-end gap-2">
-          <NuxtLink v-if="paused" to="/alerts" class="btn btn-ghost btn-sm">
-            Your alerts
-          </NuxtLink>
-          <button type="button" class="btn btn-ghost btn-sm" :disabled="busy" @click="close">
-            Close
-          </button>
-          <button
-            v-if="!paused"
-            type="button"
-            class="btn btn-error btn-sm"
-            :disabled="busy"
-            @click="unsubscribe"
+      <form v-else class="flex min-h-0 flex-1 flex-col" @submit.prevent="subscribe">
+        <div class="px-5 pt-4">
+          <p class="text-sm opacity-80">
+            Get an email each time {{ name }} changes status, in either direction<template
+              v-if="!guest"
+            >, or tick the components you would rather hear about on their own</template>.
+          </p>
+          <p v-if="subscribed" class="mt-2 text-sm opacity-80">
+            These go to {{ maskedEmail }}.
+            <template v-if="paused">They are paused at the moment, so saving starts them again.</template>
+          </p>
+          <input
+            v-model="email"
+            type="email"
+            required
+            autocomplete="email"
+            placeholder="you@example.com"
+            class="input input-bordered mt-3 w-full"
           >
-            <span v-if="busy" class="loading loading-spinner loading-xs" />
-            Unsubscribe
-          </button>
-        </div>
-      </div>
+          <input
+            v-model="search"
+            type="search"
+            aria-label="Search components"
+            placeholder="Search components"
+            class="input input-bordered mt-3 w-full"
+          >
 
-      <form v-else class="px-5 py-4" @submit.prevent="subscribe">
-        <p class="text-sm opacity-80">
-          Get an email each time {{ name }} changes status, in either direction. No account is
-          needed.
-        </p>
-        <input
-          v-model="email"
-          type="email"
-          required
-          autocomplete="email"
-          placeholder="you@example.com"
-          class="input input-bordered mt-4 w-full"
-        >
-        <p v-if="error" role="alert" class="mt-3 text-sm text-error">{{ error }}</p>
-        <div class="mt-4 flex items-center justify-end gap-2">
-          <button type="button" class="btn btn-ghost btn-sm" :disabled="busy" @click="close">
-            Cancel
-          </button>
-          <button type="submit" class="btn btn-primary btn-sm" :disabled="busy">
-            <span v-if="busy" class="loading loading-spinner loading-xs" />
-            Save alert
-          </button>
+          <div class="mt-3">
+            <StatusFilter
+              v-model="statusFilter"
+              :statuses="statusOptions"
+              label="Filter components by status"
+            />
+          </div>
+        </div>
+
+        <!-- The page can report hundreds of components, so the list scrolls and
+             the footer stays where it is. -->
+        <div class="mt-1 min-h-0 flex-1 overflow-y-auto border-t border-base-300">
+          <label class="flex cursor-pointer items-center gap-3 px-5 py-2 hover:bg-base-200">
+            <input v-model="whole" type="checkbox" class="checkbox checkbox-sm">
+            <span class="flex-1 text-sm font-medium">The whole service</span>
+            <StatusBadge :status="status" size="xs" />
+          </label>
+
+          <p v-if="guest" class="px-5 py-2 text-sm opacity-80">
+            Components are for
+            <NuxtLink :to="`/login?next=/${slug}`" class="link">subscribers</NuxtLink>.
+            Sign in to follow one, or watch the whole service from here.
+          </p>
+
+          <label
+            v-for="component in shownComponents"
+            :key="component.sourceId"
+            class="flex items-center gap-3 px-5 py-2"
+            :class="guest ? 'opacity-60' : 'cursor-pointer hover:bg-base-200'"
+          >
+            <input
+              v-model="picked"
+              type="checkbox"
+              class="checkbox checkbox-sm"
+              :value="component.sourceId"
+              :disabled="guest"
+            >
+            <span class="min-w-0 flex-1 text-sm">
+              {{ component.name }}
+              <span v-if="component.group" class="opacity-60">· {{ component.group }}</span>
+            </span>
+            <StatusBadge :status="component.status" size="xs" />
+          </label>
+
+          <p v-if="!shownComponents.length" class="px-5 py-4 text-sm opacity-70">
+            <template v-if="!components.length">This service reports no components yet.</template>
+            <template v-else-if="!matched.length">
+              No component matches “{{ search.trim() }}”.
+            </template>
+            <template v-else>No component is in the states you picked.</template>
+          </p>
+        </div>
+
+        <div class="border-t border-base-300 px-5 py-3">
+          <p v-if="error" role="alert" class="mb-3 text-sm text-error">{{ error }}</p>
+          <p v-if="nothingPicked" class="mb-3 text-sm opacity-70">
+            Pick at least one thing to be emailed about.
+          </p>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <button
+              v-if="subscribed"
+              type="button"
+              class="btn btn-error btn-sm"
+              :disabled="busy"
+              @click="unsubscribe"
+            >
+              <span v-if="busy" class="loading loading-spinner loading-xs" />
+              Unsubscribe
+            </button>
+            <span v-else />
+
+            <div class="flex items-center gap-2">
+              <button type="button" class="btn btn-ghost btn-sm" :disabled="busy" @click="close">
+                Cancel
+              </button>
+              <button
+                type="submit"
+                class="btn btn-primary btn-sm"
+                :disabled="busy || nothingPicked"
+              >
+                <span v-if="busy" class="loading loading-spinner loading-xs" />
+                {{ subscribed ? 'Save changes' : 'Save alert' }}
+              </button>
+            </div>
+          </div>
         </div>
       </form>
     </div>
