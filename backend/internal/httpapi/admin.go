@@ -46,7 +46,7 @@ type servicePayload struct {
 func decodeServicePayload(w http.ResponseWriter, r *http.Request) (*servicePayload, bool) {
 	var body servicePayload
 	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<10)).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
 		return nil, false
 	}
 	return &body, true
@@ -99,21 +99,21 @@ func (h *handlers) listProfiles(w http.ResponseWriter, r *http.Request) {
 // noMatchMessage is what a caller is told when the queue ran out of profiles. It
 // names both ways forward, because from here it is not possible to tell a wrong
 // url from a platform that has no adapter yet.
-const noMatchMessage = "no adapter profile could read this page. Check that the url is the status page itself; if it is, a new profile has to be written for its platform before the service can be polled."
+const noMatchMessage = "No adapter profile could read this page. Check that the url is the status page itself; if it is, a new profile has to be written for its platform before the service can be polled."
 
 // detectProfile answers which profile reads a page, so the picker can be filled
 // in before anything is saved.
 func (h *handlers) detectProfile(w http.ResponseWriter, r *http.Request) {
 	var body detectRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
 		return
 	}
 
 	pageURL := clean(sanitize(body.URL))
 	if pageURL == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "a status page url is needed to detect a profile",
+			"error": "A status page url is needed to detect a profile",
 		})
 		return
 	}
@@ -128,7 +128,7 @@ func (h *handlers) detectProfile(w http.ResponseWriter, r *http.Request) {
 		if !errors.As(err, &noMatch) {
 			h.log.Error("profile detection failed", "url", pageURL, "error", err)
 			writeJSON(w, http.StatusBadGateway, map[string]string{
-				"error": "the page could not be checked, try again in a moment",
+				"error": "The page could not be checked, try again in a moment",
 			})
 			return
 		}
@@ -208,7 +208,7 @@ func (h *handlers) listServices(w http.ResponseWriter, r *http.Request) {
 func (h *handlers) findVisibleService(w http.ResponseWriter, r *http.Request) *store.AdminService {
 	current, err := h.store.AdminGetService(r.Context(), r.PathValue("slug"))
 	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "service not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Service not found"})
 		return nil
 	}
 	if err != nil {
@@ -216,7 +216,7 @@ func (h *handlers) findVisibleService(w http.ResponseWriter, r *http.Request) *s
 		return nil
 	}
 	if !h.viewer(r).CanSee(current.OwnerID) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "service not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Service not found"})
 		return nil
 	}
 	return current
@@ -254,7 +254,7 @@ func (h *handlers) getService(w http.ResponseWriter, r *http.Request) {
 func (h *handlers) serviceStatus(w http.ResponseWriter, r *http.Request) {
 	detail, err := h.store.GetVendor(r.Context(), r.PathValue("slug"), h.viewer(r))
 	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "service not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Service not found"})
 		return
 	}
 	if err != nil {
@@ -285,7 +285,7 @@ func (h *handlers) pollLog(w http.ResponseWriter, r *http.Request) {
 	}
 	if !staffOrOwner(h.viewer(r), current.OwnerID) {
 		writeJSON(w, http.StatusForbidden, map[string]string{
-			"error": "only an admin, a moderator or the owner can read the fetch log",
+			"error": "Only an admin, a moderator or the owner can read the fetch log",
 		})
 		return
 	}
@@ -318,29 +318,29 @@ func (h *handlers) retryDetection(w http.ResponseWriter, r *http.Request) {
 	}
 	if !staffOrOwner(h.viewer(r), current.OwnerID) {
 		writeJSON(w, http.StatusForbidden, map[string]string{
-			"error": "only an admin, a moderator or the owner can retry detection",
+			"error": "Only an admin, a moderator or the owner can retry detection",
 		})
 		return
 	}
 	switch {
 	case !current.Active:
 		writeJSON(w, http.StatusConflict, map[string]string{
-			"error": "this service is removed, restore it before retrying",
+			"error": "This service is removed, restore it before retrying",
 		})
 		return
 	case current.Profile != "":
 		writeJSON(w, http.StatusConflict, map[string]string{
-			"error": "this service already has an adapter profile",
+			"error": "This service already has an adapter profile",
 		})
 		return
 	case current.Status != string(store.StatusNoMatch):
 		writeJSON(w, http.StatusConflict, map[string]string{
-			"error": "only a service that no profile matched can be retried",
+			"error": "Only a service that no profile matched can be retried",
 		})
 		return
 	case current.URL == "":
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "a status page url is needed to detect a profile",
+			"error": "A status page url is needed to detect a profile",
 		})
 		return
 	}
@@ -351,7 +351,7 @@ func (h *handlers) retryDetection(w http.ResponseWriter, r *http.Request) {
 		if !errors.As(err, &noMatch) {
 			h.log.Error("profile detection failed", "slug", current.Slug, "error", err)
 			writeJSON(w, http.StatusBadGateway, map[string]string{
-				"error": "the page could not be checked, try again in a moment",
+				"error": "The page could not be checked, try again in a moment",
 			})
 			return
 		}
@@ -368,7 +368,7 @@ func (h *handlers) retryDetection(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		h.log.Error("detected a profile that is not declared", "slug", current.Slug, "profile", match.Profile)
 		writeJSON(w, http.StatusBadGateway, map[string]string{
-			"error": "the profile that matched is not available",
+			"error": "The profile that matched is not available",
 		})
 		return
 	}
@@ -414,13 +414,13 @@ func (h *handlers) createService(w http.ResponseWriter, r *http.Request) {
 	}
 	if visibility != visibilityPublic && visibility != visibilityPrivate {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "visibility must be public or private",
+			"error": "Visibility must be public or private",
 		})
 		return
 	}
 	if visibility == visibilityPublic && !auth.CanManageServices(user.Role) {
 		writeJSON(w, http.StatusForbidden, map[string]string{
-			"error": "only staff can add a service to the public catalogue",
+			"error": "Only staff can add a service to the public catalogue",
 		})
 		return
 	}
@@ -489,7 +489,7 @@ func (h *handlers) updateService(w http.ResponseWriter, r *http.Request) {
 	if body.Name == nil && body.URL == nil && body.Profile == nil && body.Category == nil &&
 		body.LogoURL == nil && body.Endpoint == nil && body.Aliases == nil &&
 		body.Status == nil && body.Active == nil && body.Visibility == nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "nothing to update"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Nothing to update"})
 		return
 	}
 
@@ -591,14 +591,14 @@ func (h *handlers) updateService(w http.ResponseWriter, r *http.Request) {
 	if body.Visibility != nil {
 		if !auth.CanManageServices(user.Role) {
 			writeJSON(w, http.StatusForbidden, map[string]string{
-				"error": "only staff can change who a service belongs to",
+				"error": "Only staff can change who a service belongs to",
 			})
 			return
 		}
 		visibility := strings.ToLower(clean(sanitize(*body.Visibility)))
 		if visibility != visibilityPublic && visibility != visibilityPrivate {
 			writeJSON(w, http.StatusBadRequest, map[string]string{
-				"error": "visibility must be public or private",
+				"error": "Visibility must be public or private",
 			})
 			return
 		}
@@ -610,7 +610,7 @@ func (h *handlers) updateService(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.store.UpdateService(r.Context(), slug, patch); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "service not found"})
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "Service not found"})
 			return
 		}
 		h.fail(w, r, err)
@@ -648,7 +648,7 @@ func (h *handlers) deleteService(w http.ResponseWriter, r *http.Request) {
 	user := h.user(r)
 	if !h.canDeleteService(current, user, h.viewer(r)) {
 		writeJSON(w, http.StatusForbidden, map[string]string{
-			"error": "only an admin can remove a published service that is not yours",
+			"error": "Only an admin can remove a published service that is not yours",
 		})
 		return
 	}
@@ -656,7 +656,7 @@ func (h *handlers) deleteService(w http.ResponseWriter, r *http.Request) {
 	outcome, err := h.store.DeleteService(r.Context(), slug)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "service not found"})
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "Service not found"})
 			return
 		}
 		h.fail(w, r, err)
@@ -669,23 +669,23 @@ func (h *handlers) deleteService(w http.ResponseWriter, r *http.Request) {
 
 func (h *handlers) validateService(name, pageURL, profile, category, logoURL string, aliases []string, status string) string {
 	if n := utf8.RuneCountInString(name); n < 2 || n > 80 {
-		return "service name must be between 2 and 80 characters"
+		return "Service name must be between 2 and 80 characters"
 	}
 	if !store.Status(status).Valid() {
-		return "status must be proposed, published, rejected or no_match"
+		return "Status must be proposed, published, rejected or no_match"
 	}
 	if status == string(store.StatusPublished) {
 		if pageURL == "" {
-			return "a published service needs a status page url"
+			return "A published service needs a status page url"
 		}
 		if profile == "" {
-			return "a published service needs an adapter profile"
+			return "A published service needs an adapter profile"
 		}
 	}
 	// A vendor that no profile matched is kept without one, but it is still a
 	// page: with no url there would be nothing for the poller to try again.
 	if status == string(store.StatusNoMatch) && pageURL == "" {
-		return "a service with no matched profile needs a status page url"
+		return "A service with no matched profile needs a status page url"
 	}
 	if pageURL != "" {
 		if err := catalog.ValidateURL(pageURL); err != nil {
@@ -694,23 +694,23 @@ func (h *handlers) validateService(name, pageURL, profile, category, logoURL str
 	}
 	if profile != "" {
 		if _, ok := h.catalog.Profiles[profile]; !ok {
-			return fmt.Sprintf("unknown profile %q", profile)
+			return fmt.Sprintf("Unknown profile %q", profile)
 		}
 	}
 	if utf8.RuneCountInString(category) > 40 {
-		return "category must be at most 40 characters"
+		return "Category must be at most 40 characters"
 	}
 	if logoURL != "" {
 		if err := catalog.ValidateURL(logoURL); err != nil {
-			return "logo url " + err.Error()
+			return "Logo url " + err.Error()
 		}
 	}
 	if len(aliases) > 20 {
-		return "at most 20 aliases are allowed"
+		return "At most 20 aliases are allowed"
 	}
 	for _, alias := range aliases {
 		if n := utf8.RuneCountInString(alias); n < 2 || n > 60 {
-			return "each alias must be between 2 and 60 characters"
+			return "Each alias must be between 2 and 60 characters"
 		}
 	}
 	return ""

@@ -108,10 +108,10 @@ const MinPasswordLength = 8
 
 func ValidatePassword(plain string) error {
 	if len(plain) < MinPasswordLength {
-		return fmt.Errorf("password must be at least %d characters", MinPasswordLength)
+		return fmt.Errorf("Password must be at least %d characters", MinPasswordLength)
 	}
 	if len(plain) > 72 {
-		return fmt.Errorf("password must be at most 72 bytes")
+		return fmt.Errorf("Password must be at most 72 bytes")
 	}
 	return nil
 }

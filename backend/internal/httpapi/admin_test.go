@@ -42,15 +42,15 @@ func TestValidateService(t *testing.T) {
 		{"rejected may be incomplete", "Some Service", "", "", "", "", nil, "rejected", ""},
 		{"name too short", "A", "https://status.example.com", "statuspage-v2", "", "", nil, "published", "between 2 and 80"},
 		{"name too long", strings.Repeat("x", 81), "https://status.example.com", "statuspage-v2", "", "", nil, "published", "between 2 and 80"},
-		{"unknown status", "Some Service", "https://status.example.com", "statuspage-v2", "", "", nil, "draft", "status must be"},
-		{"unknown profile", "Some Service", "https://status.example.com", "nope", "", "", nil, "published", "unknown profile"},
+		{"unknown status", "Some Service", "https://status.example.com", "statuspage-v2", "", "", nil, "draft", "Status must be"},
+		{"unknown profile", "Some Service", "https://status.example.com", "nope", "", "", nil, "published", "Unknown profile"},
 		{"internal url", "Some Service", "http://127.0.0.1:9000", "statuspage-v2", "", "", nil, "published", "not allowed"},
-		{"url without scheme", "Some Service", "status.example.com", "statuspage-v2", "", "", nil, "published", "scheme"},
-		{"category too long", "Some Service", "https://status.example.com", "statuspage-v2", strings.Repeat("c", 41), "", nil, "published", "category"},
-		{"logo is not a url", "Some Service", "https://status.example.com", "statuspage-v2", "", "not a url", nil, "published", "logo url"},
-		{"too many aliases", "Some Service", "https://status.example.com", "statuspage-v2", "", "", manyAliases(21), "published", "at most 20"},
-		{"alias too short", "Some Service", "https://status.example.com", "statuspage-v2", "", "", []string{"x"}, "published", "each alias"},
-		{"alias too long", "Some Service", "https://status.example.com", "statuspage-v2", "", "", []string{strings.Repeat("a", 61)}, "published", "each alias"},
+		{"url without scheme", "Some Service", "status.example.com", "statuspage-v2", "", "", nil, "published", "Scheme"},
+		{"category too long", "Some Service", "https://status.example.com", "statuspage-v2", strings.Repeat("c", 41), "", nil, "published", "Category"},
+		{"logo is not a url", "Some Service", "https://status.example.com", "statuspage-v2", "", "not a url", nil, "published", "Logo url"},
+		{"too many aliases", "Some Service", "https://status.example.com", "statuspage-v2", "", "", manyAliases(21), "published", "At most 20"},
+		{"alias too short", "Some Service", "https://status.example.com", "statuspage-v2", "", "", []string{"x"}, "published", "Each alias"},
+		{"alias too long", "Some Service", "https://status.example.com", "statuspage-v2", "", "", []string{strings.Repeat("a", 61)}, "published", "Each alias"},
 	}
 
 	for _, tc := range cases {

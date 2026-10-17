@@ -184,42 +184,42 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 
 	mux.HandleFunc("POST /api/v1/auth/login",
 		h.authEndpoint(h.limited(h.loginLimiter, false,
-			"too many sign in attempts, please try again later", h.login)))
+			"Too many sign in attempts, please try again later", h.login)))
 
 	// Accounts made from the site. These send email to an address somebody typed,
 	// so they get their own budget rather than sharing the sign in one.
 	mux.HandleFunc("POST /api/v1/auth/register",
 		h.authEndpoint(h.limited(h.accountLimiter, false,
-			"too many accounts have been asked for, please try again later", h.register)))
+			"Too many accounts have been asked for, please try again later", h.register)))
 	mux.HandleFunc("POST /api/v1/auth/verify",
 		h.authEndpoint(h.limited(h.accountLimiter, false,
-			"too many attempts, please try again later", h.verifyEmail)))
+			"Too many attempts, please try again later", h.verifyEmail)))
 	mux.HandleFunc("POST /api/v1/auth/verify/resend",
 		h.requireAuth(h.limited(h.accountLimiter, false,
-			"too many attempts, please try again later", h.resendVerification)))
+			"Too many attempts, please try again later", h.resendVerification)))
 	mux.HandleFunc("POST /api/v1/auth/forgot",
 		h.authEndpoint(h.limited(h.accountLimiter, false,
-			"too many attempts, please try again later", h.forgotPassword)))
+			"Too many attempts, please try again later", h.forgotPassword)))
 	mux.HandleFunc("POST /api/v1/auth/reset",
 		h.authEndpoint(h.limited(h.accountLimiter, false,
-			"too many attempts, please try again later", h.resetPassword)))
+			"Too many attempts, please try again later", h.resetPassword)))
 	mux.HandleFunc("POST /api/v1/auth/logout",
 		h.authEndpoint(h.limited(h.readLimiter, true,
-			"rate limit exceeded, please try again in a moment", h.logout)))
+			"Rate limit exceeded, please try again in a moment", h.logout)))
 	mux.HandleFunc("GET /api/v1/auth/me",
 		h.authEndpoint(h.limited(h.readLimiter, true,
-			"rate limit exceeded, please try again in a moment", h.me)))
+			"Rate limit exceeded, please try again in a moment", h.me)))
 
 	// The account screens are for every role, so they only ask for a session.
 	mux.HandleFunc("PATCH /api/v1/auth/profile", h.requireAuth(h.updateProfile))
 	mux.HandleFunc("POST /api/v1/auth/password",
 		h.requireAuth(h.limited(h.passwordLimiter, false,
-			"too many attempts, please try again later", h.changePassword)))
+			"Too many attempts, please try again later", h.changePassword)))
 
 	mux.HandleFunc("GET /api/v1/profiles", h.requireAuth(h.listProfiles))
 	mux.HandleFunc("POST /api/v1/profiles/detect",
 		h.requireAuth(h.limited(h.readLimiter, true,
-			"rate limit exceeded, please try again in a moment", h.detectProfile)))
+			"Rate limit exceeded, please try again in a moment", h.detectProfile)))
 	mux.HandleFunc("GET /api/v1/categories", h.requireAuth(h.listCategories))
 
 	// The service routes are staff only: a subscriber looks after the alerts on
@@ -234,7 +234,7 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	mux.HandleFunc("GET /api/v1/services/{slug}/polls", h.requireStaff(h.pollLog))
 	mux.HandleFunc("POST /api/v1/services/{slug}/detect",
 		h.requireStaff(h.limited(h.readLimiter, true,
-			"rate limit exceeded, please try again in a moment", h.retryDetection)))
+			"Rate limit exceeded, please try again in a moment", h.retryDetection)))
 
 	// The dashboard's own list is a read of the caller's rows, not a management
 	// screen, so any session can ask for it.
@@ -251,12 +251,12 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 
 func (h *handlers) publicRead(next http.HandlerFunc) http.HandlerFunc {
 	return h.publicEndpoint(h.readLimiter, true,
-		"rate limit exceeded, please try again in a moment", next)
+		"Rate limit exceeded, please try again in a moment", next)
 }
 
 func (h *handlers) publicWrite(next http.HandlerFunc) http.HandlerFunc {
 	return h.publicEndpoint(h.suggestLimiter, false,
-		"you have sent several suggestions already, please try again later", next)
+		"You have sent several suggestions already, please try again later", next)
 }
 
 // publicAlert throttles the subscribe endpoint. It is a write that sends email,
@@ -264,7 +264,7 @@ func (h *handlers) publicWrite(next http.HandlerFunc) http.HandlerFunc {
 // site's own proxy is not counted, exactly as the other public endpoints do it.
 func (h *handlers) publicAlert(next http.HandlerFunc) http.HandlerFunc {
 	return h.publicEndpoint(h.alertLimiter, true,
-		"you have subscribed to several alerts already, please try again later", next)
+		"You have subscribed to several alerts already, please try again later", next)
 }
 
 // publicContact throttles the contact form. It sends email, so it gets its own
@@ -273,7 +273,7 @@ func (h *handlers) publicAlert(next http.HandlerFunc) http.HandlerFunc {
 // and a form that mails the owner is worth counting per visitor.
 func (h *handlers) publicContact(next http.HandlerFunc) http.HandlerFunc {
 	return h.publicEndpoint(h.contactLimiter, false,
-		"you have sent several messages already, please try again later", next)
+		"You have sent several messages already, please try again later", next)
 }
 
 func (h *handlers) publicEndpoint(limiter *ipLimiter, skipInternal bool, message string, next http.HandlerFunc) http.HandlerFunc {
@@ -351,7 +351,7 @@ func (h *handlers) getVendor(w http.ResponseWriter, r *http.Request) {
 	// reachable here no matter who is signed in.
 	detail, err := h.store.GetVendor(r.Context(), r.PathValue("slug"), store.Public())
 	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "vendor not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Vendor not found"})
 		return
 	}
 	if err != nil {
@@ -369,7 +369,7 @@ type suggestRequest struct {
 func (h *handlers) suggest(w http.ResponseWriter, r *http.Request) {
 	var body suggestRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
 		return
 	}
 
@@ -418,18 +418,18 @@ func (h *handlers) suggest(w http.ResponseWriter, r *http.Request) {
 
 func validateSuggestion(name, pageURL string) string {
 	if name == "" {
-		return "service name is required"
+		return "Service name is required"
 	}
 	if n := utf8.RuneCountInString(name); n < 2 || n > 80 {
-		return "service name must be between 2 and 80 characters"
+		return "Service name must be between 2 and 80 characters"
 	}
 	if len(pageURL) > 300 {
-		return "url is too long"
+		return "Url is too long"
 	}
 	if pageURL != "" {
 		u, err := url.Parse(pageURL)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
-			return "url must be a full http:// or https:// address"
+			return "Url must be a full http:// or https:// address"
 		}
 	}
 	return ""
@@ -453,7 +453,7 @@ func clean(value string) string {
 
 func (h *handlers) fail(w http.ResponseWriter, r *http.Request, err error) {
 	h.log.Error("handler failed", "path", r.URL.Path, "error", err)
-	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Internal error"})
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
@@ -499,7 +499,7 @@ func recoverer(log *slog.Logger, next http.Handler) http.Handler {
 		defer func() {
 			if rec := recover(); rec != nil {
 				log.Error("panic in handler", "path", r.URL.Path, "panic", rec)
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Internal error"})
 			}
 		}()
 		next.ServeHTTP(w, r)

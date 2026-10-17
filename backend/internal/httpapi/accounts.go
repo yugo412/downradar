@@ -79,14 +79,14 @@ type registerRequest struct {
 func (h *handlers) register(w http.ResponseWriter, r *http.Request) {
 	if h.accountMailer == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error": "accounts cannot be created right now",
+			"error": "Accounts cannot be created right now",
 		})
 		return
 	}
 
 	var body registerRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
 		return
 	}
 
@@ -99,13 +99,13 @@ func (h *handlers) register(w http.ResponseWriter, r *http.Request) {
 	}
 	if !auth.ValidEmail(email) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "that does not look like an email address",
+			"error": "That does not look like an email address",
 		})
 		return
 	}
 	if auth.OnReservedDomain(email) {
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
-			"error": "that account could not be created",
+			"error": "That account could not be created",
 		})
 		return
 	}
@@ -123,7 +123,7 @@ func (h *handlers) register(w http.ResponseWriter, r *http.Request) {
 	user, err := h.store.RegisterUser(r.Context(), email, name, hash)
 	if errors.Is(err, store.ErrEmailTaken) {
 		writeJSON(w, http.StatusConflict, map[string]string{
-			"error": "that email address is already registered",
+			"error": "That email address is already registered",
 		})
 		return
 	}
@@ -152,11 +152,11 @@ type tokenRequest struct {
 func (h *handlers) verifyEmail(w http.ResponseWriter, r *http.Request) {
 	var body tokenRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
 		return
 	}
 	if body.Token == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "a token is required"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "A token is required"})
 		return
 	}
 
@@ -164,7 +164,7 @@ func (h *handlers) verifyEmail(w http.ResponseWriter, r *http.Request) {
 	user, err := h.store.UserByUserToken(r.Context(), store.UserTokenVerify, hash)
 	if errors.Is(err, store.ErrNotFound) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "this link is not valid any more",
+			"error": "This link is not valid any more",
 		})
 		return
 	}
@@ -180,7 +180,7 @@ func (h *handlers) verifyEmail(w http.ResponseWriter, r *http.Request) {
 	}
 	if !spent {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "this link is not valid any more",
+			"error": "This link is not valid any more",
 		})
 		return
 	}
@@ -204,7 +204,7 @@ func (h *handlers) resendVerification(w http.ResponseWriter, r *http.Request) {
 	}
 	if h.accountMailer == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error": "the confirmation email cannot be sent right now",
+			"error": "The confirmation email cannot be sent right now",
 		})
 		return
 	}
@@ -223,21 +223,21 @@ type forgotRequest struct {
 func (h *handlers) forgotPassword(w http.ResponseWriter, r *http.Request) {
 	if h.accountMailer == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error": "password resets are not available right now",
+			"error": "Password resets are not available right now",
 		})
 		return
 	}
 
 	var body forgotRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
 		return
 	}
 
 	email := auth.NormalizeEmail(body.Email)
 	if !auth.ValidEmail(email) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "that does not look like an email address",
+			"error": "That does not look like an email address",
 		})
 		return
 	}
@@ -282,11 +282,11 @@ type resetRequest struct {
 func (h *handlers) resetPassword(w http.ResponseWriter, r *http.Request) {
 	var body resetRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
 		return
 	}
 	if body.Token == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "a token is required"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "A token is required"})
 		return
 	}
 	if err := auth.ValidatePassword(body.Password); err != nil {
@@ -298,7 +298,7 @@ func (h *handlers) resetPassword(w http.ResponseWriter, r *http.Request) {
 	user, err := h.store.UserByUserToken(r.Context(), store.UserTokenReset, hash)
 	if errors.Is(err, store.ErrNotFound) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "this link is not valid any more",
+			"error": "This link is not valid any more",
 		})
 		return
 	}
@@ -320,7 +320,7 @@ func (h *handlers) resetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	if !spent {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "this link is not valid any more",
+			"error": "This link is not valid any more",
 		})
 		return
 	}
