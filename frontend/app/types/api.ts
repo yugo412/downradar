@@ -112,6 +112,7 @@ export interface AdminUser {
   verifiedAt?: string | null
   disabledAt?: string | null
   services: number
+  alerts: number
   createdAt: string
   updatedAt: string
 }

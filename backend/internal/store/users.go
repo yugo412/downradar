@@ -33,11 +33,17 @@ func (u *User) Verified() bool {
 	return u.VerifiedAt != nil
 }
 
-// UserView is what the admin screen shows: the account plus how much it owns,
-// which is what the delete confirmation has to warn about.
+// UserView is what the admin screen shows: the account plus how much it holds,
+// which is what the delete confirmation has to warn about and what the list's
+// own columns count.
 type UserView struct {
 	User
 	Services int `json:"services"`
+	// Alerts is what the account is watching, counted the way the per-account
+	// limit counts it: one per thing watched, by any channel that can still
+	// deliver, and only while the vendor is still polled. A paused one counts,
+	// an unsubscribed one does not.
+	Alerts int `json:"alerts"`
 }
 
 var ErrEmailTaken = errors.New("store: email already registered")
@@ -230,11 +236,22 @@ func (s *Store) UserByID(ctx context.Context, id int64) (*User, error) {
 
 // ListUsers is the admin screen. role narrows it to one role and search matches
 // the name or the email, which are the columns the list shows. It counts owned
-// services, because deleting an account deletes them too.
+// services, because deleting an account deletes them too, and the alerts it
+// holds, because that is the other thing a row says.
 func (s *Store) ListUsers(ctx context.Context, role, search string) ([]UserView, error) {
 	rows, err := s.pool.Query(ctx, `
 		select `+userColumns+`,
-		       (select count(*) from services s where s.owner_id = u.id)
+		       (select count(*) from services s where s.owner_id = u.id),
+		       (select count(*)
+		        from alert_targets t
+		        join alert_subscriptions a on a.id = t.subscription_id
+		        join services v on v.id = t.service_id
+		        where a.user_id = u.id
+		          and v.active and v.status = 'published' and v.owner_id is null
+		          and exists (
+		              select 1 from alert_channels c
+		              where c.subscription_id = a.id and c.unsubscribed_at is null
+		          ))
 		from users u
 		where ($1 = '' or u.role = $1)
 		  and ($2 = ''
@@ -250,7 +267,8 @@ func (s *Store) ListUsers(ctx context.Context, role, search string) ([]UserView,
 	for rows.Next() {
 		var v UserView
 		if err := rows.Scan(&v.ID, &v.Email, &v.Name, &v.Role, &v.PasswordHash,
-			&v.VerifiedAt, &v.DisabledAt, &v.CreatedAt, &v.UpdatedAt, &v.Services); err != nil {
+			&v.VerifiedAt, &v.DisabledAt, &v.CreatedAt, &v.UpdatedAt,
+			&v.Services, &v.Alerts); err != nil {
 			return nil, fmt.Errorf("users: scan: %w", err)
 		}
 		out = append(out, v)
