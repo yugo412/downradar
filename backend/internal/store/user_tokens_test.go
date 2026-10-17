@@ -128,13 +128,15 @@ func TestSetUserEmailTakesTheVerificationWithIt(t *testing.T) {
 	ctx := context.Background()
 
 	email := uniqueTestEmail()
-	t.Cleanup(func() { dropTestUser(context.Background(), st, email) })
+	moved := "zz-moved-" + email
+	// The row is deleted under the address it ends up with: the test renames it
+	// halfway through, and cleaning up the first name would leave it behind.
+	t.Cleanup(func() { dropTestUser(context.Background(), st, moved) })
 	user, err := st.CreateUser(ctx, email, "Made By Hand", "subscriber", "hash")
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
 
-	moved := "zz-moved-" + email
 	if err := st.SetUserEmail(ctx, user.ID, moved); err != nil {
 		t.Fatalf("SetUserEmail: %v", err)
 	}
