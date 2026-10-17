@@ -196,20 +196,27 @@ func (s *Store) applyServiceState(
 	}
 }
 
-// enqueueAlerts writes one delivery per subscription when a service changes
-// status. It runs in the same transaction as the change itself, so an alert
-// cannot be lost with a crash and cannot be written twice by a retry. A
-// subscription that is paused or was unsubscribed is not written one at all.
+// enqueueAlerts writes one delivery per channel for every subscription that
+// watches a vendor's overall status, when that status changes. It runs in the
+// same transaction as the change itself, so an alert cannot be lost with a crash
+// and cannot be written twice by a retry. A channel that is paused or was
+// unsubscribed is not written one at all.
+//
+// A subscription that watches one component of the vendor is left out: what it
+// asked about is that component, so the change it waits for is the component's
+// own.
 //
 // The first state a service is ever seen in is not a change: nobody is told that
 // a vendor they subscribed to was, as far as we knew, already up. Only a move
-// from one status to another is worth an email.
+// from one status to another is worth a message.
 func (s *Store) enqueueAlerts(ctx context.Context, tx pgx.Tx, serviceID int64, from, to string, changedAt time.Time) error {
 	if _, err := tx.Exec(ctx, `
-		insert into alert_deliveries (subscription_id, from_status, to_status, changed_at)
-		select id, $2, $3, $4
-		from alert_subscriptions
-		where service_id = $1 and unsubscribed_at is null and paused_at is null`,
+		insert into alert_deliveries (channel_id, target_id, from_status, to_status, changed_at)
+		select c.id, t.id, $2, $3, $4
+		from alert_targets t
+		join alert_channels c on c.subscription_id = t.subscription_id
+		where t.service_id = $1 and t.component_id is null
+		  and c.unsubscribed_at is null and c.paused_at is null`,
 		serviceID, from, to, changedAt); err != nil {
 		return fmt.Errorf("apply: enqueue alerts: %w", err)
 	}
