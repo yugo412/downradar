@@ -71,13 +71,14 @@ func run() error {
 
 	var accountMailer *account.Mailer
 	var contactMailer *contact.Mailer
+	var notifier *notify.Notifier
 	if cfg.SMTPAddr != "" {
 		sender := mail.NewSMTP(cfg.SMTPAddr, cfg.MailFrom, cfg.SMTPUser, cfg.SMTPPassword, 0)
 		accountMailer = account.New(sender, cfg.PublicURL)
 		contactMailer = contact.New(sender, cfg.ContactEmail)
 
-		n := notify.New(st, sender, cfg.PublicURL, cfg.AlertSendInterval, log)
-		go n.Run(ctx)
+		notifier = notify.New(st, sender, cfg.PublicURL, cfg.AlertSendInterval, log)
+		go notifier.Run(ctx)
 	} else {
 		log.Warn("mail is off: SMTP_ADDR is not set, so no email is sent, alerts cannot be subscribed to, the contact form is refused, and no account can be made from the site")
 	}
@@ -110,6 +111,7 @@ func run() error {
 			Catalog:                 cat,
 			AccountMailer:           accountMailer,
 			ContactMailer:           contactMailer,
+			Notifier:                notifier,
 			SessionCookie:           cfg.SessionCookie,
 			SessionTTL:              cfg.SessionTTL,
 			SessionCookieSecure:     cfg.SessionCookieSecure,

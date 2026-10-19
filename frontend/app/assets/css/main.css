@@ -114,6 +114,17 @@
   color: var(--color-base-100);
 }
 
+/* The way being shown in the menu on the alert page. daisyUI marks the picked
+   item by filling it with `neutral`, which on the light theme is near black: in
+   a column this small it reads as heavier than the choice is worth and competes
+   with the panel beside it. The fill is toned down to base-200, which is the
+   grey a row of the same colour already wears elsewhere, with the ordinary text
+   colour on top. Outside any layer, so it outranks daisyUI's own rule. */
+.menu-quiet .menu-active {
+  --menu-active-bg: var(--color-base-200);
+  --menu-active-fg: var(--color-base-content);
+}
+
 /* The Unknown state. daisyUI draws it with `badge-ghost`, which fills with
    base-200: that is the page a filter row sits on, so the chip reads as plain text
    beside the solid states around it, and the row stops looking like one row.

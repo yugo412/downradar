@@ -1,13 +1,15 @@
-// Package notify sends the emails a status change earns. The change itself
-// writes its deliveries as part of the same transaction that records it, and
-// this is the loop that drains them: polling never waits for a mail server, and
-// a delivery that fails is retried a few times before it is left with its error.
+// Package notify sends what a status change earns: an email to an address, or a
+// call to a webhook. The change itself writes its deliveries as part of the same
+// transaction that records it, and this is the loop that drains them: polling
+// never waits for a mail server or a far end, and a delivery that fails is retried
+// a few times before it is left with its error.
 package notify
 
 import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 
@@ -24,11 +26,17 @@ type Sender interface {
 const (
 	batchSize   = 50
 	maxAttempts = 3
+
+	// webhookTimeout is how long one call may take before it counts as failed: a
+	// receiver that has not answered by then is not going to, and the delivery is
+	// better off recorded than stuck.
+	webhookTimeout = 10 * time.Second
 )
 
 type Notifier struct {
 	store     *store.Store
 	sender    Sender
+	client    *http.Client
 	publicURL string
 	interval  time.Duration
 	log       *slog.Logger
@@ -41,6 +49,7 @@ func New(st *store.Store, sender Sender, publicURL string, interval time.Duratio
 	return &Notifier{
 		store:     st,
 		sender:    sender,
+		client:    &http.Client{Timeout: webhookTimeout},
 		publicURL: strings.TrimSuffix(publicURL, "/"),
 		interval:  interval,
 		log:       log,
@@ -71,24 +80,18 @@ func (n *Notifier) drain(ctx context.Context) error {
 	}
 
 	for _, alert := range pending {
-		subject, body, err := n.message(alert)
-		if err != nil {
-			// The templates are embedded, so a message that cannot be written is
-			// a mistake in the code. The delivery is left with the error rather
-			// than sent as an empty email.
-			n.log.Error("alert message could not be written", "id", alert.ID, "error", err)
-			if recErr := n.store.FailedAlert(ctx, alert.ID, err.Error()); recErr != nil {
-				n.log.Error("failed to record the alert failure", "id", alert.ID, "error", recErr)
-			}
-			continue
+		var err error
+		if alert.Kind == store.ChannelWebhook {
+			err = n.sendWebhook(ctx, alert)
+		} else {
+			err = n.sendEmail(ctx, alert)
 		}
-
-		if err := n.sender.Send(ctx, alert.Email, subject, body); err != nil {
+		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			n.log.Warn("alert delivery failed",
-				"vendor", alert.VendorSlug, "attempt", alert.Attempts+1, "error", err)
+			n.log.Warn("alert delivery failed", "kind", alert.Kind, "vendor", alert.VendorSlug,
+				"attempt", alert.Attempts+1, "error", err)
 			if recErr := n.store.FailedAlert(ctx, alert.ID, err.Error()); recErr != nil {
 				n.log.Error("failed to record the alert failure", "id", alert.ID, "error", recErr)
 			}
@@ -99,10 +102,21 @@ func (n *Notifier) drain(ctx context.Context) error {
 			n.log.Error("failed to mark the alert sent", "id", alert.ID, "error", err)
 			continue
 		}
-		n.log.Info("alert sent", "vendor", alert.VendorSlug, "status", alert.ToStatus)
+		n.log.Info("alert sent", "kind", alert.Kind, "vendor", alert.VendorSlug, "status", alert.ToStatus)
 	}
 
 	return nil
+}
+
+// sendEmail writes the message and hands it to the mailer. A message that cannot
+// be written at all is a mistake in the code, since the templates are embedded,
+// and the delivery is left with the error rather than sent as an empty email.
+func (n *Notifier) sendEmail(ctx context.Context, alert store.PendingAlert) error {
+	subject, body, err := n.message(alert)
+	if err != nil {
+		return fmt.Errorf("write the message: %w", err)
+	}
+	return n.sender.Send(ctx, alert.Email, subject, body)
 }
 
 // message is what the subscriber reads: what changed, when, where to look, and

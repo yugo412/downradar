@@ -243,9 +243,8 @@ func (s *Store) ListUsers(ctx context.Context, role, search string) ([]UserView,
 		select `+userColumns+`,
 		       (select count(*) from services s where s.owner_id = u.id),
 		       (select count(*)
-		        from alert_targets t
-		        join alert_subscriptions a on a.id = t.subscription_id
-		        join services v on v.id = t.service_id
+		        from alert_subscriptions a
+		        join services v on v.id = a.service_id
 		        where a.user_id = u.id
 		          and v.active and v.status = 'published' and v.owner_id is null
 		          and exists (

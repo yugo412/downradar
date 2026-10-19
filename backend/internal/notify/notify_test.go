@@ -99,7 +99,7 @@ func changedVendor(t *testing.T, st *store.Store, email string) string {
 	if err != nil {
 		t.Fatalf("PublicService: %v", err)
 	}
-	if err := st.SubscribeAlert(ctx, id, nil, email, "token-"+slug, store.WholeVendor); err != nil {
+	if err := st.SubscribeAlert(ctx, id, nil, store.EmailOnly(email, "token-"+slug, store.WholeVendor)); err != nil {
 		t.Fatalf("SubscribeAlert: %v", err)
 	}
 
@@ -172,8 +172,8 @@ func changedComponent(t *testing.T, st *store.Store, email string) (string, stri
 	if err != nil {
 		t.Fatalf("ComponentIDs: %v", err)
 	}
-	if err := st.SubscribeAlert(ctx, id, nil, email, "token-"+slug,
-		store.AlertTargets{Components: componentIDs}); err != nil {
+	if err := st.SubscribeAlert(ctx, id, nil, store.EmailOnly(email, "token-"+slug,
+		store.AlertTargets{Components: componentIDs})); err != nil {
 		t.Fatalf("SubscribeAlert: %v", err)
 	}
 

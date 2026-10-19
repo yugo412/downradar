@@ -60,15 +60,10 @@ func testService(t *testing.T, st *Store, slug string) int64 {
 	}
 
 	t.Cleanup(func() {
-		ctx := context.Background()
-		_, _ = st.pool.Exec(ctx, `delete from services where slug = $1`, slug)
-		// A subscription is not tied to one vendor, so the cascade above leaves
-		// behind the ones that were only watching this service. PurgeService
-		// removes them in the application, and the tests do the same or their
-		// rows, addresses and tokens outlive them.
-		_, _ = st.pool.Exec(ctx, `
-			delete from alert_subscriptions a
-			where not exists (select 1 from alert_targets t where t.subscription_id = a.id)`)
+		// A subscription is an alert about one vendor, so the cascade takes the
+		// alerts on this service with it: no row, address or token outlives the
+		// test.
+		_, _ = st.pool.Exec(context.Background(), `delete from services where slug = $1`, slug)
 	})
 	return id
 }

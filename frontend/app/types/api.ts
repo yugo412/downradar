@@ -148,12 +148,48 @@ export interface AlertSubscription {
 // has an alert on this vendor, the masked address it goes to, whether it is
 // paused, and what it watches, so the modal opens with what they picked ticked.
 // Components are named by the identifiers the API takes them back as.
+// One name and value in a webhook: a header, or a pair in a form body.
+export interface AlertField {
+  name: string
+  value: string
+}
+
+// The second way an alert can arrive: where to call, and the headers it is
+// called with. The header values may carry placeholders, which the server fills
+// in with what changed. What a call carries in its body is the server's, so
+// every call has the same shape and a receiver can read the first one.
+export interface AlertWebhook {
+  url: string
+  method: string
+  headers: AlertField[]
+}
+
+// One call this alert made, and what came back. A call that never got there has
+// no status, and says why in the error beside it. The body that was sent and the
+// headers are not kept, so a token never sits in this table.
+export interface WebhookCall {
+  id: number
+  kind: 'delivery' | 'test'
+  url: string
+  method: string
+  status: number | null
+  response: string
+  error: string
+  createdAt: string
+}
+
 export interface AlertState {
   subscribed: boolean
   email?: string
   paused?: boolean
+  // Whether a way that is set up is quiet on its own. One of them can be paused
+  // without the other, which is how a way is stopped without being taken away.
+  emailPaused?: boolean
+  webhookPaused?: boolean
   wholeService?: boolean
   components?: string[]
+  webhook?: AlertWebhook | null
+  calls?: WebhookCall[]
 }
 
 // One row on the account's alerts screen. A row watches the vendor's own status,
@@ -169,6 +205,7 @@ export interface AccountAlert {
   createdAt: string
   wholeService: boolean
   components: string[]
+  channels: string[]
 }export interface ServicePayload {
   name: string
   url: string
