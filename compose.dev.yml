@@ -1,7 +1,7 @@
 # Development stack for downradar.info.
 #
-# Everything runs in Docker: Postgres, Mailpit, the Go API with hot reload,
-# and the Nuxt dev server with HMR. `make dev` starts all of it.
+# Everything runs in Docker: Postgres, Redis, Mailpit, the Go API with hot
+# reload, and the Nuxt dev server with HMR. `make dev` starts all of it.
 
 name: downradar
 
@@ -27,6 +27,21 @@ services:
       timeout: 3s
       retries: 30
 
+  redis:
+    image: redis:8-alpine
+    container_name: downradar-redis
+    ports:
+      # 6380 on the host, because 6379 is often already taken by a Redis
+      # running for something else on the same machine.
+      - "6380:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
   mailpit:
     image: axllent/mailpit:latest
     container_name: downradar-mailpit
@@ -49,6 +64,9 @@ services:
         condition: service_started
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-downradar}:${POSTGRES_PASSWORD:-downradar}@db:5432/${POSTGRES_DB:-downradar}?sslmode=disable
+      # The application's own cache and ephemeral state. Nothing reads it yet;
+      # the address is here so the code that starts to can.
+      REDIS_URL: redis://redis:6379/0
       HTTP_ADDR: ":8080"
       SERVICES_FILE: /etc/downradar/services.yaml
       POLL_CONCURRENCY: "8"
@@ -144,6 +162,7 @@ services:
 
 volumes:
   db-data:
+  redis-data:
   go-mod-cache:
   go-build-cache:
   web-node-modules:

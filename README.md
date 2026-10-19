@@ -68,46 +68,75 @@ make reset      # stop everything and delete all data
 
 ## Deployment
 
-`make deploy` builds everything here and ships it to the server. Nothing is
-built on the server: it has 1.9 GB of RAM and is already serving other
-production sites, so a Nuxt build there would risk the OOM killer taking one of
-them down.
+`make deploy` builds the api and the web images on this machine, pushes them to
+`ghcr.io/yugo412`, and rolls the host to them. CI runs the same `deploy/ship.sh`
+on a tag, so a tag and a local deploy do the same thing. Nothing is built on the
+server: it has 1.9 GB of RAM and already serves other sites, so a Nuxt build
+there would risk the OOM killer taking one of them down.
 
-The layout follows the convention already used on that machine:
+The machine runs Caddy and the Docker daemon, and nothing else from this
+application. Caddy terminates TLS for the domain and forwards to the web
+container, which publishes its port on the loopback interface so the site is
+reached through Caddy and not around it. Everything the host keeps is small:
 
 ```
-/var/www/downradar.info/
-  releases/20261015202256/   both Go binaries, services.yaml, the seed file, and the web bundle
-  releases/20261015201543/   previous releases, kept for rollback
-  current -> releases/20261015202256
-  shared/.env                secrets, not touched by a release
+/srv/downradar/
+  compose.yml     copied from compose.prod.yml on every deploy
+  services.yaml   the vendor registry, bind mounted read only into the api
+  seed/           the bootstrap vendors, read only, used by the seed command
+  .env            secrets and addresses, never overwritten by a deploy
 ```
 
-Releases are immutable and `current` is a symlink, so rolling back is pointing
-the symlink at the previous release and restarting:
+The stack is `db`, `redis`, `api` and `web`. Postgres keeps its data in the
+`db-data` volume and Redis its in `redis-data`, and both are dialled by service
+name (`db:5432`, `redis:6379`). The web server reaches the api as
+`http://api:8080` instead of the host loopback. A release is an image tag, so
+rolling back is naming the previous one:
 
 ```bash
-ssh ubuntu@43.133.137.16
-sudo ln -sfn releases/<previous> /var/www/downradar.info/current
-sudo systemctl restart downradar-api downradar-web
+ssh ubuntu@43.134.10.112
+cd /srv/downradar
+sudo API_IMAGE=ghcr.io/yugo412/downradar-api:<previous> \
+     WEB_IMAGE=ghcr.io/yugo412/downradar-web:<previous> \
+     docker compose up -d
 ```
 
-Services are `downradar-api.service` and `downradar-web.service`, both running
-as the `downradar` user with a memory cap. They read `/var/www/downradar.info/shared/.env`
-via `EnvironmentFile`.
+The seed and the user command ride in the api image, so they are run rather than
+copied there:
 
-Alerts need three more variables in `shared/.env`: `SMTP_ADDR` for the mail
-server, `MAIL_FROM` for the sender, and `PUBLIC_URL` for the links an email
+```bash
+cd /srv/downradar
+sudo docker compose run --rm api downradar-seed -file /app/seed/vendors.yaml
+sudo docker compose run --rm api downradar-user -email you@example.com -name "Your Name" -role admin
+```
+
+`services.yaml` is bind mounted rather than baked in, so writing a profile is a
+file copy and `docker compose restart api`, with no release behind it.
+
+Alerts need three variables in `.env`: `SMTP_ADDR` for the mail server,
+`MAIL_FROM` for the sender, and `PUBLIC_URL` for the links an email
 carries, which has to be the public address or every unsubscribe link points at
 localhost. Without `SMTP_ADDR` the API starts with the feature off and refuses
-subscriptions instead of taking them and sending nothing.
+subscriptions instead of taking them and sending nothing. The relay has to
+accept the host's address; a relay that filters by IP rejects the SMTP login
+with a plain authentication failure.
 
 Two things that are easy to get wrong:
 
 - **Secrets must not be read in `nuxt.config.ts`.** Nuxt inlines those values
-  into the bundle at build time, so a build done locally would ship the local
-  secret to production. Everything comes from `NUXT_*` variables at runtime
-  instead, and the deploy script refuses to ship a bundle that contains one.
+  into the bundle at build time, so the web image is built without a secret in
+  sight and everything comes from `NUXT_*` variables at runtime. The one value
+  that is decided at build time is `NUXT_PAGE_CACHE_SECONDS`, because it sets
+  the route rules, and it arrives as a build argument. Both `make deploy` and CI
+  refuse an image whose bundle contains the internal token.
+- **The api's `INTERNAL_TOKEN` and the web's `NUXT_INTERNAL_TOKEN` are the same
+  value**, given to both containers from the one line in `.env` by
+  `compose.prod.yml`. Setting only one of them makes every proxied request look
+  like a stranger's and the site quietly rate limits itself.
+- **The image has to be reachable from both ends.** `make deploy` pushes to
+  `ghcr.io/yugo412`, so it needs a `docker login ghcr.io` for the account that
+  owns the packages. The host needs nothing while the packages are public, and a
+  read only token is enough when they are not.
 - **The API must see the real client IP.** Caddy sets `X-Forwarded-For`
   authoritatively and the Nitro proxy passes it through, otherwise every visitor
   shares a single rate limit bucket. When Cloudflare is put in front, that Caddy
