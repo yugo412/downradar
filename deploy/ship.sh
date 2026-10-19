@@ -71,7 +71,7 @@ echo "==> running $API_IMAGE and $WEB_IMAGE"
 # --wait holds until every service with a healthcheck reports healthy, and fails
 # the command if one does not, which is the whole of the readiness check.
 # shellcheck disable=SC2029
-$SSH "$HOST" "API_IMAGE='$API_IMAGE' WEB_IMAGE='$WEB_IMAGE' bash -s" <<REMOTE
+$SSH "$HOST" "bash -s" <<REMOTE
 set -e
 cd "$ROOT"
 
@@ -82,10 +82,15 @@ if [ -n "${GHCR_TOKEN:-}" ]; then
   printf '%s' "$GHCR_TOKEN" | sudo -n docker login ghcr.io -u "$GHCR_USER" --password-stdin >/dev/null
 fi
 
-sudo -n docker compose pull
-if ! sudo -n docker compose up -d --remove-orphans --wait --wait-timeout 180; then
+# sudo starts the command with a clean environment, so the two image names have
+# to be handed to it explicitly. Without this, compose sees a file whose images
+# are unset and refuses it.
+sudo -n env API_IMAGE='$API_IMAGE' WEB_IMAGE='$WEB_IMAGE' docker compose pull
+if ! sudo -n env API_IMAGE='$API_IMAGE' WEB_IMAGE='$WEB_IMAGE' \
+     docker compose up -d --remove-orphans --wait --wait-timeout 180; then
   echo "the stack did not come up, last lines of the api log:" >&2
-  sudo -n docker compose logs --tail 40 api >&2 || true
+  sudo -n env API_IMAGE='$API_IMAGE' WEB_IMAGE='$WEB_IMAGE' \
+    docker compose logs --tail 40 api >&2 || true
   exit 1
 fi
 REMOTE
