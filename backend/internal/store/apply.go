@@ -155,7 +155,7 @@ func (s *Store) applyComponentState(
 			where component_id = $1`, compID, string(status), changedAt); err != nil {
 			return false, fmt.Errorf("apply: update component_state: %w", err)
 		}
-		if err := s.enqueueComponentAlerts(ctx, tx, compID, prev, string(status), changedAt); err != nil {
+		if err := s.enqueueComponentAlerts(ctx, tx, serviceID, compID, prev, string(status), changedAt); err != nil {
 			return false, err
 		}
 		return true, s.insertEvent(ctx, tx, serviceID, &compID, status, changedAt, sourceChangedAt)
@@ -199,48 +199,62 @@ func (s *Store) applyServiceState(
 	}
 }
 
-// enqueueAlerts writes one delivery per channel for every subscription that
-// watches a vendor's overall status, when that status changes. It runs in the
-// same transaction as the change itself, so an alert cannot be lost with a crash
-// and cannot be written twice by a retry. A channel that is paused or was
-// unsubscribed is not written one at all.
+// enqueueAlerts writes one delivery per live channel for a vendor whose own
+// status has changed. An email is written one only if the subscriber is watching
+// the vendor as a whole, because an email reports on what was picked and that is
+// the email's set of targets. A webhook is written one whenever the vendor
+// changes at all, since its body says what the vendor looks like now rather than
+// only what moved. It runs in the same transaction as the change itself, so an
+// alert cannot be lost with a crash and cannot be written twice by a retry.
 //
-// A subscription that watches one component of the vendor is left out: what it
-// asked about is that component, so the change it waits for is the component's
-// own, which enqueueComponentAlerts writes.
+// A subscription that watches one component of the vendor is left out of the
+// emails: what it asked about is that component, so the change it waits for is
+// the component's own, which enqueueComponentAlerts writes.
 //
 // The first state a service is ever seen in is not a change: nobody is told that
 // a vendor they subscribed to was, as far as we knew, already up. Only a move
 // from one status to another is worth a message.
 func (s *Store) enqueueAlerts(ctx context.Context, tx pgx.Tx, serviceID int64, from, to string, changedAt time.Time) error {
 	if _, err := tx.Exec(ctx, `
-		insert into alert_deliveries (channel_id, target_id, from_status, to_status, changed_at)
-		select c.id, t.id, $2, $3, $4
-		from alert_targets t
-		join alert_channels c on c.subscription_id = t.subscription_id
-		where t.service_id = $1 and t.component_id is null
-		  and c.unsubscribed_at is null and c.paused_at is null`,
+		insert into alert_deliveries (channel_id, service_id, component_id, from_status, to_status, changed_at)
+		select c.id, a.service_id, null, $2, $3, $4
+		from alert_subscriptions a
+		join alert_channels c on c.subscription_id = a.id
+		where a.service_id = $1
+		  and c.unsubscribed_at is null and c.paused_at is null
+		  and (
+			c.kind = 'webhook'
+			or exists (
+				select 1 from alert_targets t
+				where t.subscription_id = a.id and t.service_id = $1 and t.component_id is null)
+		  )`,
 		serviceID, from, to, changedAt); err != nil {
 		return fmt.Errorf("apply: enqueue alerts: %w", err)
 	}
 	return nil
 }
 
-// enqueueComponentAlerts is the same bargain for one component: every
-// subscription watching this component is written a delivery, and one watching
-// the vendor as a whole is not, because the vendor's own status is a change of
-// its own. A component's first state is the baseline the rest are read against,
-// not a change, and that is why the caller only reaches here when it was already
-// known in another state.
-func (s *Store) enqueueComponentAlerts(ctx context.Context, tx pgx.Tx, componentID int64, from, to string, changedAt time.Time) error {
+// enqueueComponentAlerts is the same bargain for one component: an email is
+// written a delivery if that component is one of the things its subscriber
+// picked, and a webhook is written one for any component of the vendor, because
+// its body carries them all. A component's first state is the baseline the rest
+// are read against, not a change, and that is why the caller only reaches here
+// when it was already known in another state.
+func (s *Store) enqueueComponentAlerts(ctx context.Context, tx pgx.Tx, serviceID, componentID int64, from, to string, changedAt time.Time) error {
 	if _, err := tx.Exec(ctx, `
-		insert into alert_deliveries (channel_id, target_id, from_status, to_status, changed_at)
-		select c.id, t.id, $2, $3, $4
-		from alert_targets t
-		join alert_channels c on c.subscription_id = t.subscription_id
-		where t.component_id = $1
-		  and c.unsubscribed_at is null and c.paused_at is null`,
-		componentID, from, to, changedAt); err != nil {
+		insert into alert_deliveries (channel_id, service_id, component_id, from_status, to_status, changed_at)
+		select c.id, a.service_id, $2, $3, $4, $5
+		from alert_subscriptions a
+		join alert_channels c on c.subscription_id = a.id
+		where a.service_id = $1
+		  and c.unsubscribed_at is null and c.paused_at is null
+		  and (
+			c.kind = 'webhook'
+			or exists (
+				select 1 from alert_targets t
+				where t.subscription_id = a.id and t.component_id = $2)
+		  )`,
+		serviceID, componentID, from, to, changedAt); err != nil {
 		return fmt.Errorf("apply: enqueue component alerts: %w", err)
 	}
 	return nil

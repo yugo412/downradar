@@ -17,6 +17,7 @@ import (
 	"downradar.info/backend/internal/auth"
 	"downradar.info/backend/internal/catalog"
 	"downradar.info/backend/internal/contact"
+	"downradar.info/backend/internal/notify"
 	"downradar.info/backend/internal/store"
 )
 
@@ -120,9 +121,12 @@ func testRouterWithMail(t *testing.T) (*store.Store, http.Handler, *mailSpy) {
 	// limits would trip part way through and make the result depend on how many
 	// calls a test happens to make. They are the subject of their own tests.
 	router := NewRouter(st, quietLogger(), Options{
-		Catalog:             catalog.Catalog{},
-		AccountMailer:       account.New(spy, "https://downradar.test"),
-		ContactMailer:       contact.New(spy, "owner@downradar.test"),
+		Catalog:       catalog.Catalog{},
+		AccountMailer: account.New(spy, "https://downradar.test"),
+		ContactMailer: contact.New(spy, "owner@downradar.test"),
+		// The sender is built but never run, so a webhook tried from a page has
+		// something to go out with while nothing is delivered on its own.
+		Notifier:            notify.New(st, spy, "https://downradar.test", time.Second, quietLogger()),
 		RateLimitPerMinute:  60000,
 		RateLimitBurst:      1000,
 		SuggestPerHour:      36000,

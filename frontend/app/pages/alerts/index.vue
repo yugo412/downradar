@@ -83,6 +83,23 @@ function watches(alert: AccountAlert) {
   return parts.join(' · ') || 'The whole service'
 }
 
+// What a row arrives by, which is what the list says about where an alert goes:
+// a row can use an email, a webhook, or both, and a row that is quiet or ended
+// still says how it used to arrive. The destination itself is on the page for
+// its service, beside the field that holds it.
+const CHANNEL_LABELS: Record<string, string> = {
+  email: 'Email',
+  webhook: 'Webhook',
+}
+
+function channelNames(alert: AccountAlert) {
+  return (alert.channels ?? []).map((kind) => CHANNEL_LABELS[kind] ?? kind)
+}
+
+function arrives(alert: AccountAlert) {
+  return channelNames(alert).join(' · ')
+}
+
 // What stops arriving when the row goes. A row that watches components is about
 // those rather than about the vendor, so the confirmation says which.
 function deleteMessage(alert: AccountAlert) {
@@ -91,7 +108,7 @@ function deleteMessage(alert: AccountAlert) {
     components.length && !alert.wholeService
       ? `${components.join(', ')} on ${alert.vendorName}`
       : alert.vendorName
-  return `You will not get any more emails about ${about}, and the row disappears from this list.`
+  return `You will not get anything about ${about} any more, and the row disappears from this list.`
 }
 
 // The controls around the table and the cards: a search, the health of the
@@ -105,7 +122,7 @@ const router = useRouter()
 // The state of a row is a different question from the health of the service it
 // watches. A row is what an account asked to be told about, and it can be
 // arriving, held back or ended. Ended is the third of those rather than something
-// this screen hides, because the address is still on the row.
+// this screen hides, because a row that ended can be started again from here.
 type RowState = 'all' | AccountAlert['state']
 
 const rowStates: { value: RowState; label: string }[] = [
@@ -149,6 +166,7 @@ const matched = computed(() => {
       alert.vendorName.toLowerCase().includes(needle) ||
       alert.vendorSlug.includes(needle) ||
       alert.email.toLowerCase().includes(needle) ||
+      channelNames(alert).some((name) => name.toLowerCase().includes(needle)) ||
       (alert.components ?? []).some((name) => name.toLowerCase().includes(needle))
     )
   })
@@ -167,13 +185,13 @@ const filtered = computed(() => {
 // the page and a click should not wait for a round trip. A header sorts by itself
 // first, and clicking the same one again turns it around. Until a header is
 // clicked the list keeps the order the API sent, which is the newest first.
-type SortKey = 'service' | 'address' | 'added' | 'state'
+type SortKey = 'service' | 'arrives' | 'added' | 'state'
 
 // The columns a reader compares, in the order the table shows them. The actions
 // are read, not sorted.
 const sortColumns: { key: SortKey; label: string }[] = [
   { key: 'service', label: 'Service' },
-  { key: 'address', label: 'Address' },
+  { key: 'arrives', label: 'Arrives by' },
   { key: 'added', label: 'Added' },
   { key: 'state', label: 'State' },
 ]
@@ -201,8 +219,8 @@ function sortField(alert: AccountAlert, key: SortKey): string | number {
   switch (key) {
     case 'service':
       return alert.vendorName
-    case 'address':
-      return alert.email
+    case 'arrives':
+      return arrives(alert)
     case 'added':
       return Date.parse(alert.createdAt)
     // The state words sort into the order the toggle names them, which is what
@@ -330,8 +348,10 @@ watch(
     <header class="mb-6">
       <h1 class="text-2xl font-bold tracking-tight">Alerts</h1>
       <p class="mt-1 text-sm opacity-70">
-        You get an email each time one of these changes status, a whole service or the
-        components of one you picked. Every email carries an unsubscribe link as well.
+        You get an email, a webhook call, or both each time one of these changes status.
+        An email reports on what you picked; a call carries the whole service, its own
+        status and every component under it. Every email carries an unsubscribe link
+        as well.
       </p>
     </header>
 
@@ -363,7 +383,7 @@ watch(
           v-model="searchInput"
           type="search"
           class="input input-bordered w-full sm:max-w-sm"
-          placeholder="Search by service, address, or component"
+          placeholder="Search by service, channel, address, or component"
           aria-label="Search alerts"
         />
         <span v-if="search" class="text-xs opacity-60">
@@ -383,8 +403,8 @@ watch(
       />
 
       <!-- What the row is doing: still arriving, held back, or ended. Ended is
-           here beside the other two rather than left out, since the address is
-           still on the row. -->
+           here beside the other two rather than left out, since a row that
+           ended can be started again from here. -->
       <div role="tablist" class="tabs tabs-box mb-4">
         <button
           v-for="s in rowStates"
@@ -426,7 +446,7 @@ watch(
                 </div>
                 <p class="mt-1 text-xs opacity-70">{{ watches(alert) }}</p>
               </td>
-              <td class="text-sm break-all opacity-70">{{ alert.email }}</td>
+              <td class="text-sm whitespace-nowrap opacity-70">{{ arrives(alert) }}</td>
               <td class="text-sm whitespace-nowrap opacity-70">{{ formatDate(alert.createdAt) }}</td>
               <td>
                 <span class="badge badge-sm whitespace-nowrap" :class="stateOf(alert).cls">
@@ -469,7 +489,7 @@ watch(
             </span>
           </div>
 
-          <p class="mt-2 text-sm break-all opacity-70">{{ alert.email }}</p>
+          <p class="mt-2 text-sm opacity-70">{{ arrives(alert) }}</p>
           <p class="mt-1 text-xs opacity-60">added {{ formatDate(alert.createdAt) }}</p>
 
           <div class="mt-3">

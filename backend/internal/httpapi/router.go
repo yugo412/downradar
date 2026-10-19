@@ -19,6 +19,7 @@ import (
 	"downradar.info/backend/internal/catalog"
 	"downradar.info/backend/internal/contact"
 	"downradar.info/backend/internal/detect"
+	"downradar.info/backend/internal/notify"
 	"downradar.info/backend/internal/store"
 )
 
@@ -29,6 +30,7 @@ type handlers struct {
 	detector        *detect.Detector
 	accountMailer   *account.Mailer
 	contactMailer   *contact.Mailer
+	notifier        *notify.Notifier
 	readLimiter     *ipLimiter
 	suggestLimiter  *ipLimiter
 	alertLimiter    *ipLimiter
@@ -65,6 +67,7 @@ type Options struct {
 	Catalog                 catalog.Catalog
 	AccountMailer           *account.Mailer
 	ContactMailer           *contact.Mailer
+	Notifier                *notify.Notifier
 	SessionCookie           string
 	SessionTTL              time.Duration
 	SessionCookieSecure     bool
@@ -131,6 +134,7 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 		detector:        detect.New(opts.Catalog),
 		accountMailer:   opts.AccountMailer,
 		contactMailer:   opts.ContactMailer,
+		notifier:        opts.Notifier,
 		readLimiter:     newIPLimiter(readInterval, opts.RateLimitBurst),
 		suggestLimiter:  newIPLimiter(suggestInterval, opts.SuggestBurst),
 		alertLimiter:    newIPLimiter(alertInterval, opts.AlertBurst),
@@ -173,6 +177,19 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	// session only, so neither is cacheable.
 	mux.HandleFunc("GET /api/v1/vendors/{slug}/alerts", h.requireAuth(h.getUserAlert))
 	mux.HandleFunc("DELETE /api/v1/vendors/{slug}/alerts", h.requireAuth(h.deleteUserAlert))
+
+	// A webhook is a call out to somebody else's end, so the page lets them try
+	// it: the call uses what the page is holding rather than what was last saved,
+	// and its answer is shown back. It is a call anywhere the subscriber names, so
+	// it is counted against the same budget as subscribing.
+	mux.HandleFunc("POST /api/v1/vendors/{slug}/alerts/test",
+		h.requireAuth(h.limited(h.alertLimiter, false,
+			"You have tried that webhook several times already, please try again later",
+			h.testWebhook)))
+
+	// Stopping one way without taking away what it was told, which is how a
+	// subscriber makes one of them quiet for a while.
+	mux.HandleFunc("POST /api/v1/vendors/{slug}/alerts/pause", h.requireAuth(h.setAlertChannelPaused))
 
 	// The account screen lists everything one person has asked to be told about
 	// and lets them pause, resume, end or remove any of it. It lives under auth

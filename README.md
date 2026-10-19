@@ -177,40 +177,59 @@ can be restored from the Removed filter.
 
 ## Alerts
 
-A visitor can ask to be emailed when a vendor changes status. The bell on a
-vendor page opens a modal that takes an address and lists what the vendor
-reports, each component with its latest status, a search box above them and a row
-of status badges to narrow the list by: the vendor's own status is one line at
-the top, and any of the components can be ticked beside it. No account is needed
-for the vendor itself, and a subscription belongs to the vendor it was made on. A
-component is a subscriber's, so the bell leaves those boxes alone for a signed
-out visitor and points at signing in.
+A visitor who is not signed in can ask to be emailed when a vendor changes
+status. The bell on a vendor page opens a modal that takes an address and lists
+what the vendor reports, each component with its latest status, a search box above
+them and a row of status badges to narrow the list by: the vendor's own status is
+one line at the top, and any of the components can be ticked beside it. No account
+is needed for the vendor itself, and a subscription belongs to the vendor it was
+made on. A component is a subscriber's, so the bell leaves those boxes alone here
+and points at signing in.
 
-When the visitor is signed in, the bell also reads back what their account
-already has here. If there is an alert it shows a checked bell and says
-Subscribed, and opening it offers the same list with what is already watched
-ticked, so a component can be added or dropped and the whole selection saved in
-one go, along with a button to stop the alert. Saving is asking for the emails,
-so it starts a paused alert again. An alert made while signed out belongs to the
-address rather than to the account, so the bell does not claim it: nothing on the
-page can say whether that address is theirs.
+When the visitor is signed in the bell is a link instead of a dialog, to a page
+for that one service, and it says Subscribed if their account already has an alert
+here or Paused if it is quiet. The page sets up the ways the alert can arrive: an
+address, a webhook, or both, each shown as it is set and left empty to be turned
+off. The list of what the vendor reports sits inside the email way, because that
+is the way that reports on a pick, with what is already ticked shown as it is; a
+call carries the whole vendor, so it has nothing to pick. One Save writes the
+whole alert, so a component can be added or dropped and a way stopped in the same
+go. An alert is deleted from the alerts screen rather than from the page for its
+service. Each way that is set up can be
+paused on its own, which keeps the address or the URL where it is and stops that
+way alone until it is started again. The switch for that sits at the foot of the
+way it belongs to, in the last row before Save. Pausing is the way's own switch rather than
+something Save does, so saving leaves a paused way paused and an address can be
+corrected without anything going out. An alert made while signed out belongs to
+the address rather than to the account, so the bell does not claim it: nothing on
+the page can say whether that address is theirs.
 
 Signed in visitors also get a screen at `/alerts`, in the navigation beside the
-service menu, listing every subscription their account holds with the address it
-goes to, what it watches and what it is doing. From there an alert can be paused, which keeps the
-row and stops the email until it is started again, subscribed again after it was
-ended, or deleted outright. Anything still waiting for an address that has just
-been paused or ended is dropped, so starting it again does not deliver last
-week's news. The bell fills the form in with the address of whoever is signed in,
-since that is almost always the one they want.
+service menu, listing every subscription their account holds with what it
+arrives by, what it watches and what it is doing. A row says the kinds of channel
+it uses, so an alert that carries both an email and a call is not mistaken for an
+email alone, and the address or URL behind each way is on the page for its
+service, beside the field that holds it. From there an alert can be paused,
+which keeps the row and stops anything going out until it is started again,
+subscribed again after it was ended, or deleted outright, with the row opening the
+page for its service to change the address, the webhook or what it watches.
+Anything still waiting
+for a channel that has just been paused or ended is dropped, so starting it again
+does not deliver last week's news. The bell opens a page for that one service,
+where both ways an alert can arrive are set up. The address field starts empty
+rather than holding the address of whoever is signed in, because whatever it
+holds is written with the alert and a webhook on its own should not bring an
+address along with it. A link under the field fills that address in, for anyone
+who wants exactly that, which is most of them.
 
 A visitor who is not signed in gets one alert, and that alert is a whole vendor:
 a component is a subscriber's, and the API refuses one for a visitor even if a
-page were to send it. With no account behind them the address they typed is their
-whole identity, so that is what the limit is
-counted on, and asking for a second vendor is refused with the name of the vendor
-that address already has an alert for, so there is nothing to guess at, along
-with a pointer to sign in or to unsubscribe from that one. A subscriber may watch
+page were to send it. A webhook is a subscriber's as well, because there is no
+address to hold it to. With no account behind them the address they typed is
+their whole identity, so that is what the limit is counted on, and asking for a
+second vendor is refused with the name of the vendor that address already has an
+alert for, so there is nothing to guess at, along with a pointer to sign in or to
+unsubscribe from that one. A subscriber may watch
 up to the limit on their own row in `user_limits`, counted per account and per
 vendor: a whole service watched together with three of its components takes one
 place, not four, and saving over a vendor that is already watched replaces it
@@ -221,21 +240,26 @@ without touching the environment. The address they give does not have to be the
 one on their account. The id of a signed in subscriber is recorded with the row,
 so it can be tied to them later without asking again.
 
-An email goes out every time something a subscription watches changes, in either
-direction, so a recovery is announced as much as an outage: a vendor's overall
-status, or a component that was ticked, and the message says which. The first
-status a thing is ever seen in is a baseline rather than a change, so subscribing
-to a vendor that has been up for months does not produce a "it is up" email.
+A change of a vendor's own status, or of any component under it, goes out to every
+way the subscription holds, in either direction, so a recovery is announced as
+much as an outage. An email reports on the things that were ticked for it and says
+which one moved. A webhook call is not narrowed by them, because its body carries
+the whole vendor: it is made on any change of that vendor. The first status a
+thing is ever seen in is a baseline rather than a change, so subscribing to a
+vendor that has been up for months does not produce a "it is up" email.
 
 What a subscription asks for is already kept apart from the two things around it.
-A subscription is only who wants to hear. What it watches is a target: a vendor's
-overall status, or one of its components, and a subscription can hold several.
-How it arrives is a channel: an address today, a webhook or a chat service later,
-each with a token of its own, so the unsubscribe link in a message stops the
-channel that message came from and leaves the others alone. Pausing from the
-`/alerts` screen is the subscription going quiet, which is every channel it has.
-Nothing in the product puts more than one channel on a subscription yet, and the
-tables hold the rest so that adding one is a matter of writing it rather than of
+A subscription is one address, or one account, hearing about one vendor, so a
+vendor it no longer watches takes the alert with it. What an email reports on is a
+target: a vendor's overall status, or one of its components, and a subscription
+can hold several. How it arrives is a channel: an address, a webhook, or a chat
+service later, each with a token of its own, so a message that carries an
+unsubscribe link stops the channel it came from and leaves the others alone.
+Pausing from the `/alerts` screen is the subscription going quiet, which is every
+channel it has, and the alert page pauses one way on its own without ending it. A
+subscription holds at most one address and one webhook, so the
+same change can arrive both ways, and the tables take a chat service or a second
+webhook as they are, so adding one is a matter of writing it rather than of
 reshaping what is already stored.
 
 Each email ends with an unsubscribe link. It opens a page that asks before it
@@ -244,13 +268,43 @@ link that unsubscribed on a fetch would do it without anyone asking. The link
 carries a token, which is the only handle on the subscription: there is no
 account behind it and no password to lose.
 
+A webhook is described by the subscriber: a URL, a method, and headers of their
+own. The body is not theirs to write. Every call carries the same JSON, so a
+receiver can read the first one and know how to read the rest: the vendor with its
+status and its page, the change that earned the call with the component that moved
+and the status it left and went to, the time and a sentence ready to send, and
+every component of the vendor with its status. The statuses are written as the
+site stores them rather than as the wording a page shows, so a receiver matches on
+`major` rather than on "Major outage". The methods allowed are the ones that carry
+a body, so a GET, which could not carry the news, is refused. A header value may
+carry placeholders such as `{{service}}`, `{{from}}`, `{{to}}` and `{{text}}`,
+which the server fills in before the call is made; a value cannot hold a line
+break. Every call carries an `Authorization: Bearer` header with the token of that
+channel unless the subscriber writes one of their own, so the receiving end can
+tell a call of ours from anyone else's. A name that is not one of the placeholders
+is left exactly as it was written rather than refused, so a change to the set
+cannot break an alert that is already saved.
+
+At the foot of the webhook way, just before Save, the alert page can make the
+call itself, with the URL, method and headers it is holding whether or not they
+have been saved, so a webhook can be checked before it is leaned on. That call carries a change that never happened, the vendor's first
+component moving from ok to major, so a receiver sees a filled-in `{{component}}`
+rather than an empty one. What came back is shown as it arrived, and the last ten
+calls of an alert are kept with the time, the URL, the method, the status that was
+answered, as much of the body as is worth keeping, and the error when a call never
+got there. The body that was sent and the header list are not kept, because a
+header list carries the channel's own token, and older calls are dropped as new
+ones are written.
+
 Sending is an outbox rather than something the poller does inline. A status
-change writes one delivery per subscriber in the same transaction that records
-the change, and a loop drains them over SMTP. A mail server that is slow or down
-therefore cannot hold up polling, a delivery that fails is retried a few times
-and then left with its error, and nothing is lost if the process stops between
-the two steps. The feature is off unless `SMTP_ADDR` is set; while it is off the
-API refuses subscriptions, rather than taking them and sending nothing. That
+change writes one delivery per channel in the same transaction that records the
+change, and a loop drains them: over SMTP for an address, over HTTP for a
+webhook. A mail server or an endpoint that is slow or down therefore cannot hold
+up polling, a delivery that fails is retried a few times and then left with its
+error, and nothing is lost if the process stops between the two steps. The
+feature is off unless `SMTP_ADDR` is set; while it is off the API refuses
+subscriptions, rather than taking them and sending nothing, and since the one
+loop sends both ways that covers a webhook as well. That
 address is a host and a port: 465 is dialled with TLS from the first byte, which
 is what the port means, and every other port is dialled plainly and upgraded with
 STARTTLS when the server offers it.
