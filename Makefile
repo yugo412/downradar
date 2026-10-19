@@ -82,7 +82,7 @@ vet: ## Run go vet
 tidy: ## Tidy go.mod and go.sum
 > cd backend && go mod tidy
 
-deploy: ## Build locally and ship a new release to the server
+deploy: ## Build the images here, push them, and roll the server to them
 > ./deploy/deploy.sh
 
 mail: ## Print the development inbox URL

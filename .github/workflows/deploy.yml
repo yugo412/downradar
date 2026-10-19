@@ -9,48 +9,66 @@ concurrency:
   group: deploy
   cancel-in-progress: false
 
+env:
+  REGISTRY: ghcr.io
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to the registry
+        uses: docker/login-action@v3
         with:
-          go-version-file: backend/go.mod
-          cache-dependency-path: backend/go.sum
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/setup-node@v4
+      - name: Build and push the api image
+        uses: docker/build-push-action@v6
         with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          context: backend
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/downradar-api:${{ github.ref_name }}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/downradar-api:latest
 
-      - name: Build the commands
-        working-directory: backend
-        run: |
-          mkdir -p "$RUNNER_TEMP/release"
-          for target in "downradar-api:./cmd/server" "downradar-seed:./cmd/seed" "downradar-user:./cmd/user"; do
-            CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-              -trimpath -ldflags="-s -w" \
-              -o "$RUNNER_TEMP/release/${target%%:*}" "${target#*:}"
-          done
+      - name: Build and push the web image
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            NUXT_PAGE_CACHE_SECONDS=60
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/downradar-web:${{ github.ref_name }}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/downradar-web:latest
 
-      - name: Build the web bundle
-        working-directory: frontend
+      # The same guard the native ship.sh used to make: Nuxt inlines whatever
+      # nuxt.config.ts reads at build time, so a config that started reading a
+      # secret would put it in the bundle this image is about to ship.
+      - name: Check that no secret was baked into the web image
         env:
-          NUXT_PAGE_CACHE_SECONDS: "60"
+          INTERNAL_TOKEN: ${{ secrets.INTERNAL_TOKEN }}
         run: |
-          npm ci --no-audit --no-fund
-          npx nuxt build
-          mkdir -p "$RUNNER_TEMP/release/web"
-          cp -r .output/. "$RUNNER_TEMP/release/web/"
-
-      - name: Stage the registry and the seed
-        run: |
-          cp services.yaml "$RUNNER_TEMP/release/services.yaml"
-          mkdir -p "$RUNNER_TEMP/release/seed"
-          cp seed/vendors.yaml "$RUNNER_TEMP/release/seed/vendors.yaml"
+          image="${{ env.REGISTRY }}/${{ github.repository_owner }}/downradar-web:${{ github.ref_name }}"
+          if [ -z "$INTERNAL_TOKEN" ]; then
+            echo "INTERNAL_TOKEN is not set, the bundle check is skipped" >&2
+          elif docker run --rm -e INTERNAL_TOKEN --entrypoint sh "$image" \
+                 -c 'grep -rqF "$INTERNAL_TOKEN" /app'; then
+            echo "ERROR: the internal token is inside the bundle" >&2
+            exit 1
+          else
+            echo "no secret found"
+          fi
 
       - name: Install the deploy key
         run: |
@@ -59,11 +77,13 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: Ship the release
+      - name: Roll the host to the release
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
-          RELEASE_NAME: ${{ github.ref_name }}
-          # ship.sh refuses to upload a bundle that contains this token, which
-          # only works if it is given the same value the bundle was built for.
-          INTERNAL_TOKEN: ${{ secrets.INTERNAL_TOKEN }}
-        run: ./deploy/ship.sh "$RUNNER_TEMP/release"
+          API_IMAGE: ${{ env.REGISTRY }}/${{ github.repository_owner }}/downradar-api:${{ github.ref_name }}
+          WEB_IMAGE: ${{ env.REGISTRY }}/${{ github.repository_owner }}/downradar-web:${{ github.ref_name }}
+          # A package from a workflow is private by default. This job's token is
+          # handed to the host so it can pull, and it expires with the job.
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./deploy/ship.sh
