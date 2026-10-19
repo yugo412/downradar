@@ -89,6 +89,12 @@ const statusFilter = ref(chosenStates(route.query.state))
 // the toggle turns on.
 const worstFirst = ref(String(route.query.sort ?? '') !== 'name')
 
+// Narrowing to the services the person already watches. Unlike the chips beside
+// it this one is not in the address: the bells are read from the account's own
+// alerts in the browser, and a link carrying it would narrow to whoever opened
+// it, or to nothing at all for a guest. It is dropped with a reload instead.
+const subscribedOnly = ref(false)
+
 // The inputs are bound to a local ref, not to the route query. The address is
 // written asynchronously, so reading the value back from the URL while typing
 // re-renders the field with a stale value and swallows keystrokes. The URL is
@@ -214,10 +220,20 @@ const statusOptions = computed(() =>
   statusCounts(matched.value, (v) => v.status, statusFilter.value),
 )
 
+// The Subscribed chip carries the same kind of number: the services in this list
+// that the person is watching, which is what picking it leaves on screen.
+const subscribedCount = computed(
+  () => matched.value.filter((v) => marks.value.has(v.slug)).length,
+)
+
 const visible = computed(() => {
-  const base = statusFilter.value.length
-    ? matched.value.filter((v) => statusFilter.value.includes(v.status))
-    : matched.value
+  let base = matched.value
+  if (statusFilter.value.length) {
+    base = base.filter((v) => statusFilter.value.includes(v.status))
+  }
+  if (subscribedOnly.value) {
+    base = base.filter((v) => marks.value.has(v.slug))
+  }
 
   const sorted = [...base].sort((a, b) =>
     worstFirst.value
@@ -228,6 +244,24 @@ const visible = computed(() => {
   // The mark is carried on the card itself, so a card asks for it once rather
   // than looking the same service up again in the template.
   return sorted.map((vendor) => ({ ...vendor, mark: marks.value.get(vendor.slug) ?? null }))
+})
+
+// A card saying "no match" under a filter that is out of sight is a puzzle, so
+// the pick that emptied the list is named, along with what to do about it.
+const emptyTitle = computed(() =>
+  subscribedOnly.value
+    ? 'No service here matches the filters you picked'
+    : 'No service is in the states you picked',
+)
+
+const emptyHint = computed(() => {
+  if (subscribedOnly.value && statusFilter.value.length) {
+    return 'Clear the status filter or Subscribed to see the rest of the catalogue.'
+  }
+  if (subscribedOnly.value) {
+    return 'You are not watching any of these yet. Open one and use its bell to follow it.'
+  }
+  return 'Clear the status filter to see the rest of the catalogue.'
 })
 
 type SuggestState = 'idle' | 'sending' | 'sent' | 'exists' | 'error'
@@ -344,9 +378,23 @@ useSeoMeta({
     <StatusFilter
       v-model="statusFilter"
       :statuses="statusOptions"
-      label="Filter services by status"
+      label="Filter services"
       class="mb-6"
-    />
+      @clear="subscribedOnly = false"
+    >
+      <!-- Beside the states, because it narrows the same list, and only for
+           somebody signed in: a guest typed an address, not an account, so there
+           is nothing of theirs to narrow to. It waits for the account's alerts to
+           be read in the browser, and a chip with nothing under it is not shown,
+           the same way a state no card is in is not. -->
+      <FilterChip
+        v-if="user && (subscribedCount || subscribedOnly)"
+        v-model="subscribedOnly"
+        label="Subscribed"
+        :count="subscribedCount"
+        cls="badge-neutral"
+      />
+    </StatusFilter>
 
     <div v-if="error" role="alert" class="alert alert-error">
       <span>Could not load the status list. The API may still be warming up.</span>
@@ -429,9 +477,9 @@ useSeoMeta({
 
       <div v-else-if="!visible.length" class="card bg-base-100 border border-base-300">
         <div class="card-body">
-          <h2 class="text-lg font-semibold">No service is in the states you picked</h2>
+          <h2 class="text-lg font-semibold">{{ emptyTitle }}</h2>
           <p class="mt-1 text-sm opacity-70">
-            Clear the status filter to see the rest of the catalogue.
+            {{ emptyHint }}
           </p>
         </div>
       </div>
