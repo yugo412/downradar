@@ -68,35 +68,79 @@ watch(
 )
 
 const route = useRoute()
+const router = useRouter()
 
-// The inputs are bound to a local ref, not to the route query. navigateTo is
-// asynchronous, so reading the value back from the URL while typing re-renders
-// the field with a stale value and swallows keystrokes. The URL is updated
-// separately and debounced, so a search is still shareable.
+// The chips and the order live in the query string, the way the services and the
+// users screens keep theirs, so a view can be shared, bookmarked or come back with
+// the back button. Whatever the URL carries when the page opens is what the list
+// starts with.
+function chosenStates(raw: unknown): string[] {
+  return String(raw ?? '')
+    .split(',')
+    .map((state) => state.trim())
+    .filter((state) => HEALTH_STATES.includes(state))
+}
+
+// ?state=degraded,partial. A state nobody knows is dropped, so a hand-edited URL
+// narrows to what the page can show rather than to an empty list.
+const statusFilter = ref(chosenStates(route.query.state))
+
+// Worst first is what the page opens with; ?sort=name is the alphabetical order
+// the toggle turns on.
+const worstFirst = ref(String(route.query.sort ?? '') !== 'name')
+
+// The inputs are bound to a local ref, not to the route query. The address is
+// written asynchronously, so reading the value back from the URL while typing
+// re-renders the field with a stale value and swallows keystrokes. The URL is
+// updated separately and debounced, so a search is still shareable.
 const queryInput = ref(String(route.query.q ?? ''))
 const query = computed(() => queryInput.value)
 
+// The URL follows the page, so the view on screen is the one that can be linked
+// to. The default order is left out, so a plain view keeps a plain address, and
+// nothing is written when the address already says what the page shows.
+function syncUrl() {
+  const params: Record<string, string> = {}
+  const search = queryInput.value.trim()
+  if (search) params.q = search
+  if (statusFilter.value.length) params.state = statusFilter.value.join(',')
+  if (!worstFirst.value) params.sort = 'name'
+
+  const current = route.query
+  const keys = Object.keys(params)
+  const unchanged =
+    keys.length === Object.keys(current).length &&
+    keys.every((key) => String(current[key] ?? '') === params[key])
+  if (!unchanged) router.replace({ query: params })
+}
+
 let urlSyncTimer: ReturnType<typeof setTimeout> | undefined
-watch(queryInput, (value) => {
+watch(queryInput, () => {
   clearTimeout(urlSyncTimer)
-  urlSyncTimer = setTimeout(() => {
-    const trimmed = value.trim()
-    if (trimmed === String(route.query.q ?? '')) return
-    navigateTo({ query: trimmed ? { q: trimmed } : {} }, { replace: true })
-  }, 250)
+  urlSyncTimer = setTimeout(syncUrl, 250)
 })
 
-// Follow the URL when it changes from somewhere else, such as the back button
-// or a shared link, without fighting the typing above.
+onBeforeUnmount(() => clearTimeout(urlSyncTimer))
+
+watch([statusFilter, worstFirst], syncUrl)
+
+// Follow the URL when it changes from somewhere else, such as the back button or
+// a shared link, without fighting the clicks and the typing above. Each one is
+// compared before it is written, or the page would answer its own replace with
+// another one.
 watch(
-  () => route.query.q,
+  () => route.query,
   (value) => {
-    const next = String(value ?? '')
-    if (next !== queryInput.value.trim()) queryInput.value = next
+    const search = String(value.q ?? '')
+    if (search !== queryInput.value.trim()) queryInput.value = search
+
+    const states = chosenStates(value.state)
+    if (states.join(',') !== statusFilter.value.join(',')) statusFilter.value = states
+
+    const worst = String(value.sort ?? '') !== 'name'
+    if (worst !== worstFirst.value) worstFirst.value = worst
   },
 )
-
-const worstFirst = ref(true)
 
 const vendors = computed<Vendor[]>(() => [
   ...(data.value?.vendors ?? []),
@@ -166,7 +210,6 @@ const matched = computed(() => {
 
 // The badge counts are counted after the search, so the number next to a state
 // always agrees with the cards underneath it.
-const statusFilter = ref<string[]>([])
 const statusOptions = computed(() =>
   statusCounts(matched.value, (v) => v.status, statusFilter.value),
 )
