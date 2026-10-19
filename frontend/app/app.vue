@@ -66,7 +66,12 @@ async function resend() {
         <nav class="flex items-center gap-1 shrink-0">
           <!-- ClientOnly is required, not cosmetic: the session is fetched in the
                browser, so rendering this from the server would either leak one
-               visitor's session into the cached page or break hydration. -->
+               visitor's session into the cached page or break hydration. The
+               theme button is in here for the same kind of reason: the server
+               cannot know the system's colour scheme, and the page it renders
+               is cached and handed to every visitor, so an icon rendered on
+               the server would be the one of whoever the cached page was
+               rendered for. -->
           <ClientOnly>
             <!-- Both of these stand on their own rather than under the account
                  menu, and both are hidden on a narrow screen: there the copies
@@ -267,8 +272,12 @@ async function resend() {
                 </NuxtLink>
               </template>
             </div>
+
+            <!-- The button that switches the theme. It is drawn by the browser,
+                 so the icon is the one that belongs to the theme actually on
+                 the page, whichever that is. -->
+            <ThemeToggle />
           </ClientOnly>
-          <ThemeToggle />
         </nav>
       </div>
     </header>

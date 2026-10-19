@@ -62,7 +62,12 @@ export default defineNuxtConfig({
           // Runs in the head, before the first paint, so there is no flash. It
           // reads the cookie itself instead of relying on the rendered head,
           // which is cached and has to stay the same for every visitor.
-          innerHTML: `(function(){try{var m=document.cookie.match(/(?:^|;\\s*)theme=(dark|cmyk)/);document.documentElement.dataset.theme=m?m[1]:'cmyk'}catch(e){document.documentElement.dataset.theme='cmyk'}})()`,
+          //
+          // A visitor with no cookie has not chosen a theme, so the system
+          // gets to: the dark one when the system asks for it, the light one
+          // otherwise. The cookie still wins, so a theme that was picked on
+          // purpose is kept.
+          innerHTML: `(function(){try{var m=document.cookie.match(/(?:^|;\\s*)theme=(dark|cmyk)/);var t=m?m[1]:(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'cmyk');document.documentElement.dataset.theme=t}catch(e){document.documentElement.dataset.theme='cmyk'}})()`,
           tagPosition: 'head',
         },
       ],
