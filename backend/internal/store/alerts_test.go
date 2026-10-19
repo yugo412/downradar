@@ -801,6 +801,72 @@ func TestAComponentTargetWaitsForTheComponent(t *testing.T) {
 	}
 }
 
+// What a vendor page shows beside its status: one alert is one subscriber,
+// whether it follows the whole vendor or one component of it, and an alert that
+// has been unsubscribed from is not watching any more.
+func TestVendorDetailCountsSubscribers(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	slug := uniqueName("subscriber count")
+	id := alertService(t, st, slug)
+	other := alertService(t, st, uniqueName("subscriber count other"))
+
+	// A poll records the vendor's component, which an alert can follow on its own
+	// rather than following the vendor.
+	if _, err := st.ApplyReport(ctx, id, testReport("")); err != nil {
+		t.Fatalf("poll: %v", err)
+	}
+	componentID := componentIDFor(t, st, id, "c1")
+
+	subscribers := func() int {
+		t.Helper()
+		detail, err := st.GetVendor(ctx, slug, Public())
+		if err != nil {
+			t.Fatalf("GetVendor: %v", err)
+		}
+		return detail.Subscribers
+	}
+
+	if got := subscribers(); got != 0 {
+		t.Errorf("subscribers = %d, want 0 with nobody watching", got)
+	}
+
+	// Two addresses on this vendor, one of them for a component only, and one on
+	// a different vendor.
+	if err := st.SubscribeAlert(ctx, id, nil, "whole@example.org", "token-whole", WholeVendor); err != nil {
+		t.Fatalf("subscribe to the vendor: %v", err)
+	}
+	if err := st.SubscribeAlert(ctx, id, nil, "part@example.org", "token-part",
+		AlertTargets{Components: []int64{componentID}}); err != nil {
+		t.Fatalf("subscribe to the component: %v", err)
+	}
+	if err := st.SubscribeAlert(ctx, other, nil, "elsewhere@example.org", "token-elsewhere", WholeVendor); err != nil {
+		t.Fatalf("subscribe to the other vendor: %v", err)
+	}
+
+	if got := subscribers(); got != 2 {
+		t.Errorf("subscribers = %d, want 2", got)
+	}
+
+	// Pausing stops the mail, not the watching.
+	if _, err := st.pool.Exec(ctx,
+		`update alert_channels set paused_at = now() where token = 'token-part'`); err != nil {
+		t.Fatalf("pause: %v", err)
+	}
+	if got := subscribers(); got != 2 {
+		t.Errorf("subscribers = %d, want a paused alert to keep its place", got)
+	}
+
+	// Unsubscribing ends it. The alert on the other vendor was never counted here.
+	if err := st.UnsubscribeAlert(ctx, "token-whole"); err != nil {
+		t.Fatalf("UnsubscribeAlert: %v", err)
+	}
+	if got := subscribers(); got != 1 {
+		t.Errorf("subscribers = %d, want 1 once an address has unsubscribed", got)
+	}
+}
+
 // The change a component subscription waits for is the component's own, and the
 // vendor's own status is a different one: a vendor reported down for something
 // nobody asked about says nothing about the component they did.

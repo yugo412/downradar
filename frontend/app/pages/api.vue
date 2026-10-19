@@ -77,8 +77,8 @@ useSeoMeta({
       </div>
       <p class="mt-3 text-sm opacity-70">
         The first returns every monitored service, around 25 KB for 71 services.
-        The second returns one service with its components, recent status changes
-        and incidents.
+        The second returns one service with its components, recent status changes,
+        incidents and how many subscribers it has.
       </p>
     </section>
 

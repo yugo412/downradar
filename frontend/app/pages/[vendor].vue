@@ -96,8 +96,15 @@ if (vendor.value) {
           <!-- The status is what the page is about, so on a narrow screen where
                this row drops below the title it reads first, before the actions.
                From md up the whole row sits to the right and the badge goes back
-               to the end of it. -->
+               to the end of it. The count follows the same rule, because it is
+               about the service rather than something to do on the page. -->
           <StatusBadge :status="vendor.status" class="order-first md:order-none" />
+          <span
+            v-if="vendor.subscribers"
+            class="order-first text-sm opacity-70 md:order-none"
+          >
+            {{ vendor.subscribers }} subscriber{{ vendor.subscribers === 1 ? '' : 's' }}
+          </span>
         </div>
       </header>
 

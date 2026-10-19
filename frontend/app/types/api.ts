@@ -41,6 +41,7 @@ export interface VendorDetail extends Vendor {
   componentsList: ComponentStatus[]
   recentEvents: StatusEvent[]
   incidents: Incident[]
+  subscribers: number
 }
 
 export interface PollRun {

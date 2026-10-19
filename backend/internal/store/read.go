@@ -56,6 +56,7 @@ type VendorDetail struct {
 	ComponentsList []ComponentView `json:"componentsList"`
 	RecentEvents   []EventView     `json:"recentEvents"`
 	Incidents      []IncidentView  `json:"incidents"`
+	Subscribers    int             `json:"subscribers"`
 }
 
 func (s *Store) ListVendors(ctx context.Context) ([]VendorSummary, error) {
@@ -163,6 +164,20 @@ func (s *Store) GetVendor(ctx context.Context, slug string, viewer Viewer) (*Ven
 	v.ComponentsList = []ComponentView{}
 	v.RecentEvents = []EventView{}
 	v.Incidents = []IncidentView{}
+
+	// Who is watching: one alert is one subscriber, whether it follows the whole
+	// vendor or a single component of it, and an alert whose channels have all
+	// been unsubscribed from is not watching any more. A paused one still is.
+	if err := s.pool.QueryRow(ctx, `
+		select count(distinct t.subscription_id)
+		from alert_targets t
+		where t.service_id = $1
+		  and exists (
+			select 1 from alert_channels c
+			where c.subscription_id = t.subscription_id and c.unsubscribed_at is null
+		  )`, serviceID).Scan(&v.Subscribers); err != nil {
+		return nil, fmt.Errorf("read: subscribers %s: %w", slug, err)
+	}
 
 	rows, err := s.pool.Query(ctx, `
 		select c.source_id, c.name, coalesce(c.group_name, ''), c.position,
