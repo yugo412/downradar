@@ -113,3 +113,18 @@
   border-color: transparent;
   color: var(--color-base-100);
 }
+
+/* The Unknown state. daisyUI draws it with `badge-ghost`, which fills with
+   base-200: that is the page a filter row sits on, so the chip reads as plain text
+   beside the solid states around it, and the row stops looking like one row.
+
+   The fill here is the badge's own base-100 with a quarter of base-content mixed
+   in, which is a grey of its own in either theme and dark enough to stand off the
+   page. It is deliberately not the dimmed fill a picked chip wears: that one is
+   base-content with its alpha pulled down, this one is opaque, so the two stay
+   apart in a row. Both live outside any layer to outrank daisyUI's badge rule. */
+.badge-unknown {
+  background-color: color-mix(in oklab, var(--color-base-content) 25%, var(--color-base-100));
+  border-color: transparent;
+  color: var(--color-base-content);
+}
