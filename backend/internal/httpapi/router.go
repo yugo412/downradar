@@ -158,6 +158,8 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	mux.HandleFunc("OPTIONS /api/v1/vendors", h.publicRead(h.listVendors))
 	mux.HandleFunc("GET /api/v1/vendors/{slug}", h.publicRead(h.getVendor))
 	mux.HandleFunc("OPTIONS /api/v1/vendors/{slug}", h.publicRead(h.getVendor))
+	mux.HandleFunc("GET /api/v1/changes", h.publicRead(h.recentChanges))
+	mux.HandleFunc("OPTIONS /api/v1/changes", h.publicRead(h.recentChanges))
 	mux.HandleFunc("POST /api/v1/suggest", h.publicWrite(h.suggest))
 	mux.HandleFunc("OPTIONS /api/v1/suggest", h.publicWrite(h.suggest))
 	mux.HandleFunc("POST /api/v1/contact", h.publicContact(h.contact))
@@ -377,6 +379,32 @@ func (h *handlers) getVendor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, detail)
+}
+
+// recentChanges is the newest changes across the catalogue, which is what a feed
+// for the whole site is built from. It is public and cacheable like the rest of
+// the catalogue, and the limit is the caller's so a feed can ask for what it
+// carries rather than for everything.
+func (h *handlers) recentChanges(w http.ResponseWriter, r *http.Request) {
+	limit := 50
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 1 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "The limit must be a whole number above zero"})
+			return
+		}
+		limit = min(value, 100)
+	}
+
+	changes, err := h.store.RecentChanges(r.Context(), limit)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	if changes == nil {
+		changes = []store.ChangeView{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"changes": changes})
 }
 
 type suggestRequest struct {

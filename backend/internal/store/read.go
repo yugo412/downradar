@@ -35,7 +35,9 @@ type ComponentView struct {
 }
 
 type EventView struct {
+	ID        int64     `json:"id"`
 	Status    string    `json:"status"`
+	Previous  string    `json:"previousStatus,omitempty"`
 	Component string    `json:"component,omitempty"`
 	ChangedAt time.Time `json:"changedAt"`
 }
@@ -194,7 +196,7 @@ func (s *Store) GetVendor(ctx context.Context, slug string, viewer Viewer) (*Ven
 	}
 
 	eventRows, err := s.pool.Query(ctx, `
-		select e.status, coalesce(c.name, ''), e.changed_at
+		select e.id, e.status, coalesce(e.previous_status, ''), coalesce(c.name, ''), e.changed_at
 		from status_events e
 		left join components c on c.id = e.component_id
 		where e.service_id = $1
@@ -205,7 +207,7 @@ func (s *Store) GetVendor(ctx context.Context, slug string, viewer Viewer) (*Ven
 	}
 	for eventRows.Next() {
 		var e EventView
-		if err := eventRows.Scan(&e.Status, &e.Component, &e.ChangedAt); err != nil {
+		if err := eventRows.Scan(&e.ID, &e.Status, &e.Previous, &e.Component, &e.ChangedAt); err != nil {
 			eventRows.Close()
 			return nil, fmt.Errorf("read: scan event: %w", err)
 		}
@@ -261,6 +263,53 @@ type Stats struct {
 	Degraded int `json:"degraded"`
 	Down     int `json:"down"`
 	Unknown  int `json:"unknown"`
+}
+
+// ChangeView is one status change anywhere in the catalogue: what moved, where it
+// moved from and to, and when. The id is the event's own, which is what a feed
+// item is identified by, and the vendor is carried with it because a feed across
+// the whole site has no other way of saying whose change it was.
+type ChangeView struct {
+	ID         int64     `json:"id"`
+	VendorSlug string    `json:"vendorSlug"`
+	VendorName string    `json:"vendorName"`
+	Component  string    `json:"component,omitempty"`
+	From       string    `json:"from,omitempty"`
+	To         string    `json:"to"`
+	ChangedAt  time.Time `json:"changedAt"`
+}
+
+// RecentChanges is the newest changes across the catalogue, newest first, which is
+// what a feed for the whole site carries. Only vendors the public can see are
+// counted, so a feed never names one that is still being set up or was rejected,
+// and only real changes are carried: an event with nothing before it is the state
+// a target was first seen in, which is not a change anybody was told about.
+func (s *Store) RecentChanges(ctx context.Context, limit int) ([]ChangeView, error) {
+	rows, err := s.pool.Query(ctx, `
+		select e.id, v.slug, v.name, coalesce(c.name, ''),
+		       coalesce(e.previous_status, ''), e.status, e.changed_at
+		from status_events e
+		join services v on v.id = e.service_id
+		left join components c on c.id = e.component_id
+		where v.active and v.status = 'published' and v.owner_id is null
+		  and e.previous_status is not null
+		order by e.changed_at desc, e.id desc
+		limit $1`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("read: recent changes: %w", err)
+	}
+	defer rows.Close()
+
+	var out []ChangeView
+	for rows.Next() {
+		var c ChangeView
+		if err := rows.Scan(&c.ID, &c.VendorSlug, &c.VendorName, &c.Component,
+			&c.From, &c.To, &c.ChangedAt); err != nil {
+			return nil, fmt.Errorf("read: scan change: %w", err)
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) Stats(ctx context.Context) (Stats, error) {

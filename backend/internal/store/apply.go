@@ -141,7 +141,7 @@ func (s *Store) applyComponentState(
 			values ($1, $2, $3)`, compID, string(status), changedAt); err != nil {
 			return false, fmt.Errorf("apply: insert component_state: %w", err)
 		}
-		return true, s.insertEvent(ctx, tx, serviceID, &compID, status, changedAt, sourceChangedAt)
+		return true, s.insertEvent(ctx, tx, serviceID, &compID, "", status, changedAt, sourceChangedAt)
 
 	case err != nil:
 		return false, fmt.Errorf("apply: read component_state: %w", err)
@@ -158,7 +158,7 @@ func (s *Store) applyComponentState(
 		if err := s.enqueueComponentAlerts(ctx, tx, serviceID, compID, prev, string(status), changedAt); err != nil {
 			return false, err
 		}
-		return true, s.insertEvent(ctx, tx, serviceID, &compID, status, changedAt, sourceChangedAt)
+		return true, s.insertEvent(ctx, tx, serviceID, &compID, prev, status, changedAt, sourceChangedAt)
 	}
 }
 
@@ -178,7 +178,7 @@ func (s *Store) applyServiceState(
 			values ($1, $2, $3)`, serviceID, string(status), changedAt); err != nil {
 			return false, fmt.Errorf("apply: insert service_state: %w", err)
 		}
-		return true, s.insertEvent(ctx, tx, serviceID, nil, status, changedAt, sourceChangedAt)
+		return true, s.insertEvent(ctx, tx, serviceID, nil, "", status, changedAt, sourceChangedAt)
 
 	case err != nil:
 		return false, fmt.Errorf("apply: read service_state: %w", err)
@@ -195,7 +195,7 @@ func (s *Store) applyServiceState(
 		if err := s.enqueueAlerts(ctx, tx, serviceID, prev, string(status), changedAt); err != nil {
 			return false, err
 		}
-		return true, s.insertEvent(ctx, tx, serviceID, nil, status, changedAt, sourceChangedAt)
+		return true, s.insertEvent(ctx, tx, serviceID, nil, prev, status, changedAt, sourceChangedAt)
 	}
 }
 
@@ -262,12 +262,19 @@ func (s *Store) enqueueComponentAlerts(ctx context.Context, tx pgx.Tx, serviceID
 
 func (s *Store) insertEvent(
 	ctx context.Context, tx pgx.Tx, serviceID int64, compID *int64,
-	status adapters.Health, changedAt, sourceChangedAt time.Time,
+	prev string, status adapters.Health, changedAt, sourceChangedAt time.Time,
 ) error {
+	// The first state a target is ever seen in has nothing before it, and that is
+	// written as a null rather than as an empty status.
+	var previous any
+	if prev != "" {
+		previous = prev
+	}
+
 	_, err := tx.Exec(ctx, `
-		insert into status_events (service_id, component_id, status, changed_at, source_changed_at)
-		values ($1, $2, $3, $4, $5)`,
-		serviceID, compID, string(status), changedAt, nullTime(sourceChangedAt))
+		insert into status_events (service_id, component_id, previous_status, status, changed_at, source_changed_at)
+		values ($1, $2, $3, $4, $5, $6)`,
+		serviceID, compID, previous, string(status), changedAt, nullTime(sourceChangedAt))
 	if err != nil {
 		return fmt.Errorf("apply: insert status_event: %w", err)
 	}
