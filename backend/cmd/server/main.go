@@ -106,6 +106,8 @@ func run() error {
 			ContactBurst:            cfg.ContactBurst,
 			LoginPerHour:            cfg.LoginPerHour,
 			LoginBurst:              cfg.LoginBurst,
+			LinkPerHour:             cfg.LinkPerHour,
+			LinkBurst:               cfg.LinkBurst,
 			PasswordPerHour:         cfg.PasswordPerHour,
 			PasswordBurst:           cfg.PasswordBurst,
 			InternalToken:           cfg.InternalToken,

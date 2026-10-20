@@ -425,11 +425,22 @@ page offers to send it again until it does. Nothing is blocked while an address
 is unconfirmed: being unable to do anything until an email arrives would be worse
 than the risk it removes.
 
+Signing in does not need the password. `/login` asks for an address and mails a
+link that signs the person in when it is opened, which is the way in the form
+offers first. The link works once and expires in fifteen minutes, and following
+it confirms the address it was sent to, so an account whose confirmation was
+never opened arrives confirmed. An address with no account is refused and gets no
+mail, so the form cannot be used to write to strangers, and asking for a link has
+a tighter rate limit of its own for the same reason. The password form is one
+click away and carries a remember me: without it the browser is handed a session
+cookie and drops it when it closes.
+
 A forgotten password is reset by email too. The link works once and expires in an
 hour, and using it ends every session, so if the old password was known to
-somebody else they are out. Both kinds of link are stored hashed, like session
+somebody else they are out. Every kind of link is stored hashed, like session
 tokens, so a copy of the table is not a set of working links, and asking for
-another one retires the one before it.
+another one retires the one before it, and the kinds are kept apart so a link
+that confirms an address cannot be spent as a way in.
 
 ## Contact form
 
@@ -448,8 +459,8 @@ so one visitor cannot fill the inbox.
 
 ## Staff sign in
 
-There is no link to the login page from the site, and an administrator is still
-made from the shell:
+Staff sign in is not advertised anywhere: the form is at `/login`, and an
+administrator is still made from the shell:
 
 ```bash
 cd backend

@@ -147,6 +147,8 @@ func testRouterWithOptions(t *testing.T, tune func(*Options)) (*store.Store, htt
 		ContactBurst:        1000,
 		LoginPerHour:        36000,
 		LoginBurst:          1000,
+		LinkPerHour:         36000,
+		LinkBurst:           1000,
 		PasswordPerHour:     36000,
 		PasswordBurst:       1000,
 		SessionCookieSecure: false,

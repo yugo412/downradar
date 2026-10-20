@@ -232,3 +232,162 @@ func TestForgotSaysNothingAboutUnknownAddresses(t *testing.T) {
 		t.Error("an email was sent for an address that has no account")
 	}
 }
+
+// The link in the inbox is a way in without a password, and following it proves
+// the address it was sent to, so an account that was never confirmed by hand
+// becomes confirmed on the way in.
+func TestSignInWithALink(t *testing.T) {
+	st, router, spy := testRouterWithMail(t)
+	email := uniqueEmail()
+	t.Cleanup(func() { dropUser(t, st, email) })
+
+	rec := call(t, router, http.MethodPost, "/api/v1/auth/register",
+		`{"name":"Link Person","email":"`+email+`","password":"a good password"}`, "")
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("register = %d, want 201: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = call(t, router, http.MethodPost, "/api/v1/auth/link", `{"email":"`+email+`"}`, "")
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("link = %d, want 202: %s", rec.Code, rec.Body.String())
+	}
+
+	// Registering sent the confirmation; the sign in link is the message after.
+	sent := spy.sent()
+	if len(sent) != 2 {
+		t.Fatalf("sent = %d messages, want a confirmation and a link", len(sent))
+	}
+	link := sent[len(sent)-1]
+	if !strings.Contains(link.body, "/login?token=") {
+		t.Fatalf("the message is not a sign in link:\n%s", link.body)
+	}
+
+	rec = call(t, router, http.MethodPost, "/api/v1/auth/link/session",
+		`{"token":"`+tokenFrom(t, link.body)+`","remember":true}`, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("sign in with the link = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+
+	var body struct {
+		User struct {
+			Email      string `json:"email"`
+			VerifiedAt string `json:"verifiedAt"`
+		} `json:"user"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.User.VerifiedAt == "" {
+		t.Error("the link did not confirm the address it proved")
+	}
+
+	var cookie *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == "dr_session" {
+			cookie = c
+		}
+	}
+	if cookie == nil || cookie.Value == "" {
+		t.Fatal("the answer has no session in it")
+	}
+	if !cookie.Expires.After(time.Now()) {
+		t.Errorf("cookie expires at %v, want it kept because remember me was set", cookie.Expires)
+	}
+
+	rec = call(t, router, http.MethodGet, "/api/v1/auth/me", "", "dr_session="+cookie.Value)
+	if !strings.Contains(rec.Body.String(), email) {
+		t.Errorf("me = %s, want the account the link belongs to", rec.Body.String())
+	}
+
+	// One link, one sign in.
+	rec = call(t, router, http.MethodPost, "/api/v1/auth/link/session",
+		`{"token":"`+tokenFrom(t, link.body)+`"}`, "")
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("second use of the link = %d, want 400", rec.Code)
+	}
+}
+
+// A link is a way in, not a way to get an account: an address nobody uses is
+// refused and nothing is sent to it.
+func TestASignInLinkNeedsAnAccount(t *testing.T) {
+	_, router, spy := testRouterWithMail(t)
+	email := uniqueEmail()
+
+	rec := call(t, router, http.MethodPost, "/api/v1/auth/link", `{"email":"`+email+`"}`, "")
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("link for an unknown address = %d, want 404: %s", rec.Code, rec.Body.String())
+	}
+	if sent := spy.sent(); len(sent) != 0 {
+		t.Errorf("sent %d messages to an address with no account", len(sent))
+	}
+}
+
+// The link carries the page to open once it has signed somebody in, as long as
+// that page is on this site.
+func TestASignInLinkKeepsAPageOnThisSite(t *testing.T) {
+	st, router, spy := testRouterWithMail(t)
+	user := testUser(t, st, "subscriber")
+
+	rec := call(t, router, http.MethodPost, "/api/v1/auth/link",
+		`{"email":"`+user.Email+`","next":"/alerts"}`, "")
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("link = %d, want 202: %s", rec.Code, rec.Body.String())
+	}
+	if body := spy.sent()[0].body; !strings.Contains(body, "next=%2Falerts") {
+		t.Errorf("the link does not carry the page to open:\n%s", body)
+	}
+
+	rec = call(t, router, http.MethodPost, "/api/v1/auth/link",
+		`{"email":"`+user.Email+`","next":"https://elsewhere.invalid/"}`, "")
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("link = %d, want 202: %s", rec.Code, rec.Body.String())
+	}
+	if body := spy.sent()[1].body; strings.Contains(body, "next=") {
+		t.Errorf("the link carries an address off this site:\n%s", body)
+	}
+}
+
+// Remember me decides whether the cookie outlives the browser: without it the
+// cookie is one the browser keeps only while it is open.
+func TestRememberMeDecidesWhetherTheCookieOutlivesTheBrowser(t *testing.T) {
+	_, router, _ := testRouterWithMail(t)
+	email := uniqueEmail()
+
+	rec := call(t, router, http.MethodPost, "/api/v1/auth/register",
+		`{"name":"Cookie Person","email":"`+email+`","password":"a good password"}`, "")
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("register = %d, want 201: %s", rec.Code, rec.Body.String())
+	}
+
+	for _, tc := range []struct {
+		label      string
+		body       string
+		persistent bool
+	}{
+		{"without remember me", `{"email":"` + email + `","password":"a good password"}`, false},
+		{"with remember me", `{"email":"` + email + `","password":"a good password","remember":true}`, true},
+	} {
+		t.Run(tc.label, func(t *testing.T) {
+			rec := call(t, router, http.MethodPost, "/api/v1/auth/login", tc.body, "")
+			if rec.Code != http.StatusOK {
+				t.Fatalf("sign in = %d, want 200: %s", rec.Code, rec.Body.String())
+			}
+
+			var cookie *http.Cookie
+			for _, c := range rec.Result().Cookies() {
+				if c.Name == "dr_session" {
+					cookie = c
+				}
+			}
+			if cookie == nil || cookie.Value == "" {
+				t.Fatal("the answer has no session in it")
+			}
+
+			// A session cookie is one with no expiry for the browser to keep.
+			if got := !cookie.Expires.IsZero() || cookie.MaxAge != 0; got != tc.persistent {
+				t.Errorf("cookie expires = %v, max age = %d, want persistent = %v",
+					cookie.Expires, cookie.MaxAge, tc.persistent)
+			}
+		})
+	}
+}

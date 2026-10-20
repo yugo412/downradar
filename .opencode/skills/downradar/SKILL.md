@@ -71,8 +71,13 @@ app itself, not from fixtures.
   signed out visitor is only ever offered the whole vendor. They fire on the
   transition of whatever is watched, and delivery is an outbox row written in the
   same transaction as the change and drained by `internal/notify`.
-- With no SMTP configured, register, forgot-password, contact and vendor-alert
-  posts answer 503 instead of accepting something they cannot send.
+- With no SMTP configured, register, forgot-password, sign in link, contact and
+  vendor-alert posts answer 503 instead of accepting something they cannot send.
+- Signing in is by a link mailed to the address, which works once, expires in
+  fifteen minutes and confirms the address it was sent to. The password form sits
+  behind a link of its own and has a remember me that decides whether the cookie
+  outlives the browser. A sign in link is only sent to an address that already
+  has an account.
 - Every email is HTML written from a template in `internal/mail/templates`, set in
   one shell that carries the brand and the site's colours. The wording of a
   message belongs in its template, not in the package that sends it.

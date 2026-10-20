@@ -58,6 +58,9 @@ func TestUserTokensAreSingleUseAndExpire(t *testing.T) {
 		t.Fatalf("UserByUserToken = %+v, %v", got, err)
 	}
 	// A confirmation link is not a password reset, and the other way round.
+	if _, err := st.UserByUserToken(ctx, UserTokenLogin, token); !errors.Is(err, ErrNotFound) {
+		t.Error("a confirmation token was accepted as a sign in link")
+	}
 	if _, err := st.UserByUserToken(ctx, UserTokenReset, token); !errors.Is(err, ErrNotFound) {
 		t.Errorf("a confirmation token was accepted as a reset: %v", err)
 	}

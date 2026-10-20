@@ -23,12 +23,36 @@ export function useAuth() {
     }
   }
 
-  async function signIn(email: string, password: string) {
+  // remember is whether the browser should still have the session after it
+  // closes; without it the server hands out a cookie that lives that long.
+  async function signIn(email: string, password: string, remember = false) {
     const res = await $fetch<{ user: AuthUser }>('/api/v1/auth/login', {
       method: 'POST',
-      body: { email, password },
+      body: { email, password, remember },
     })
     user.value = res.user
+    return res.user
+  }
+
+  // The link goes to the address somebody typed, not to an account: the API
+  // answers with an error when nobody has it, and sends nothing.
+  async function sendSignInLink(email: string, next = '') {
+    return $fetch<{ status: string }>('/api/v1/auth/link', {
+      method: 'POST',
+      body: { email, next },
+    })
+  }
+
+  // A link from the inbox signs in and confirms the address it was sent to, so
+  // the account it belongs to comes back already verified. It keeps the browser
+  // signed in: following a link in your own mail is a deliberate act.
+  async function signInWithLink(token: string) {
+    const res = await $fetch<{ user: AuthUser }>('/api/v1/auth/link/session', {
+      method: 'POST',
+      body: { token, remember: true },
+    })
+    user.value = res.user
+    loaded.value = true
     return res.user
   }
 
@@ -75,6 +99,8 @@ export function useAuth() {
     isAdmin,
     load,
     signIn,
+    sendSignInLink,
+    signInWithLink,
     register,
     signOut,
     updateProfile,
