@@ -1020,8 +1020,8 @@ func TestAWebhookIsASecondWayForOneAlert(t *testing.T) {
 		t.Errorf("subscriptions carrying both ways = %d, want one", n)
 	}
 
-	// The page reads both ways back, and a webhook starts with the bearer token
-	// its own channel carries, which is what the other end checks.
+	// The page reads both ways back, and the header list is what was written and
+	// nothing else: nothing is added to a webhook behind the subscriber's back.
 	view, err := st.UserAlert(ctx, user.ID, id)
 	if err != nil {
 		t.Fatalf("UserAlert: %v", err)
@@ -1035,11 +1035,11 @@ func TestAWebhookIsASecondWayForOneAlert(t *testing.T) {
 	if view.Webhook.URL != hook.URL || view.Webhook.Method != "POST" {
 		t.Errorf("webhook = %+v, want the call that was saved", view.Webhook)
 	}
-	if len(view.Webhook.Headers) != 2 {
-		t.Fatalf("headers = %+v, want the subscriber's and the bearer", view.Webhook.Headers)
+	if len(view.Webhook.Headers) != 1 {
+		t.Fatalf("headers = %+v, want only the one that was written", view.Webhook.Headers)
 	}
-	if got := view.Webhook.Headers[1]; got.Name != "Authorization" || got.Value != "Bearer token-hook" {
-		t.Errorf("default header = %+v, want the channel's own token", got)
+	if got := view.Webhook.Headers[0]; got.Name != "X-Source" || got.Value != "downradar" {
+		t.Errorf("header = %+v, want it kept as it was written", got)
 	}
 
 	// A save about the webhook alone leaves the address where it is, and moving
@@ -1059,7 +1059,7 @@ func TestAWebhookIsASecondWayForOneAlert(t *testing.T) {
 	if view.Email != address {
 		t.Errorf("email = %q, want it left alone by a save about the webhook", view.Email)
 	}
-	if view.Webhook.URL != moved.URL || len(view.Webhook.Headers) != 3 {
+	if view.Webhook.URL != moved.URL || len(view.Webhook.Headers) != 2 {
 		t.Errorf("webhook = %+v, want what the second save asked for", view.Webhook)
 	}
 	if n := countRows(t, st, `
@@ -1190,11 +1190,10 @@ func TestAPendingWebhookCarriesItsCall(t *testing.T) {
 		if alert.Webhook.URL != hook.URL || alert.Webhook.Method != "PUT" {
 			t.Errorf("webhook = %+v, want the call that was saved", alert.Webhook)
 		}
-		// A webhook starts with the bearer token of its own channel, which is
-		// what the other end checks before it trusts a call.
-		if len(alert.Webhook.Headers) != 1 ||
-			alert.Webhook.Headers[0].Value != "Bearer "+token {
-			t.Errorf("headers = %+v, want the channel's bearer token", alert.Webhook.Headers)
+		// The header list is the subscriber's: nothing is added to it, and a call
+		// carries exactly what was written.
+		if len(alert.Webhook.Headers) != 0 {
+			t.Errorf("headers = %+v, want nothing the subscriber did not write", alert.Webhook.Headers)
 		}
 	}
 	if !found {

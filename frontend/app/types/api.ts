@@ -161,10 +161,16 @@ export interface AlertField {
 // called with. The header values may carry placeholders, which the server fills
 // in with what changed. What a call carries in its body is the server's, so
 // every call has the same shape and a receiver can read the first one.
+//
+// Auth is how a call says it is ours: standard puts a Standard Webhooks
+// signature on it, custom sends the headers alone. Signed says whether a secret
+// is set. The secret itself is only ever in the answer that made it.
 export interface AlertWebhook {
   url: string
   method: string
   headers: AlertField[]
+  auth: 'standard' | 'custom'
+  signed: boolean
 }
 
 // One call this alert made, and what came back. A call that never got there has

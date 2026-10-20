@@ -209,8 +209,10 @@ func TestDrainCallsTheWebhookTheSubscriberDescribed(t *testing.T) {
 	if got.url != "/hook" {
 		t.Errorf("url = %q, want the one it was saved with", got.url)
 	}
-	if want := "Bearer token-" + slug; got.headers.Get("Authorization") != want {
-		t.Errorf("Authorization = %q, want the channel's own token", got.headers.Get("Authorization"))
+	// Nothing is added to the headers the subscriber wrote: a webhook that wants
+	// an Authorization header writes one.
+	if got := got.headers.Get("Authorization"); got != "" {
+		t.Errorf("Authorization = %q, want no header the subscriber did not write", got)
 	}
 	if got.headers.Get("X-Source") != "downradar" {
 		t.Errorf("X-Source = %q, want the header the subscriber wrote", got.headers.Get("X-Source"))

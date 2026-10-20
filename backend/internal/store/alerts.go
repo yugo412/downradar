@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,6 +36,28 @@ const (
 	CallDelivery = "delivery"
 	CallTest     = "test"
 )
+
+// How a webhook says a call is ours. Standard signs every call with a secret
+// both ends know, following the Standard Webhooks specification; custom sends
+// the headers the subscriber wrote and nothing else, which is what a service
+// that only takes a static header or a URL needs.
+const (
+	WebhookAuthStandard = "standard"
+	WebhookAuthCustom   = "custom"
+)
+
+// WebhookSecretGrace is how long the secret a rotation retires keeps going out
+// beside the new one. It is what makes a rotation something a receiver can keep
+// up with rather than an outage.
+const WebhookSecretGrace = 24 * time.Hour
+
+// ErrWebhookSecretMissing is what a save that asks for signed calls without a
+// secret is refused with: one has to be made before a call can be signed.
+var ErrWebhookSecretMissing = errors.New("the webhook has no signing secret")
+
+// ErrWebhookSecretUnused is what a save is refused with when it asks for a secret
+// for a webhook that is not signing its calls.
+var ErrWebhookSecretUnused = errors.New("only a signed webhook has a secret")
 
 // AlertStateValid reports whether a state is one a caller may ask for.
 func AlertStateValid(state string) bool {
@@ -393,28 +417,79 @@ type AlertField struct {
 // looks the same and says the changes the notifier writes from what it finds.
 // Only the headers are theirs, which is enough to sign a call or point it at a
 // queue of their own.
+//
+// Auth is how a call says it is ours. Signing is the secret that does it, and it
+// stays here: a page is told whether one is set and never what it is.
 type AlertWebhook struct {
-	URL     string       `json:"url"`
-	Method  string       `json:"method"`
-	Headers []AlertField `json:"headers"`
+	URL     string         `json:"url"`
+	Method  string         `json:"method"`
+	Headers []AlertField   `json:"headers"`
+	Auth    string         `json:"auth"`
+	Signed  bool           `json:"signed"`
+	Signing WebhookSigning `json:"-"`
+}
+
+// WebhookSigning is the secret a signed call is made with. It is kept because
+// every call has to be signed with it, and it is hidden from every answer: the
+// subscriber sees it once, when it is made, and after that only the fact that
+// one is set.
+//
+// Previous is the secret a rotation is retiring. It goes out beside the new one
+// until PreviousUntil, which is long enough for a receiver to be changed over.
+type WebhookSigning struct {
+	Secret        string    `json:"secret,omitempty"`
+	CreatedAt     time.Time `json:"createdAt,omitempty"`
+	Previous      string    `json:"previous,omitempty"`
+	PreviousUntil time.Time `json:"previousUntil,omitempty"`
 }
 
 // webhookSettings is the part of a webhook the settings column holds. The URL is
 // the channel's address, so it is not repeated there.
 type webhookSettings struct {
-	Method  string       `json:"method"`
-	Headers []AlertField `json:"headers"`
+	Method  string          `json:"method"`
+	Headers []AlertField    `json:"headers"`
+	Auth    string          `json:"auth,omitempty"`
+	Signing *WebhookSigning `json:"signing,omitempty"`
+}
+
+// NewWebhookSecret makes a secret in the shape the Standard Webhooks
+// specification uses: the prefix "whsec_" and 24 random bytes in base64.
+func NewWebhookSecret() (string, error) {
+	buf := make([]byte, 24)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("webhook secret: read random bytes: %w", err)
+	}
+	return "whsec_" + base64.StdEncoding.EncodeToString(buf), nil
+}
+
+// WebhookSigningKey turns a secret into the bytes a call is signed with: the
+// part after the prefix, decoded from base64.
+func WebhookSigningKey(secret string) ([]byte, error) {
+	key, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(secret, "whsec_"))
+	if err != nil {
+		return nil, fmt.Errorf("webhook secret: decode: %w", err)
+	}
+	return key, nil
 }
 
 // encodeWebhook encodes one webhook for the settings column.
 func encodeWebhook(hook AlertWebhook) ([]byte, error) {
-	return json.Marshal(webhookSettings{Method: hook.Method, Headers: hook.Headers})
+	settings := webhookSettings{Method: hook.Method, Headers: hook.Headers, Auth: hook.Auth}
+	if hook.Signing.Secret != "" {
+		signing := hook.Signing
+		settings.Signing = &signing
+	}
+	return json.Marshal(settings)
 }
 
 // parseWebhookSettings reads back what encodeWebhook wrote. Any other settings,
 // which is what an email channel carries, read as an empty webhook.
+//
+// A webhook saved before there were two ways to authenticate has no auth of its
+// own, and it reads as custom: those are the headers it is already sending, and
+// a change here would break a call that works today.
 func parseWebhookSettings(raw []byte, address string) (AlertWebhook, error) {
-	hook := AlertWebhook{URL: address}
+	hook := AlertWebhook{URL: address, Auth: WebhookAuthCustom}
 	if len(raw) == 0 {
 		return hook, nil
 	}
@@ -425,21 +500,14 @@ func parseWebhookSettings(raw []byte, address string) (AlertWebhook, error) {
 	}
 	hook.Method = settings.Method
 	hook.Headers = settings.Headers
-	return hook, nil
-}
-
-// withBearer fills in the header a webhook starts with. The channel's own token
-// is the bearer token: it is what the other end checks before it trusts a call,
-// and what the page shows the subscriber so they can set the same check there. A
-// header list that names Authorization already says what it wants.
-func withBearer(hook AlertWebhook, token string) AlertWebhook {
-	for _, header := range hook.Headers {
-		if strings.EqualFold(strings.TrimSpace(header.Name), "Authorization") {
-			return hook
-		}
+	if settings.Auth == WebhookAuthStandard {
+		hook.Auth = WebhookAuthStandard
 	}
-	hook.Headers = append(hook.Headers, AlertField{Name: "Authorization", Value: "Bearer " + token})
-	return hook
+	if settings.Signing != nil {
+		hook.Signing = *settings.Signing
+	}
+	hook.Signed = hook.Signing.Secret != ""
+	return hook, nil
 }
 
 // AlertChange is what one save asks for: the ways an alert should arrive, and
@@ -456,8 +524,13 @@ type AlertChange struct {
 	// Webhook is the other way an alert can arrive. A webhook hears about every
 	// change of the vendor, its own status and any of its components, which is
 	// why it has nothing to pick: its body says what the vendor looks like now.
-	Webhook      *AlertWebhook
-	WebhookToken string
+	//
+	// WebhookNewSecret asks for a fresh signing secret as part of the save. It is
+	// the only way one is made, and the answer it comes back in is the only time
+	// it can be read.
+	Webhook          *AlertWebhook
+	WebhookToken     string
+	WebhookNewSecret bool
 
 	// Telegram is the chat a message goes to, which is the third way an alert can
 	// arrive. It reports on what was picked like an email does, and it belongs to
@@ -581,9 +654,23 @@ func (s *Store) UserWatchesService(ctx context.Context, userID, serviceID int64)
 // A user id is only kept if one is given, so subscribing while signed out never
 // clears a link that was made while signed in.
 func (s *Store) SubscribeAlert(ctx context.Context, serviceID int64, userID *int64, change AlertChange) error {
+	_, err := s.subscribeAlert(ctx, serviceID, userID, change)
+	return err
+}
+
+// SubscribeAlertWithSecret is the same save, asking for a fresh signing secret as
+// part of it. The secret is returned once and never again.
+func (s *Store) SubscribeAlertWithSecret(ctx context.Context, serviceID int64, userID *int64, change AlertChange) (string, error) {
+	change.WebhookNewSecret = true
+	return s.subscribeAlert(ctx, serviceID, userID, change)
+}
+
+// subscribeAlert is the save both of those are: one transaction, so a secret is
+// never left on a webhook the save did not finish writing.
+func (s *Store) subscribeAlert(ctx context.Context, serviceID int64, userID *int64, change AlertChange) (string, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("alerts: begin tx: %w", err)
+		return "", fmt.Errorf("alerts: begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
@@ -594,44 +681,47 @@ func (s *Store) SubscribeAlert(ctx context.Context, serviceID int64, userID *int
 			update alert_subscriptions
 			set user_id = coalesce($2, user_id), updated_at = now()
 			where id = $1`, subscriptionID, userID); err != nil {
-			return fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
+			return "", fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
 		}
 
 	case errors.Is(err, pgx.ErrNoRows):
 		if err := tx.QueryRow(ctx,
 			`insert into alert_subscriptions (user_id, service_id) values ($1, $2) returning id`,
 			userID, serviceID).Scan(&subscriptionID); err != nil {
-			return fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
+			return "", fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
 		}
 
 	default:
-		return fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
+		return "", fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
 	}
 
 	if change.Email != nil {
 		if err := saveEmailChannel(ctx, tx, subscriptionID, *change.Email, change.EmailToken); err != nil {
-			return fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
+			return "", fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
 		}
 	}
+	secret := ""
 	if change.Webhook != nil {
-		if err := saveWebhookChannel(ctx, tx, subscriptionID, *change.Webhook, change.WebhookToken); err != nil {
-			return fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
+		secret, err = saveWebhookChannel(ctx, tx, subscriptionID, *change.Webhook,
+			change.WebhookToken, change.WebhookNewSecret)
+		if err != nil {
+			return "", fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
 		}
 	}
 	if change.Telegram != nil {
 		if err := saveTelegramChannel(ctx, tx, subscriptionID, *change.Telegram, change.TelegramToken); err != nil {
-			return fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
+			return "", fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
 		}
 	}
 
 	if err := setAlertTargets(ctx, tx, subscriptionID, serviceID, change.Targets); err != nil {
-		return fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
+		return "", fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("alerts: subscribe commit: %w", err)
+		return "", fmt.Errorf("alerts: subscribe commit: %w", err)
 	}
-	return nil
+	return secret, nil
 }
 
 // alertSubscription is the row a save belongs on: the alert the account already
@@ -704,53 +794,101 @@ func saveEmailChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, addr
 	return nil
 }
 
-// saveWebhookChannel makes the subscription's webhook say what this save asked
-// for. A webhook with no URL stops the calls rather than calling somewhere empty.
-// The channel keeps its token, which is the bearer token the other end checks, so
-// it is read before the settings are written.
-func saveWebhookChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, hook AlertWebhook, token string) error {
-	if hook.URL == "" {
-		return stopChannels(ctx, tx, subscriptionID, ChannelWebhook)
-	}
-
-	var channelID int64
-	var channelToken string
+// webhookChannel is the subscription's webhook row as it is now: where it calls,
+// the token that proves it is that channel, and the settings that carry the rest.
+// A row id is never zero, so nothing found means nothing is there yet.
+func webhookChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64) (int64, string, []byte, error) {
+	var id int64
+	var token string
+	var settings []byte
 	err := tx.QueryRow(ctx, `
-		select id, token from alert_channels
+		select id, token, coalesce(settings, '{}'::jsonb)
+		from alert_channels
 		where subscription_id = $1 and kind = 'webhook'
 		order by (unsubscribed_at is null) desc, id
-		limit 1`, subscriptionID).Scan(&channelID, &channelToken)
-
-	switch {
-	case errors.Is(err, pgx.ErrNoRows):
-		channelToken = token
-	case err != nil:
-		return fmt.Errorf("read the webhook: %w", err)
+		limit 1`, subscriptionID).Scan(&id, &token, &settings)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, "", nil, nil
 	}
-
-	settings, err := encodeWebhook(withBearer(hook, channelToken))
 	if err != nil {
-		return fmt.Errorf("write the webhook: %w", err)
+		return 0, "", nil, fmt.Errorf("read the webhook: %w", err)
+	}
+	return id, token, settings, nil
+}
+
+// saveWebhookChannel makes the subscription's webhook say what this save asked
+// for. A webhook with no URL stops the calls rather than calling somewhere empty.
+// The header list is entirely the subscriber's: nothing is added to it here.
+//
+// A save that says nothing about the secret keeps the one that is there, which is
+// what makes saving the page safe after a secret has been made: the secret is
+// never typed into it, and a page that has not been told cannot hand it back.
+// Asking for a new one is the only way a secret is made, and what comes back is
+// the only time it can be read. The one it replaces keeps going out for a day, so
+// a receiver has time to move over.
+func saveWebhookChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, hook AlertWebhook, token string, newSecret bool) (string, error) {
+	if hook.URL == "" {
+		return "", stopChannels(ctx, tx, subscriptionID, ChannelWebhook)
 	}
 
-	// A row id is never zero, so nothing found means nothing is there yet.
+	channelID, channelToken, settings, err := webhookChannel(ctx, tx, subscriptionID)
+	if err != nil {
+		return "", err
+	}
+	if channelToken == "" {
+		channelToken = token
+	}
+
+	current, err := parseWebhookSettings(settings, hook.URL)
+	if err != nil {
+		return "", err
+	}
+	if hook.Auth == "" {
+		hook.Auth = current.Auth
+	}
+
+	made := ""
+	if newSecret {
+		if hook.Auth != WebhookAuthStandard {
+			return "", ErrWebhookSecretUnused
+		}
+		if made, err = NewWebhookSecret(); err != nil {
+			return "", err
+		}
+		hook.Signing = WebhookSigning{Secret: made, CreatedAt: time.Now().UTC()}
+		if current.Signing.Secret != "" {
+			hook.Signing.Previous = current.Signing.Secret
+			hook.Signing.PreviousUntil = hook.Signing.CreatedAt.Add(WebhookSecretGrace)
+		}
+	} else if hook.Signing.Secret == "" {
+		hook.Signing = current.Signing
+	}
+	if hook.Auth == WebhookAuthStandard && hook.Signing.Secret == "" {
+		return "", ErrWebhookSecretMissing
+	}
+
+	encoded, err := encodeWebhook(hook)
+	if err != nil {
+		return "", fmt.Errorf("write the webhook: %w", err)
+	}
+
 	if channelID == 0 {
 		if _, err := tx.Exec(ctx, `
 			insert into alert_channels (subscription_id, kind, address, settings, token)
 			values ($1, 'webhook', $2, $3, $4)`,
-			subscriptionID, hook.URL, settings, channelToken); err != nil {
-			return fmt.Errorf("add the webhook: %w", err)
+			subscriptionID, hook.URL, encoded, channelToken); err != nil {
+			return "", fmt.Errorf("add the webhook: %w", err)
 		}
-		return nil
+		return made, nil
 	}
 
 	if _, err := tx.Exec(ctx, `
 		update alert_channels
 		set address = $2, settings = $3, unsubscribed_at = null, updated_at = now()
-		where id = $1`, channelID, hook.URL, settings); err != nil {
-		return fmt.Errorf("update the webhook: %w", err)
+		where id = $1`, channelID, hook.URL, encoded); err != nil {
+		return "", fmt.Errorf("update the webhook: %w", err)
 	}
-	return dropChannelsApartFrom(ctx, tx, subscriptionID, ChannelWebhook, channelID)
+	return made, dropChannelsApartFrom(ctx, tx, subscriptionID, ChannelWebhook, channelID)
 }
 
 // AlertTelegram is the third way an alert can arrive: a chat, and the bot that
@@ -1356,8 +1494,9 @@ func (s *Store) ServiceSnapshot(ctx context.Context, serviceID int64) (ServiceSn
 
 // WebhookCall is one call to a webhook that was made, and what came back. It is
 // what the page shows beside the webhook it belongs to, so a subscriber can see
-// that their end answers without asking anybody. The body that was sent is not
-// kept, and neither are the headers, which carry the channel's bearer token.
+// that their end answers without asking anybody. The body that was sent and the
+// headers are not kept: they are the subscriber's own words, and one of them may
+// be a key.
 type WebhookCall struct {
 	ID        int64     `json:"id"`
 	Kind      string    `json:"kind"`
