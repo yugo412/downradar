@@ -92,6 +92,7 @@ export interface AdminService {
   status: ServiceStatus
   state: string
   active: boolean
+  visibility: Visibility
   ownerId?: number
   ownerName?: string
   ownerEmail?: string

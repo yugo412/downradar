@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { AdminProfile, ServiceCreated, ServicePayload } from '~/types/api'
 
-definePageMeta({ middleware: 'staff', ssr: false })
+definePageMeta({ middleware: 'authenticated', ssr: false })
 
 useSeoMeta({ title: 'Add service', robots: 'noindex, nofollow' })
 
@@ -54,7 +54,13 @@ async function save(payload: ServicePayload) {
 
     <h1 class="mt-4 text-2xl font-bold tracking-tight">Add service</h1>
     <p class="mt-1 text-sm opacity-70">
-      The service is published straight away and picked up by the poller on its next pass.
+      <template v-if="canManageServices">
+        The service is published straight away and picked up by the poller on its next pass.
+      </template>
+      <template v-else>
+        The service is checked against every adapter, and it is published as soon as one can read
+        its page.
+      </template>
     </p>
 
     <div class="mt-6 rounded-box border border-base-300 bg-base-100 p-5 shadow-sm">
@@ -65,7 +71,8 @@ async function save(payload: ServicePayload) {
         v-else
         :profiles="profiles"
         :categories="categories"
-        :can-choose-visibility="canManageServices"
+        :show-visibility="true"
+        :can-choose-profile="canManageServices"
         submit-label="Add service"
         :busy="busy"
         :error="error"

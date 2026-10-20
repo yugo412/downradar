@@ -79,7 +79,7 @@ func (s *Store) ListVendors(ctx context.Context) ([]VendorSummary, error) {
 			join component_state cs on cs.component_id = c.id
 			where c.service_id = s.id and c.active
 		) agg on true
-		where s.active and s.status = 'published' and s.owner_id is null
+		where s.active and s.status = 'published' and s.visibility = 'public'
 		order by s.name`)
 	if err != nil {
 		return nil, fmt.Errorf("read: list vendors: %w", err)
@@ -149,7 +149,7 @@ func (s *Store) GetVendor(ctx context.Context, slug string, viewer Viewer) (*Ven
 		from services s
 		left join service_state ss on ss.service_id = s.id
 		where s.slug = $1 and s.active and s.status = 'published'
-		  and (s.owner_id is null
+		  and (s.visibility = 'public'
 		       or ($2::bigint > 0 and s.owner_id = $2)
 		       or $3::boolean)`, slug, viewer.UserID, viewer.IsStaff,
 	).Scan(&serviceID, &v.Slug, &v.Name, &v.URL, &v.Category, &v.LogoURL, &v.Status, &v.ChangedAt, &v.LastPolledAt)
@@ -242,7 +242,7 @@ func (s *Store) FindVendor(ctx context.Context, nameOrSlug string) (string, erro
 	var slug string
 	err := s.pool.QueryRow(ctx, `
 		select slug from services
-		where active and owner_id is null and status <> 'rejected'
+		where active and visibility = 'public' and status <> 'rejected'
 		  and (lower(slug) = lower($1) or lower(name) = lower($1))
 		order by status desc
 		limit 1`, strings.TrimSpace(nameOrSlug)).Scan(&slug)
@@ -273,7 +273,7 @@ func (s *Store) Stats(ctx context.Context) (Stats, error) {
 		       count(*) filter (where coalesce(ss.status, 'unknown') = 'unknown')
 		from services s
 		left join service_state ss on ss.service_id = s.id
-		where s.active and s.status = 'published' and s.owner_id is null`).Scan(&st.Total, &st.Healthy, &st.Degraded, &st.Down, &st.Unknown)
+		where s.active and s.status = 'published' and s.visibility = 'public'`).Scan(&st.Total, &st.Healthy, &st.Degraded, &st.Down, &st.Unknown)
 	if err != nil {
 		return st, fmt.Errorf("read: stats: %w", err)
 	}

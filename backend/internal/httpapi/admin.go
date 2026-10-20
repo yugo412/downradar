@@ -203,8 +203,12 @@ func (h *handlers) listServices(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// findVisibleService reads a service and answers 404 when the caller may not see
-// it. Not 403: a private service should not even be confirmed to exist.
+// findVisibleService reads a service and answers 404 when the caller may not
+// see it. Not 403: a private service should not even be confirmed to exist.
+//
+// This is the management shape of a row, which carries the owner's address and
+// the fetch log, so it is the owner's and the staff's. A catalogue row that
+// belongs to somebody else is read through the public vendor API instead.
 func (h *handlers) findVisibleService(w http.ResponseWriter, r *http.Request) *store.AdminService {
 	current, err := h.store.AdminGetService(r.Context(), r.PathValue("slug"))
 	if errors.Is(err, store.ErrNotFound) {
@@ -215,7 +219,7 @@ func (h *handlers) findVisibleService(w http.ResponseWriter, r *http.Request) *s
 		h.fail(w, r, err)
 		return nil
 	}
-	if !h.viewer(r).CanSee(current.OwnerID) {
+	if !staffOrOwner(h.viewer(r), current.OwnerID) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Service not found"})
 		return nil
 	}
@@ -418,11 +422,29 @@ func (h *handlers) createService(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if visibility == visibilityPublic && !auth.CanManageServices(user.Role) {
-		writeJSON(w, http.StatusForbidden, map[string]string{
-			"error": "Only staff can add a service to the public catalogue",
-		})
-		return
+
+	// Staff know which adapter reads a page; a subscriber does not, and the
+	// picker is not shown to them. Their row is saved as no_match and left to
+	// the detection pass, which publishes it as soon as a profile fits.
+	staff := auth.CanManageServices(user.Role)
+	if !staff {
+		profile = ""
+
+		// The suggestion queue refuses a service the site already watches, so
+		// the add form does too: a second row for the same page is a vendor that
+		// can never store a report.
+		existing, err := h.store.FindVendor(r.Context(), name)
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		if existing != "" {
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"error":      name + " is already on the site",
+				"vendorSlug": existing,
+			})
+			return
+		}
 	}
 
 	// A vendor added without a profile is offered to the detection queue, so the
@@ -430,7 +452,9 @@ func (h *handlers) createService(w http.ResponseWriter, r *http.Request) {
 	// still saved, as no_match, and the poller keeps looking.
 	status := string(store.StatusPublished)
 	if profile == "" && pageURL != "" {
-		if profile = h.detectProfileFor(r, name, pageURL); profile == "" {
+		if !staff {
+			status = string(store.StatusNoMatch)
+		} else if profile = h.detectProfileFor(r, name, pageURL); profile == "" {
 			status = string(store.StatusNoMatch)
 		}
 	}
@@ -441,8 +465,10 @@ func (h *handlers) createService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Whoever added a row keeps it: a private service is only theirs to see, and
+	// a public one is still theirs to look after.
 	var ownerID *int64
-	if visibility == visibilityPrivate {
+	if visibility == visibilityPrivate || !staff {
 		ownerID = &user.ID
 	}
 
@@ -458,6 +484,7 @@ func (h *handlers) createService(w http.ResponseWriter, r *http.Request) {
 		PollIntervalSeconds:   chosen.PollIntervalSeconds,
 		ActiveIntervalSeconds: chosen.ActiveIntervalSeconds,
 		Status:                status,
+		Visibility:            visibility,
 		OwnerID:               ownerID,
 	})
 	if err != nil {
@@ -494,6 +521,18 @@ func (h *handlers) updateService(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := h.user(r)
+	staff := auth.CanManageServices(user.Role)
+
+	// A subscriber edits the service they added: its name, its page, its logo,
+	// its category, its aliases and who may see it. The adapter, its endpoint,
+	// the stage and the active flag stay with staff, so a body that carries them
+	// changes nothing.
+	if !staff {
+		body.Profile = nil
+		body.Endpoint = nil
+		body.Status = nil
+		body.Active = nil
+	}
 
 	// The row has to stay valid as a whole, so the patch is merged onto the
 	// stored values before it is checked. Publishing a proposal that has no url
@@ -530,6 +569,15 @@ func (h *handlers) updateService(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Status != nil {
 		status = strings.ToLower(clean(sanitize(*body.Status)))
+	}
+
+	// A page that moves is matched again: which adapter reads it is not the
+	// owner's to know, and the one on the row may not read the new page.
+	if !staff && pageURL != current.URL &&
+		(current.Status == string(store.StatusPublished) ||
+			current.Status == string(store.StatusNoMatch)) {
+		profile = ""
+		status = string(store.StatusNoMatch)
 	}
 
 	// A vendor that is about to be polled without a profile is offered to the
@@ -586,15 +634,11 @@ func (h *handlers) updateService(w http.ResponseWriter, r *http.Request) {
 		patch.Status = &status
 	}
 
-	// Moving a service between the catalogue and one person's list is a staff
-	// decision, and a private service belongs to whoever asked for it.
+	// Who may see a service and who looks after it are separate questions. A
+	// private row belongs to whoever asked for it; publishing one leaves it with
+	// whoever added it, whether that is the subscriber who chose private and
+	// changed their mind or a member of staff moving it to the catalogue.
 	if body.Visibility != nil {
-		if !auth.CanManageServices(user.Role) {
-			writeJSON(w, http.StatusForbidden, map[string]string{
-				"error": "Only staff can change who a service belongs to",
-			})
-			return
-		}
 		visibility := strings.ToLower(clean(sanitize(*body.Visibility)))
 		if visibility != visibilityPublic && visibility != visibilityPrivate {
 			writeJSON(w, http.StatusBadRequest, map[string]string{
@@ -602,8 +646,9 @@ func (h *handlers) updateService(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		patch.SetOwner = true
-		if visibility == visibilityPrivate {
+		patch.Visibility = &visibility
+		if staff && visibility == visibilityPrivate {
+			patch.SetOwner = true
 			patch.OwnerID = &user.ID
 		}
 	}

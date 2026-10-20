@@ -246,7 +246,7 @@ func (s *Store) ListUsers(ctx context.Context, role, search string) ([]UserView,
 		        from alert_subscriptions a
 		        join services v on v.id = a.service_id
 		        where a.user_id = u.id
-		          and v.active and v.status = 'published' and v.owner_id is null
+		          and v.active and v.status = 'published' and v.visibility = 'public'
 		          and exists (
 		              select 1 from alert_channels c
 		              where c.subscription_id = a.id and c.unsubscribed_at is null

@@ -239,16 +239,17 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 			"Rate limit exceeded, please try again in a moment", h.detectProfile)))
 	mux.HandleFunc("GET /api/v1/categories", h.requireAuth(h.listCategories))
 
-	// The service routes are staff only: a subscriber looks after the alerts on
-	// the catalogue, not after the catalogue itself. A service they want added
-	// goes through the public suggestion queue.
-	mux.HandleFunc("GET /api/v1/services", h.requireStaff(h.listServices))
-	mux.HandleFunc("POST /api/v1/services", h.requireStaff(h.createService))
-	mux.HandleFunc("GET /api/v1/services/{slug}", h.requireStaff(h.getService))
-	mux.HandleFunc("PATCH /api/v1/services/{slug}", h.requireStaff(h.updateService))
-	mux.HandleFunc("DELETE /api/v1/services/{slug}", h.requireStaff(h.deleteService))
-	mux.HandleFunc("GET /api/v1/services/{slug}/status", h.requireStaff(h.serviceStatus))
-	mux.HandleFunc("GET /api/v1/services/{slug}/polls", h.requireStaff(h.pollLog))
+	// A subscriber may read the services they added and add another, but the
+	// catalogue belongs to the people who run it: changing a row, moving an
+	// adapter and running the queue stay with staff. Every one of these reads is
+	// narrowed to what the caller may see, an owner to their own rows.
+	mux.HandleFunc("GET /api/v1/services", h.requireAuth(h.listServices))
+	mux.HandleFunc("POST /api/v1/services", h.requireAuth(h.createService))
+	mux.HandleFunc("GET /api/v1/services/{slug}", h.requireAuth(h.getService))
+	mux.HandleFunc("DELETE /api/v1/services/{slug}", h.requireAuth(h.deleteService))
+	mux.HandleFunc("GET /api/v1/services/{slug}/status", h.requireAuth(h.serviceStatus))
+	mux.HandleFunc("GET /api/v1/services/{slug}/polls", h.requireAuth(h.pollLog))
+	mux.HandleFunc("PATCH /api/v1/services/{slug}", h.requireAuth(h.updateService))
 	mux.HandleFunc("POST /api/v1/services/{slug}/detect",
 		h.requireStaff(h.limited(h.readLimiter, true,
 			"Rate limit exceeded, please try again in a moment", h.retryDetection)))

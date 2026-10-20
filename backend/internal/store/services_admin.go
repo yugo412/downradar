@@ -27,6 +27,7 @@ type AdminService struct {
 	Status                string     `json:"status"`
 	State                 string     `json:"state"`
 	Active                bool       `json:"active"`
+	Visibility            string     `json:"visibility"`
 	OwnerID               *int64     `json:"ownerId,omitempty"`
 	OwnerName             string     `json:"ownerName,omitempty"`
 	OwnerEmail            string     `json:"ownerEmail,omitempty"`
@@ -40,7 +41,7 @@ type AdminService struct {
 const adminServiceColumns = `
 	s.id, s.slug, s.name, coalesce(s.url, ''), coalesce(s.category, ''), coalesce(s.logo_url, ''),
 	coalesce(s.profile, ''), coalesce(s.endpoint, ''), s.aliases, s.allow_shared_page,
-	s.poll_interval_seconds, s.active_interval_seconds, s.status, s.active,
+	s.poll_interval_seconds, s.active_interval_seconds, s.status, s.active, s.visibility,
 	coalesce(st.status, 'unknown'),
 	s.last_polled_at, s.created_at, s.updated_at,
 	s.owner_id, coalesce(u.name, ''), coalesce(u.email, ''),
@@ -57,7 +58,7 @@ func scanAdminService(row rowScanner) (*AdminService, error) {
 	if err := row.Scan(
 		&a.ID, &a.Slug, &a.Name, &a.URL, &a.Category, &a.LogoURL,
 		&a.Profile, &a.Endpoint, &a.Aliases, &a.AllowSharedPage,
-		&a.PollIntervalSeconds, &a.ActiveIntervalSeconds, &a.Status, &a.Active,
+		&a.PollIntervalSeconds, &a.ActiveIntervalSeconds, &a.Status, &a.Active, &a.Visibility,
 		&a.State,
 		&a.LastPolledAt, &a.CreatedAt, &a.UpdatedAt,
 		&a.OwnerID, &a.OwnerName, &a.OwnerEmail,
@@ -167,9 +168,11 @@ type NewService struct {
 	// Status is empty for a vendor that is live. A vendor added without a
 	// profile that nothing could read is stored as no_match instead.
 	Status string
-	// OwnerID nil means the public catalogue, which is what makes a service
-	// private: it stays polled, it just stops being listed.
-	OwnerID *int64
+	// Visibility is who may see the row: the catalogue, or only its owner and
+	// the staff. An empty value follows OwnerID, which is what every caller
+	// before the column meant.
+	Visibility string
+	OwnerID    *int64
 }
 
 // A vendor saved before its profile is known has no cadence of its own yet, so
@@ -199,6 +202,14 @@ func (s *Store) CreateService(ctx context.Context, in NewService) (string, error
 		status = string(StatusPublished)
 	}
 
+	visibility := in.Visibility
+	if visibility == "" {
+		visibility = VisibilityPublic
+		if in.OwnerID != nil {
+			visibility = VisibilityPrivate
+		}
+	}
+
 	pollSeconds := in.PollIntervalSeconds
 	if pollSeconds <= 0 {
 		pollSeconds = defaultPollIntervalSeconds
@@ -211,11 +222,12 @@ func (s *Store) CreateService(ctx context.Context, in NewService) (string, error
 	if _, err := s.pool.Exec(ctx, `
 		insert into services (slug, name, url, category, logo_url, profile, endpoint,
 		                      aliases, include_components, allow_shared_page, active,
-		                      poll_interval_seconds, active_interval_seconds, status, owner_id, updated_at)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, '{}', false, true, $9, $10, $11, $12, now())`,
+		                      poll_interval_seconds, active_interval_seconds, status,
+		                      visibility, owner_id, updated_at)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, '{}', false, true, $9, $10, $11, $12, $13, now())`,
 		slug, in.Name, nullify(in.URL), nullify(in.Category), nullify(in.LogoURL),
 		nullify(in.Profile), nullify(in.Endpoint), aliases,
-		pollSeconds, activeSeconds, status, in.OwnerID,
+		pollSeconds, activeSeconds, status, visibility, in.OwnerID,
 	); err != nil {
 		return "", fmt.Errorf("services: create %s: %w", slug, err)
 	}
@@ -242,13 +254,16 @@ type ServicePatch struct {
 	// meaningful value here: it is what moves a service back to the catalogue.
 	SetOwner bool
 	OwnerID  *int64
+	// Visibility moves a row between the catalogue and one person's list
+	// without touching whose it is.
+	Visibility *string
 }
 
 func (p ServicePatch) Empty() bool {
 	return p.Name == nil && p.URL == nil && p.Profile == nil && p.Category == nil &&
 		p.LogoURL == nil && p.Endpoint == nil && p.Aliases == nil && p.Status == nil &&
 		p.Active == nil && p.PollIntervalSeconds == nil && p.ActiveIntervalSeconds == nil &&
-		!p.SetOwner
+		!p.SetOwner && p.Visibility == nil
 }
 
 func (s *Store) UpdateService(ctx context.Context, slug string, p ServicePatch) error {
@@ -266,11 +281,12 @@ func (s *Store) UpdateService(ctx context.Context, slug string, p ServicePatch) 
 			owner_id   = case when $11::boolean then $12::bigint else owner_id end,
 			poll_interval_seconds   = coalesce($13::int, poll_interval_seconds),
 			active_interval_seconds = coalesce($14::int, active_interval_seconds),
+			visibility = coalesce($15::text, visibility),
 			updated_at = now()
 		where slug = $1`,
 		slug, p.Name, p.URL, p.Profile, p.Category, p.LogoURL, p.Endpoint,
 		p.Aliases, p.Status, p.Active, p.SetOwner, p.OwnerID,
-		p.PollIntervalSeconds, p.ActiveIntervalSeconds)
+		p.PollIntervalSeconds, p.ActiveIntervalSeconds, p.Visibility)
 	if err != nil {
 		return fmt.Errorf("services: update %s: %w", slug, err)
 	}

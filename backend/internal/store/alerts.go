@@ -307,7 +307,7 @@ func (s *Store) PublicService(ctx context.Context, slug string) (int64, string, 
 	var name string
 	err := s.pool.QueryRow(ctx, `
 		select id, name from services
-		where slug = $1 and active and status = 'published' and owner_id is null`,
+		where slug = $1 and active and status = 'published' and visibility = 'public'`,
 		slug,
 	).Scan(&id, &name)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -823,7 +823,7 @@ func (s *Store) AlertElsewhere(ctx context.Context, email string, serviceID int6
 		join services v on v.id = a.service_id
 		where c.kind = 'email' and c.address = $1 and c.unsubscribed_at is null
 		  and a.service_id <> $2
-		  and v.active and v.status = 'published' and v.owner_id is null
+		  and v.active and v.status = 'published' and v.visibility = 'public'
 		order by c.id
 		limit 1`, email, serviceID).Scan(&ref.Name, &ref.Slug)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -849,7 +849,7 @@ func (s *Store) WatchedServiceCount(ctx context.Context, userID int64) (int, err
 		from alert_subscriptions a
 		join services v on v.id = a.service_id
 		where a.user_id = $1
-		  and v.active and v.status = 'published' and v.owner_id is null
+		  and v.active and v.status = 'published' and v.visibility = 'public'
 		  and exists (
 			select 1 from alert_channels c
 			where c.subscription_id = a.id and c.unsubscribed_at is null

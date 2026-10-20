@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { AdminProfile, AdminService, ServiceStatus } from '~/types/api'
 
-definePageMeta({ middleware: 'staff', ssr: false })
+definePageMeta({ middleware: 'authenticated', ssr: false })
 
 useSeoMeta({ title: 'Services', robots: 'noindex, nofollow' })
 
@@ -54,7 +54,12 @@ const { data, pending, error, refresh } = useFetch<{ services: AdminService[]; c
   () => `/api/v1/services?filter=${stage.value}&q=${encodeURIComponent(search.value)}`,
 )
 
-const services = computed(() => data.value?.services ?? [])
+const services = computed(() => {
+  const rows = data.value?.services ?? []
+  // A subscriber cannot restore or purge a row once it is off the site, so it
+  // leaves their list when it leaves the site. Staff still see it and decide.
+  return canManageServices.value ? rows : rows.filter((service) => service.active)
+})
 
 // The adapter names, for the profile picker. Taken from the catalogue rather than
 // from the rows on screen, so a profile can still be picked after a search that
@@ -292,6 +297,9 @@ function removalMessage(service: AdminService | null) {
   if (service.status === 'proposed') {
     return `${service.name} was only a suggestion, so it is deleted for good. Nothing else is affected.`
   }
+  if (!canManageServices.value) {
+    return `${service.name} is taken off the site and stops being checked. Its history is kept, and staff can restore it.`
+  }
   return `${service.name} is taken off the site and stops being polled. Its history is kept, and you can restore it from the Removed filter.`
 }
 
@@ -387,7 +395,10 @@ async function onSaved() {
           <template v-if="canManageServices">
             Everything the poller knows about. Suggestions arrive as proposed and wait here.
           </template>
-          <template v-else>Services that only you can see.</template>
+          <template v-else>
+            Services you added. A new one is checked against every adapter, and it is published
+            once one can read its page.
+          </template>
         </p>
       </div>
       <NuxtLink to="/services/new" class="btn btn-primary btn-sm">Add service</NuxtLink>
@@ -400,10 +411,15 @@ async function onSaved() {
       :class="createdParked ? 'alert-warning' : 'alert-success'"
     >
       <div>
-        <p v-if="createdParked">
+        <p v-if="createdParked && canManageServices">
           {{ createdName }} was saved, but no adapter profile can read its page yet, so it is not
           polled. A new profile has to be written for its platform before it can be; until then the
           poller keeps trying it, and Retry on its row runs that check right away.
+        </p>
+        <p v-else-if="createdParked">
+          {{ createdName }} was saved. It is being checked against every adapter, and it is
+          published once one can read its page. If none can, staff look at it and you can still
+          find it here meanwhile.
         </p>
         <p v-else>{{ createdName }} was added and is live.</p>
         <NuxtLink :to="`/services/${created}`" class="link text-sm">View detail</NuxtLink>
@@ -420,6 +436,7 @@ async function onSaved() {
       />
 
       <select
+        v-if="canManageServices"
         v-model="profile"
         class="select select-bordered w-full sm:w-56"
         aria-label="Filter services by profile"
@@ -443,7 +460,7 @@ async function onSaved() {
       @clear="clearList"
     />
 
-    <div role="tablist" class="tabs tabs-box mb-4">
+    <div v-if="canManageServices" role="tablist" class="tabs tabs-box mb-4">
       <button
         v-for="s in stages"
         :key="s.value"
@@ -493,17 +510,24 @@ async function onSaved() {
                   {{ s.name }}
                 </NuxtLink>
                 <div class="font-mono text-xs opacity-50">/{{ s.slug }}</div>
-                <div v-if="s.ownerId" class="mt-1">
+                <div v-if="s.ownerId && canManageServices" class="mt-1">
                   <span class="badge badge-ghost badge-sm" :title="s.ownerEmail">
-                    {{ s.status === 'proposed' ? `suggested by ${s.ownerName}` : `private · ${s.ownerName}` }}
+                    {{ s.status === 'proposed' ? `suggested by ${s.ownerName}` : `added by ${s.ownerName}` }}
                   </span>
                 </div>
               </td>
               <td>
-                <span
-                  class="badge badge-sm whitespace-nowrap"
-                  :class="serviceStatusClass(s.status, s.active)"
-                >{{ serviceStatusLabel(s.status, s.active) }}</span>
+                <div class="flex flex-wrap items-center gap-1">
+                  <span
+                    class="badge badge-sm whitespace-nowrap"
+                    :class="serviceStatusClass(s.status, s.active)"
+                  >{{ serviceStatusLabel(s.status, s.active) }}</span>
+                  <span
+                    v-if="s.visibility === 'private'"
+                    class="badge badge-ghost badge-sm"
+                    title="Only you and the staff can see it"
+                  >Private</span>
+                </div>
               </td>
               <td>
                 <span v-if="s.profile" class="font-mono text-xs">{{ s.profile }}</span>
@@ -528,6 +552,8 @@ async function onSaved() {
                 <div class="flex justify-end">
                   <ServiceActions
                     :service="s"
+                    :can-edit="canManageServices || ownsService(s)"
+                    :can-manage="canManageServices"
                     :can-remove="canRemove(s)"
                     :can-purge="canPurge(s)"
                     :retrying="retrying === s.slug"
@@ -558,12 +584,19 @@ async function onSaved() {
               </NuxtLink>
               <div class="font-mono text-xs opacity-50">/{{ s.slug }}</div>
             </div>
-            <span
-              class="badge badge-sm shrink-0 whitespace-nowrap"
-              :class="serviceStatusClass(s.status, s.active)"
-            >
-              {{ serviceStatusLabel(s.status, s.active) }}
-            </span>
+            <div class="flex shrink-0 flex-wrap items-center justify-end gap-1">
+              <span
+                class="badge badge-sm whitespace-nowrap"
+                :class="serviceStatusClass(s.status, s.active)"
+              >
+                {{ serviceStatusLabel(s.status, s.active) }}
+              </span>
+              <span
+                v-if="s.visibility === 'private'"
+                class="badge badge-ghost badge-sm"
+                title="Only you and the staff can see it"
+              >Private</span>
+            </div>
           </div>
 
           <div class="mt-2 flex flex-wrap items-center gap-2 text-xs opacity-70">
@@ -587,15 +620,17 @@ async function onSaved() {
             updated <LiveAgo :at="s.updatedAt" />
           </div>
 
-          <div v-if="s.ownerId" class="mt-1">
+          <div v-if="s.ownerId && canManageServices" class="mt-1">
             <span class="badge badge-ghost badge-sm" :title="s.ownerEmail">
-              private &middot; {{ s.ownerName }}
+              added by {{ s.ownerName }}
             </span>
           </div>
 
           <div class="mt-3">
             <ServiceActions
               :service="s"
+              :can-edit="canManageServices || ownsService(s)"
+              :can-manage="canManageServices"
               :can-remove="canRemove(s)"
               :can-purge="canPurge(s)"
               :retrying="retrying === s.slug"

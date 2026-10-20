@@ -4,11 +4,11 @@
 // asked the API who the visitor is, and useRequestHeaders does not carry the
 // session cookie there. Reading the h3 event directly does work, and failing
 // closed is the right behaviour when the API cannot be reached.
-const SESSION_PREFIXES = ['/account']
-const STAFF_PREFIX = '/services'
+const SESSION_PREFIXES = ['/account', '/alerts', '/services']
 const ADMIN_PREFIX = '/users'
-
-const STAFF_ROLES = ['admin', 'moderator']
+// The link in an alert email has to work without a session, even though it sits
+// under a prefix that otherwise needs one.
+const PUBLIC_PATHS = ['/alerts/unsubscribe']
 
 function under(path: string, prefix: string) {
   return path === prefix || path.startsWith(`${prefix}/`)
@@ -16,10 +16,11 @@ function under(path: string, prefix: string) {
 
 export default defineEventHandler(async (event) => {
   const path = event.path.split('?')[0]
-  const needsSession = SESSION_PREFIXES.some((prefix) => under(path, prefix))
-  const needsStaff = under(path, STAFF_PREFIX)
+  const needsSession =
+    !PUBLIC_PATHS.some((prefix) => under(path, prefix)) &&
+    SESSION_PREFIXES.some((prefix) => under(path, prefix))
   const needsAdmin = under(path, ADMIN_PREFIX)
-  if (!needsSession && !needsStaff && !needsAdmin) return
+  if (!needsSession && !needsAdmin) return
 
   const config = useRuntimeConfig()
 
@@ -41,11 +42,6 @@ export default defineEventHandler(async (event) => {
 
   if (role === '') {
     return sendRedirect(event, `/login?next=${encodeURIComponent(path)}`, 302)
-  }
-  // The service pages belong to the people who run the catalogue; a subscriber
-  // is sent to the alerts they look after. /users is admin only.
-  if (needsStaff && !STAFF_ROLES.includes(role)) {
-    return sendRedirect(event, '/alerts', 302)
   }
   if (needsAdmin && role !== 'admin') {
     return sendRedirect(event, '/', 302)
