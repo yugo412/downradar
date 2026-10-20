@@ -35,7 +35,12 @@ useSeoMeta({
       <div class="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between gap-4">
         <SiteBrand />
         <nav class="flex items-center gap-1 shrink-0">
-          <ThemeToggle />
+          <!-- The theme button is drawn by the browser, for the same reason it
+               is in the ClientOnly block of app.vue: the server cannot know
+               the system's colour scheme. -->
+          <ClientOnly>
+            <ThemeToggle />
+          </ClientOnly>
         </nav>
       </div>
     </header>

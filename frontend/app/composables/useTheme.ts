@@ -20,7 +20,28 @@ export function useTheme() {
     path: '/',
   })
 
-  const theme = computed<Theme>(() => (cookie.value === 'dark' ? 'dark' : 'cmyk'))
+  // The theme the system asks for. Only the browser knows it, and the server
+  // cannot know it at all: the page it renders is cached and handed to every
+  // visitor, so a theme read from the request would be the wrong one for
+  // most of them. The inline script in nuxt.config.ts reads the same thing
+  // before the first paint, which is what puts the right theme on the page.
+  const system = import.meta.client
+    ? window.matchMedia('(prefers-color-scheme: dark)').matches
+      ? 'dark'
+      : 'cmyk'
+    : null
+
+  // The theme in force: the one the visitor chose, if the cookie carries it,
+  // and otherwise the one their system asks for. The cookie is written only
+  // when the toggle is used, so a visitor who never touches it keeps
+  // following the system.
+  const theme = computed<Theme>(() => {
+    const chosen = cookie.value
+    if (chosen === 'dark' || chosen === 'cmyk') {
+      return chosen
+    }
+    return system ?? 'cmyk'
+  })
 
   function apply(next: Theme) {
     if (import.meta.client) {
