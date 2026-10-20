@@ -1,0 +1,26 @@
+{{/* Somebody asked to sign in without a password. The link works once and expires
+     in fifteen minutes, because it opens the account itself rather than asking
+     for a new password. The token travels in the query string of a page on the
+     site, which posts it back: a link that acted on its own would be spent by
+     the first mail scanner that fetched it. */}}
+{{define "login"}}
+<p style="margin:0 0 16px;">Hello {{.Name}},</p>
+<p style="margin:0 0 20px;">
+  Here is the link that signs you in. Open it in the browser you want to use.
+</p>
+<p style="margin:0 0 20px;">
+  <a
+    href="{{.URL}}"
+    style="display:inline-block;padding:10px 18px;border-radius:8px;background:#45aeee;color:#020b13;font-weight:600;text-decoration:none;"
+    >Sign in</a
+  >
+</p>
+<p style="margin:0 0 16px;font-size:13px;color:#6f6f6f;">
+  If the button does not work, open this link in a browser:<br />
+  <a href="{{.URL}}" style="color:#161616;word-break:break-all;">{{.URL}}</a>
+</p>
+<p style="margin:0;font-size:13px;color:#6f6f6f;">
+  The link works once and expires in fifteen minutes. If you did not ask for it, nothing has
+  changed and you can ignore this email.
+</p>
+{{end}}

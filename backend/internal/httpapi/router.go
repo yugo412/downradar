@@ -37,6 +37,7 @@ type handlers struct {
 	accountLimiter  *ipLimiter
 	contactLimiter  *ipLimiter
 	loginLimiter    *ipLimiter
+	linkLimiter     *ipLimiter
 	passwordLimiter *ipLimiter
 	internalToken   string
 	sessionCookie   string
@@ -62,6 +63,8 @@ type Options struct {
 	ContactBurst            int
 	LoginPerHour            int
 	LoginBurst              int
+	LinkPerHour             int
+	LinkBurst               int
 	PasswordPerHour         int
 	PasswordBurst           int
 	InternalToken           string
@@ -107,6 +110,11 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 		loginInterval = time.Hour / time.Duration(opts.LoginPerHour)
 	}
 
+	linkInterval := time.Hour
+	if opts.LinkPerHour > 0 {
+		linkInterval = time.Hour / time.Duration(opts.LinkPerHour)
+	}
+
 	passwordInterval := time.Hour
 	if opts.PasswordPerHour > 0 {
 		passwordInterval = time.Hour / time.Duration(opts.PasswordPerHour)
@@ -143,6 +151,7 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 		accountLimiter:  newIPLimiter(accountInterval, opts.AccountBurst),
 		contactLimiter:  newIPLimiter(contactInterval, opts.ContactBurst),
 		loginLimiter:    newIPLimiter(loginInterval, opts.LoginBurst),
+		linkLimiter:     newIPLimiter(linkInterval, opts.LinkBurst),
 		passwordLimiter: newIPLimiter(passwordInterval, opts.PasswordBurst),
 		internalToken:   opts.InternalToken,
 		sessionCookie:   cookieName,
@@ -218,6 +227,16 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 
 	// Accounts made from the site. These send email to an address somebody typed,
 	// so they get their own budget rather than sharing the sign in one.
+	// Sending a sign in link is its own budget rather than the sign in form's:
+	// it puts a message into any inbox somebody types, so it is the one that
+	// costs something to abuse.
+	mux.HandleFunc("POST /api/v1/auth/link",
+		h.authEndpoint(h.limited(h.linkLimiter, false,
+			"Too many sign in links, please try again later", h.sendLoginLink)))
+	mux.HandleFunc("POST /api/v1/auth/link/session",
+		h.authEndpoint(h.limited(h.accountLimiter, false,
+			"Too many attempts, please try again later", h.loginWithLink)))
+
 	mux.HandleFunc("POST /api/v1/auth/register",
 		h.authEndpoint(h.limited(h.accountLimiter, false,
 			"Too many accounts have been asked for, please try again later", h.register)))

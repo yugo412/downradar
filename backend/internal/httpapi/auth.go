@@ -24,6 +24,9 @@ const userContextKey contextKey = "user"
 type loginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+	// Remember is the visitor's answer to whether the browser should keep the
+	// session after it closes. Left out means no.
+	Remember bool `json:"remember"`
 }
 
 func (h *handlers) user(r *http.Request) *store.User {
@@ -47,17 +50,24 @@ func (h *handlers) authenticate(r *http.Request) (*store.User, error) {
 	return h.store.SessionUser(r.Context(), auth.HashToken(token))
 }
 
-func (h *handlers) setSessionCookie(w http.ResponseWriter, token string, expires time.Time) {
-	http.SetCookie(w, &http.Cookie{
+// setSessionCookie hands the browser its session. Without a remember me the
+// cookie is one the browser keeps only while it is open: the row behind it still
+// expires on its own schedule, but closing the window ends this machine's copy,
+// which is what somebody who was borrowed a computer expects.
+func (h *handlers) setSessionCookie(w http.ResponseWriter, token string, expires time.Time, remember bool) {
+	cookie := &http.Cookie{
 		Name:     h.sessionCookie,
 		Value:    token,
 		Path:     "/",
-		Expires:  expires,
-		MaxAge:   int(time.Until(expires).Seconds()),
 		HttpOnly: true,
 		Secure:   h.sessionSecure,
 		SameSite: http.SameSiteLaxMode,
-	})
+	}
+	if remember {
+		cookie.Expires = expires
+		cookie.MaxAge = int(time.Until(expires).Seconds())
+	}
+	http.SetCookie(w, cookie)
 }
 
 func (h *handlers) clearSessionCookie(w http.ResponseWriter) {
@@ -221,12 +231,12 @@ func (h *handlers) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.startSession(w, r, user); err != nil {
+	if err := h.startSession(w, r, user, body.Remember); err != nil {
 		h.fail(w, r, err)
 		return
 	}
 
-	h.log.Info("signed in", "user", user.Email, "role", user.Role)
+	h.log.Info("signed in", "user", user.Email, "role", user.Role, "remember", body.Remember)
 	writeJSON(w, http.StatusOK, map[string]any{"user": user})
 }
 

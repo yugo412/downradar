@@ -9,15 +9,17 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// The two kinds of single use link an account needs. They are kept apart so a
-// link that proves an address cannot be spent as a password reset.
+// The kinds of single use link an account needs. They are kept apart so a link
+// that signs somebody in cannot be spent as a password reset, and a link that
+// proves an address cannot be spent as either.
 const (
 	UserTokenVerify = "verify"
 	UserTokenReset  = "reset"
+	UserTokenLogin  = "login"
 )
 
 func UserTokenKindValid(kind string) bool {
-	return kind == UserTokenVerify || kind == UserTokenReset
+	return kind == UserTokenVerify || kind == UserTokenReset || kind == UserTokenLogin
 }
 
 // CreateUserToken records one link. Any outstanding link of the same kind for

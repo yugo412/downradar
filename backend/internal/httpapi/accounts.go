@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"downradar.info/backend/internal/auth"
@@ -13,15 +14,18 @@ import (
 )
 
 // How long each link is good for. Confirming an address is not urgent, and a
-// link in a week old inbox should still work; choosing a new password is.
+// link in a week old inbox should still work; choosing a new password is. A link
+// that signs somebody in is good for minutes, because it opens the account and
+// the person it was sent to is looking at their mail.
 const (
 	verifyTokenTTL = 7 * 24 * time.Hour
 	resetTokenTTL  = time.Hour
+	loginTokenTTL  = 15 * time.Minute
 )
 
-// startSession gives somebody a signed in browser. Signing in and registering
-// both need it, and the two must not drift apart.
-func (h *handlers) startSession(w http.ResponseWriter, r *http.Request, user *store.User) error {
+// startSession gives somebody a signed in browser. Signing in, following a link
+// and registering all need it, and they must not drift apart.
+func (h *handlers) startSession(w http.ResponseWriter, r *http.Request, user *store.User, remember bool) error {
 	token, err := auth.NewToken()
 	if err != nil {
 		return err
@@ -32,8 +36,18 @@ func (h *handlers) startSession(w http.ResponseWriter, r *http.Request, user *st
 		return err
 	}
 
-	h.setSessionCookie(w, token, expires)
+	h.setSessionCookie(w, token, expires, remember)
 	return nil
+}
+
+// localPath keeps the page to open after signing in on this site, so a link that
+// carries one cannot be turned into a way off it.
+func localPath(next string) string {
+	next = strings.TrimSpace(next)
+	if !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") {
+		return ""
+	}
+	return next
 }
 
 // sendVerification makes a fresh link and emails it. A failure to send is
@@ -133,8 +147,9 @@ func (h *handlers) register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// One less step for the visitor, and the banner on the site keeps asking for
-	// the address to be confirmed until it is.
-	if err := h.startSession(w, r, user); err != nil {
+	// the address to be confirmed until it is. A new account stays signed in
+	// after the browser closes, because there is nothing older to compare it to.
+	if err := h.startSession(w, r, user, true); err != nil {
 		h.fail(w, r, err)
 		return
 	}
@@ -337,4 +352,151 @@ func (h *handlers) resetPassword(w http.ResponseWriter, r *http.Request) {
 
 	h.log.Info("password reset", "user", user.Email, "sessions_ended", ended)
 	writeJSON(w, http.StatusOK, map[string]any{"email": user.Email, "sessionsEnded": ended})
+}
+
+type linkRequest struct {
+	Email string `json:"email"`
+	// Next is the page to open once the link has signed the person in, so
+	// somebody sent to the form from a page they asked for ends up back on it.
+	Next string `json:"next"`
+}
+
+// sendLoginLink emails a link that signs the person in. An address without an
+// account is refused rather than quietly turned into one: this is a way in, not
+// a way to get an account.
+func (h *handlers) sendLoginLink(w http.ResponseWriter, r *http.Request) {
+	if h.accountMailer == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "Sign in links are not available right now",
+		})
+		return
+	}
+
+	var body linkRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
+		return
+	}
+
+	email := auth.NormalizeEmail(body.Email)
+	if !auth.ValidEmail(email) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "That does not look like an email address",
+		})
+		return
+	}
+
+	user, err := h.store.UserByEmail(r.Context(), email)
+	if errors.Is(err, store.ErrNotFound) {
+		h.log.Info("sign in link asked for an address with no account",
+			"email", email, "ip", h.clientIP(r))
+		writeJSON(w, http.StatusNotFound, map[string]string{
+			"error": "There is no account with that email address",
+		})
+		return
+	}
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	if user.Disabled() {
+		h.log.Warn("sign in link refused, account disabled", "email", email, "ip", h.clientIP(r))
+		writeJSON(w, http.StatusForbidden, map[string]string{
+			"error": "That account cannot sign in",
+		})
+		return
+	}
+
+	// The answer waits for the mail server here rather than answering first:
+	// unlike a reset, this message is the whole point of the request, and a
+	// visitor whose mail could not be sent needs to hear it now.
+	ctx := context.WithoutCancel(r.Context())
+	token, err := auth.NewToken()
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	if err := h.store.CreateUserToken(ctx, user.ID, store.UserTokenLogin,
+		auth.HashToken(token), time.Now().Add(loginTokenTTL)); err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	if err := h.accountMailer.Login(ctx, user.Email, user.Name, token, localPath(body.Next)); err != nil {
+		h.log.Error("could not send the sign in link", "user", user.Email, "error", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error": "The sign in link could not be sent, try again in a moment",
+		})
+		return
+	}
+
+	h.log.Info("sign in link sent", "user", user.Email, "ip", h.clientIP(r))
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "sent"})
+}
+
+type linkSessionRequest struct {
+	Token    string `json:"token"`
+	Remember bool   `json:"remember"`
+}
+
+// loginWithLink signs somebody in from the link in their inbox. The link proves
+// the address, so an account that was never confirmed by hand becomes confirmed
+// on the way in.
+func (h *handlers) loginWithLink(w http.ResponseWriter, r *http.Request) {
+	var body linkSessionRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
+		return
+	}
+	if body.Token == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "A token is required"})
+		return
+	}
+
+	hash := auth.HashToken(body.Token)
+	user, err := h.store.UserByUserToken(r.Context(), store.UserTokenLogin, hash)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "This link is not valid any more",
+		})
+		return
+	}
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	spent, err := h.store.SpendUserToken(r.Context(), store.UserTokenLogin, hash)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	if !spent {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "This link is not valid any more",
+		})
+		return
+	}
+
+	if !user.Verified() {
+		if err := h.store.SetUserVerified(r.Context(), user.ID); err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		// The row the answer carries has to say so, or the banner on the site
+		// keeps asking for an address that has just been proved.
+		confirmed, err := h.store.UserByID(r.Context(), user.ID)
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		user = confirmed
+	}
+
+	if err := h.startSession(w, r, user, body.Remember); err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	h.log.Info("signed in with a link", "user", user.Email, "role", user.Role)
+	writeJSON(w, http.StatusOK, map[string]any{"user": user})
 }

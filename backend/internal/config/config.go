@@ -19,6 +19,8 @@ type Config struct {
 	SuggestBurst            int
 	LoginPerHour            int
 	LoginBurst              int
+	LinkPerHour             int
+	LinkBurst               int
 	PasswordPerHour         int
 	PasswordBurst           int
 	SessionCookie           string
@@ -59,6 +61,8 @@ func Load() Config {
 		SuggestBurst:            envInt("SUGGEST_RATE_LIMIT_BURST", 5),
 		LoginPerHour:            envInt("LOGIN_RATE_LIMIT_PER_HOUR", 20),
 		LoginBurst:              envInt("LOGIN_RATE_LIMIT_BURST", 5),
+		LinkPerHour:             envInt("LINK_RATE_LIMIT_PER_HOUR", 6),
+		LinkBurst:               envInt("LINK_RATE_LIMIT_BURST", 5),
 		PasswordPerHour:         envInt("PASSWORD_RATE_LIMIT_PER_HOUR", 20),
 		PasswordBurst:           envInt("PASSWORD_RATE_LIMIT_BURST", 5),
 		SessionCookie:           env("SESSION_COOKIE", "dr_session"),

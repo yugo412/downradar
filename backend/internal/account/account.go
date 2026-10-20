@@ -1,6 +1,6 @@
-// Package account sends the two emails an account needs on its own: one that
-// proves an address belongs to whoever typed it, and one that lets somebody who
-// has forgotten their password back in. It is separate from the alert mailer
+// Package account sends the emails an account needs on its own: one that proves
+// an address belongs to whoever typed it, one that signs somebody in from their
+// inbox, and one that lets somebody who has forgotten their password back in. It is separate from the alert mailer
 // because it is about people rather than about vendors, and because these are
 // sent while the request is being answered, not queued.
 package account
@@ -8,6 +8,7 @@ package account
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"downradar.info/backend/internal/mail"
@@ -28,7 +29,7 @@ func New(sender Sender, publicURL string) *Mailer {
 	return &Mailer{sender: sender, publicURL: strings.TrimSuffix(publicURL, "/")}
 }
 
-// letter is what both of these emails are written with: who to greet, and the
+// letter is what each of these emails is written with: who to greet, and the
 // link that does the work. The wording around them is in the templates.
 type letter struct {
 	Name string
@@ -43,6 +44,21 @@ func (m *Mailer) Verify(ctx context.Context, to, name, token string) error {
 		Name: name,
 		URL:  fmt.Sprintf("%s/verify?token=%s", m.publicURL, token),
 	})
+}
+
+// Login sends the link that signs somebody in without a password. It is the
+// shortest lived of the three, because it opens the account itself, and it is
+// the one that most often sits in an inbox waiting to be used.
+//
+// next is the page to open once the link has done its work. The caller has
+// already checked that it is a path on this site, and it is escaped here so the
+// link stays a valid URL.
+func (m *Mailer) Login(ctx context.Context, to, name, token, next string) error {
+	link := fmt.Sprintf("%s/login?token=%s", m.publicURL, token)
+	if next != "" {
+		link += "&next=" + url.QueryEscape(next)
+	}
+	return m.send(ctx, to, "Your sign in link", "login", letter{Name: name, URL: link})
 }
 
 // Reset sends the link that lets somebody choose a new password. It is shorter

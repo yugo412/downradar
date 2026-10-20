@@ -61,3 +61,31 @@ func TestVerifyAndResetCarryTheirOwnLinks(t *testing.T) {
 		t.Errorf("both messages have the subject %q", verify.subject)
 	}
 }
+
+func TestTheSignInLinkCarriesThePageToOpen(t *testing.T) {
+	s := &spy{}
+	m := New(s, "https://downradar.info/")
+
+	ctx := context.Background()
+	if err := m.Login(ctx, "ann@example.com", "Ann", "tok-login", "/alerts"); err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	if err := m.Login(ctx, "ann@example.com", "Ann", "tok-plain", ""); err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+
+	withNext, plain := s.messages[0], s.messages[1]
+	// The template escapes the ampersand, as html/template does everywhere.
+	if !strings.Contains(withNext.body, "login?token=tok-login&amp;next=%2Falerts") {
+		t.Errorf("the sign in link does not carry the page to open:\n%s", withNext.body)
+	}
+	if !strings.Contains(plain.body, "https://downradar.info/login?token=tok-plain") {
+		t.Errorf("the sign in link is wrong:\n%s", plain.body)
+	}
+	if strings.Contains(plain.body, "next=") {
+		t.Errorf("a link without a page to open carries one anyway:\n%s", plain.body)
+	}
+	if withNext.subject == "" || withNext.subject == "Reset your password" {
+		t.Errorf("subject = %q, want it to say what the message is", withNext.subject)
+	}
+}
