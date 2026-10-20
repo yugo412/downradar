@@ -73,9 +73,12 @@ async function resend() {
                the server would be the one of whoever the cached page was
                rendered for. -->
           <ClientOnly>
-            <!-- Both of these stand on their own rather than under the account
-                 menu, and both are hidden on a narrow screen: there the copies
-                 inside the panel below are the ones that show. -->
+            <!-- These stand on their own rather than under the account menu,
+                 and are hidden on a narrow screen: there the copies inside the
+                 panel below are the ones that show. Alerts and Services are
+                 shown to a visitor without an account too, because both pages
+                 are what the site is for; the pages send them to sign in, and
+                 the address they asked for is kept for afterwards. -->
             <NuxtLink
               v-if="isAdmin"
               to="/users"
@@ -84,8 +87,18 @@ async function resend() {
               Users
             </NuxtLink>
 
-            <NuxtLink v-if="user" to="/alerts" class="btn btn-ghost btn-sm hidden md:inline-flex">
+            <NuxtLink to="/alerts" class="btn btn-ghost btn-sm hidden md:inline-flex">
               Alerts
+            </NuxtLink>
+
+            <!-- A subscriber looks after the services they added from the same
+                 list, which is the menu entry the staff reach through Service. -->
+            <NuxtLink
+              v-if="!canManageServices"
+              to="/services"
+              class="btn btn-ghost btn-sm hidden md:inline-flex"
+            >
+              Services
             </NuxtLink>
 
             <NuxtLink to="/contact" class="btn btn-ghost btn-sm hidden md:inline-flex">
@@ -206,35 +219,43 @@ async function resend() {
               v-if="openMenu === 'nav'"
               class="absolute inset-x-0 top-full z-50 border-b border-base-300 bg-base-100 px-4 pb-4 shadow-lg md:hidden"
             >
-              <template v-if="user">
-                <NuxtLink to="/alerts" class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200">
-                  Alerts
-                </NuxtLink>
+              <NuxtLink to="/alerts" class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200">
+                Alerts
+              </NuxtLink>
 
+              <NuxtLink
+                v-if="!canManageServices"
+                to="/services"
+                class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200"
+              >
+                Services
+              </NuxtLink>
+
+              <NuxtLink
+                v-if="isAdmin"
+                to="/users"
+                class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200"
+              >
+                Users
+              </NuxtLink>
+
+              <NuxtLink to="/contact" class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200">
+                Contact
+              </NuxtLink>
+
+              <template v-if="canManageServices">
+                <p class="px-3 pb-1 pt-3 text-xs uppercase tracking-wide opacity-50">Service</p>
                 <NuxtLink
-                  v-if="isAdmin"
-                  to="/users"
+                  v-for="l in serviceLinks"
+                  :key="l.to"
+                  :to="l.to"
                   class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200"
                 >
-                  Users
+                  {{ l.label }}
                 </NuxtLink>
+              </template>
 
-                <NuxtLink to="/contact" class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200">
-                  Contact
-                </NuxtLink>
-
-                <template v-if="canManageServices">
-                  <p class="px-3 pb-1 pt-3 text-xs uppercase tracking-wide opacity-50">Service</p>
-                  <NuxtLink
-                    v-for="l in serviceLinks"
-                    :key="l.to"
-                    :to="l.to"
-                    class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200"
-                  >
-                    {{ l.label }}
-                  </NuxtLink>
-                </template>
-
+              <template v-if="user">
                 <div class="my-2 border-t border-base-300" />
 
                 <p class="px-3 pb-1 text-xs uppercase tracking-wide opacity-50">
@@ -258,6 +279,7 @@ async function resend() {
               </template>
 
               <template v-else>
+                <div class="my-2 border-t border-base-300" />
                 <NuxtLink to="/login" class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200">
                   Sign in
                 </NuxtLink>
@@ -266,9 +288,6 @@ async function resend() {
                   class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200"
                 >
                   Create account
-                </NuxtLink>
-                <NuxtLink to="/contact" class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200">
-                  Contact
                 </NuxtLink>
               </template>
             </div>

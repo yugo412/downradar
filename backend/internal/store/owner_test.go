@@ -211,8 +211,11 @@ func TestMovingAServiceBetweenTheCatalogueAndPrivate(t *testing.T) {
 		t.Fatalf("a new service should be public: %v", err)
 	}
 
-	// Take it private, the way schedules.run would be.
-	if err := st.UpdateService(ctx, slug, ServicePatch{SetOwner: true, OwnerID: &owner.ID}); err != nil {
+	// Take it private, the way the staff screen does.
+	private := VisibilityPrivate
+	if err := st.UpdateService(ctx, slug, ServicePatch{
+		SetOwner: true, OwnerID: &owner.ID, Visibility: &private,
+	}); err != nil {
 		t.Fatalf("UpdateService to private: %v", err)
 	}
 	if _, err := st.GetVendor(ctx, slug, Public()); !errors.Is(err, ErrNotFound) {
@@ -222,12 +225,74 @@ func TestMovingAServiceBetweenTheCatalogueAndPrivate(t *testing.T) {
 		t.Errorf("the owner cannot read it after going private: %v", err)
 	}
 
-	// And back to the catalogue, which is a nil owner and not "leave alone".
-	if err := st.UpdateService(ctx, slug, ServicePatch{SetOwner: true}); err != nil {
+	// And back to the catalogue. It keeps its owner: who may see a row and who
+	// looks after it are separate answers.
+	public := VisibilityPublic
+	if err := st.UpdateService(ctx, slug, ServicePatch{Visibility: &public}); err != nil {
 		t.Fatalf("UpdateService to public: %v", err)
 	}
 	if _, err := st.GetVendor(ctx, slug, Public()); err != nil {
 		t.Errorf("the service did not come back to the catalogue: %v", err)
+	}
+	row, err := st.AdminGetService(ctx, slug)
+	if err != nil {
+		t.Fatalf("AdminGetService: %v", err)
+	}
+	if row.OwnerID == nil || *row.OwnerID != owner.ID {
+		t.Errorf("owner = %v, want it left with %d", row.OwnerID, owner.ID)
+	}
+}
+
+// A service a subscriber published is in the catalogue for everybody and still
+// theirs: it is on their list, and their name is on the row staff read.
+func TestAPublicServiceCanBelongToSomebody(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	owner := newTestUser(t, st, "subscriber")
+	other := newTestUser(t, st, "subscriber")
+
+	name := uniqueName("published by a subscriber")
+	slug, err := st.CreateService(ctx, NewService{
+		Name:                  name,
+		URL:                   "https://status.example.com",
+		Profile:               "statuspage-v2",
+		PollIntervalSeconds:   300,
+		ActiveIntervalSeconds: 60,
+		Visibility:            VisibilityPublic,
+		OwnerID:               &owner.ID,
+	})
+	if err != nil {
+		t.Fatalf("CreateService: %v", err)
+	}
+	t.Cleanup(func() { dropServices(context.Background(), st, slug) })
+
+	if _, err := st.GetVendor(ctx, slug, Public()); err != nil {
+		t.Errorf("the catalogue cannot read a published service: %v", err)
+	}
+
+	mine, err := st.OwnedVendors(ctx, owner.ID)
+	if err != nil {
+		t.Fatalf("OwnedVendors: %v", err)
+	}
+	var found bool
+	for _, vendor := range mine {
+		if vendor.Slug == slug {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("the service is missing from the list of the person who added it")
+	}
+
+	theirs, err := st.AdminListServices(ctx, "all", "", Viewer{UserID: other.ID})
+	if err != nil {
+		t.Fatalf("AdminListServices: %v", err)
+	}
+	for _, row := range theirs {
+		if row.Slug == slug {
+			t.Error("another subscriber can see a row that is not theirs")
+		}
 	}
 }
 

@@ -28,7 +28,20 @@ watch(
   { immediate: true },
 )
 
-const privateSlugs = computed(() => new Set(myVendors.value.map((v) => v.slug)))
+const catalogueSlugs = computed(() => new Set((data.value?.vendors ?? []).map((v) => v.slug)))
+
+// The services this account added, private or published: a card for one of them
+// opens the owner's own view of it, which is where the fetch log and the edit
+// button are. One of them that is not in the catalogue is the private one, and
+// its card says so.
+const ownedSlugs = computed(() => new Set(myVendors.value.map((v) => v.slug)))
+
+const privateSlugs = computed(
+  () =>
+    new Set(
+      myVendors.value.filter((v) => !catalogueSlugs.value.has(v.slug)).map((v) => v.slug),
+    ),
+)
 
 // How a card says the person reading it already watches that service: the bell
 // the site marks an alert with, in the colour of what the alert is doing. A
@@ -95,6 +108,24 @@ const worstFirst = ref(String(route.query.sort ?? '') !== 'name')
 // it, or to nothing at all for a guest. It is dropped with a reload instead.
 const subscribedOnly = ref(false)
 
+// The same kind of chip for the services this account added, with the same
+// reason for staying out of the address.
+const mineOnly = ref(false)
+
+// Signing out leaves nothing to narrow to, and a filter left on would empty the
+// page with no chip in sight to turn it off.
+watch(user, () => {
+  subscribedOnly.value = false
+  mineOnly.value = false
+})
+
+// The clear button in the filter row drops the state chips; these two are not
+// states, so they are dropped here.
+function clearChips() {
+  subscribedOnly.value = false
+  mineOnly.value = false
+}
+
 // The inputs are bound to a local ref, not to the route query. The address is
 // written asynchronously, so reading the value back from the URL while typing
 // re-renders the field with a stale value and swallows keystrokes. The URL is
@@ -148,10 +179,12 @@ watch(
   },
 )
 
-const vendors = computed<Vendor[]>(() => [
-  ...(data.value?.vendors ?? []),
-  ...myVendors.value,
-])
+const vendors = computed<Vendor[]>(() => {
+  const catalogue = data.value?.vendors ?? []
+  // A service the viewer published is in the catalogue and in their own list.
+  // The catalogue copy is the one that keeps it from being drawn twice.
+  return [...catalogue, ...myVendors.value.filter((v) => !catalogueSlugs.value.has(v.slug))]
+})
 
 // The heading names what is actually wrong instead of asking a question nobody
 // answers, rotating through up to five of them, worst first. It reads the public
@@ -226,6 +259,10 @@ const subscribedCount = computed(
   () => matched.value.filter((v) => marks.value.has(v.slug)).length,
 )
 
+const mineCount = computed(
+  () => matched.value.filter((v) => ownedSlugs.value.has(v.slug)).length,
+)
+
 const visible = computed(() => {
   let base = matched.value
   if (statusFilter.value.length) {
@@ -233,6 +270,9 @@ const visible = computed(() => {
   }
   if (subscribedOnly.value) {
     base = base.filter((v) => marks.value.has(v.slug))
+  }
+  if (mineOnly.value) {
+    base = base.filter((v) => ownedSlugs.value.has(v.slug))
   }
 
   const sorted = [...base].sort((a, b) =>
@@ -249,17 +289,24 @@ const visible = computed(() => {
 // A card saying "no match" under a filter that is out of sight is a puzzle, so
 // the pick that emptied the list is named, along with what to do about it.
 const emptyTitle = computed(() =>
-  subscribedOnly.value
+  subscribedOnly.value || mineOnly.value
     ? 'No service here matches the filters you picked'
     : 'No service is in the states you picked',
 )
 
 const emptyHint = computed(() => {
-  if (subscribedOnly.value && statusFilter.value.length) {
-    return 'Clear the status filter or Subscribed to see the rest of the catalogue.'
+  const picked = [subscribedOnly.value ? 'Subscribed' : '', mineOnly.value ? 'My services' : '']
+    .filter(Boolean)
+    .join(' or ')
+
+  if (picked && statusFilter.value.length) {
+    return `Clear the status filter or ${picked} to see the rest of the catalogue.`
   }
   if (subscribedOnly.value) {
     return 'You are not watching any of these yet. Open one and use its bell to follow it.'
+  }
+  if (mineOnly.value) {
+    return 'You have not added a service yet. Add one and it appears here once its page can be read.'
   }
   return 'Clear the status filter to see the rest of the catalogue.'
 })
@@ -380,13 +427,20 @@ useSeoMeta({
       :statuses="statusOptions"
       label="Filter services"
       class="mb-6"
-      @clear="subscribedOnly = false"
+      @clear="clearChips"
     >
-      <!-- Beside the states, because it narrows the same list, and only for
+      <!-- Beside the states, because they narrow the same list, and only for
            somebody signed in: a guest typed an address, not an account, so there
-           is nothing of theirs to narrow to. It waits for the account's alerts to
-           be read in the browser, and a chip with nothing under it is not shown,
-           the same way a state no card is in is not. -->
+           is nothing of theirs to narrow to. They wait for the account's own
+           rows to be read in the browser, and a chip with nothing under it is not
+           shown, the same way a state no card is in is not. -->
+      <FilterChip
+        v-if="user && (mineCount || mineOnly)"
+        v-model="mineOnly"
+        label="My services"
+        :count="mineCount"
+        cls="badge-neutral"
+      />
       <FilterChip
         v-if="user && (subscribedCount || subscribedOnly)"
         v-model="subscribedOnly"
@@ -488,7 +542,7 @@ useSeoMeta({
         <NuxtLink
           v-for="v in visible"
           :key="v.slug"
-          :to="privateSlugs.has(v.slug) ? `/services/${v.slug}` : `/${v.slug}`"
+          :to="ownedSlugs.has(v.slug) ? `/services/${v.slug}` : `/${v.slug}`"
           class="card bg-base-100 border border-base-300 hover:border-primary transition-colors"
         >
           <div class="card-body p-4">

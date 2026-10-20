@@ -16,7 +16,7 @@ func alertService(t *testing.T, st *Store, slug string) int64 {
 
 	id := testService(t, st, slug)
 	if _, err := st.pool.Exec(context.Background(), `
-		update services set status = 'published', owner_id = null, active = true where id = $1`, id); err != nil {
+		update services set status = 'published', visibility = 'public', active = true where id = $1`, id); err != nil {
 		t.Fatalf("make service public: %v", err)
 	}
 	return id
@@ -300,7 +300,7 @@ func TestPublicServiceHidesWhatThePublicCannotSee(t *testing.T) {
 		t.Fatalf("CreateUser: %v", err)
 	}
 	if _, err := st.pool.Exec(ctx,
-		`update services set owner_id = $2 where id = $1`, id, owner.ID); err != nil {
+		`update services set owner_id = $2, visibility = 'private' where id = $1`, id, owner.ID); err != nil {
 		t.Fatalf("make service private: %v", err)
 	}
 	if _, _, err := st.PublicService(ctx, slug); !errors.Is(err, ErrNotFound) {

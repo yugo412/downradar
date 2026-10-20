@@ -52,17 +52,22 @@ app itself, not from fixtures.
 - Production deploys natively. There is no Docker in production.
 - The UI does not truncate text by hand, and the vendor index does not use infinite
   scroll.
-- `/services`, `/services/new` and `/services/<slug>` are for admin and moderator
-  only. A subscriber never sees the service management surface, neither its pages
-  nor its API.
-- A subscriber's suggestion keeps `owner_id` as attribution only. Approving it
-  clears the owner and publishes the service to the catalogue.
+- `/services` is the service surface: any signed in account may add a service and
+  see the ones it added there, while admin and moderator see the whole catalogue.
+  A subscriber never picks an adapter, so their row is saved as no match and the
+  detection pass publishes it once a profile reads its page. The owner edits the
+  fields of their own row, while the adapter, its endpoint, the stage and the
+  detection queue stay with staff.
+- Visibility and ownership are separate answers. `visibility` says who may see a
+  row, `owner_id` says who added it and looks after it, so a catalogue service
+  can still belong to somebody. A subscriber's suggestion keeps its owner when it
+  is approved.
 - Per-user limits live in `user_limits` and are written when the account is made;
   that row is what is read. The alert limit is the only one so far, and it counts
   vendors rather than the things watched inside one: a guest gets one active alert
   and it is a whole vendor, staff are uncapped.
-- Alert subscriptions are email only, and watch a vendor's overall status, one of
-  its components, or several things at once. Components are for subscribers, so a
+- Alert subscriptions go by email, webhook or Telegram, and watch a vendor's
+  overall status, one of its components, or several things at once. Components are for subscribers, so a
   signed out visitor is only ever offered the whole vendor. They fire on the
   transition of whatever is watched, and delivery is an outbox row written in the
   same transaction as the change and drained by `internal/notify`.

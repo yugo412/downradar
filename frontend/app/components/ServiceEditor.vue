@@ -88,11 +88,12 @@ async function save(payload: ServicePayload) {
           :initial="service"
           :profiles="profiles"
           :categories="categories"
-          :can-choose-visibility="canManageServices"
+          show-visibility
+          :can-choose-profile="canManageServices"
           submit-label="Save changes"
           :busy="busy"
           :error="error"
-          show-status
+          :show-status="canManageServices"
           @submit="save"
           @cancel="emit('close')"
         />

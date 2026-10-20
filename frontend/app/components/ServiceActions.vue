@@ -5,6 +5,10 @@ defineProps<{
   service: AdminService
   canRemove: boolean
   canPurge: boolean
+  // Editing a row is the owner's and the staff's. Moving one between stages and
+  // running the detection queue are the staff's.
+  canEdit: boolean
+  canManage: boolean
   retrying: boolean
 }>()
 
@@ -20,10 +24,10 @@ const emit = defineEmits<{
 
 <template>
   <div class="flex flex-wrap items-center gap-2 text-xs">
-    <button type="button" class="link" @click="emit('edit')">Edit</button>
+    <button v-if="canEdit" type="button" class="link" @click="emit('edit')">Edit</button>
 
     <button
-      v-if="service.active && service.status === 'no_match'"
+      v-if="canManage && service.active && service.status === 'no_match'"
       type="button"
       class="link inline-flex items-center gap-1"
       :disabled="retrying"
@@ -35,7 +39,7 @@ const emit = defineEmits<{
     </button>
 
     <button
-      v-if="service.active && service.status === 'proposed'"
+      v-if="canManage && service.active && service.status === 'proposed'"
       type="button"
       class="link"
       @click="emit('publish')"
@@ -43,7 +47,7 @@ const emit = defineEmits<{
       Publish
     </button>
 
-    <button v-if="!service.active" type="button" class="link" @click="emit('restore')">
+    <button v-if="canManage && !service.active" type="button" class="link" @click="emit('restore')">
       Restore
     </button>
 

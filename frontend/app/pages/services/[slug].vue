@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import type { AdminService, VendorDetail } from '~/types/api'
 
-definePageMeta({ middleware: 'staff', ssr: false })
+definePageMeta({ middleware: 'authenticated', ssr: false })
+
+const { user, canManageServices } = useAuth()
 
 const route = useRoute()
 const slug = computed(() => String(route.params.slug ?? ''))
@@ -15,6 +17,13 @@ const { data: meta, error: metaError, refresh: refreshMeta } = useFetch<{ servic
 // profile could read, has nothing to show but its row and its fetch log.
 const { data: detail, refresh: refreshDetail } = useFetch<VendorDetail>(
   () => `/api/v1/services/${slug.value}/status`,
+)
+
+// Editing is the owner's and the staff's, and it is the same form either way.
+const canEdit = computed(
+  () =>
+    canManageServices.value ||
+    Boolean(meta.value?.service.ownerId && meta.value.service.ownerId === user.value?.id),
 )
 
 // The row carries the name, so the title can only be filled in once it has
@@ -49,8 +58,13 @@ async function onSaved() {
           <div class="min-w-0">
             <h1 class="text-3xl font-bold tracking-tight">{{ meta.service.name }}</h1>
             <div class="mt-1 flex flex-wrap items-center gap-2 text-sm opacity-70">
-              <span v-if="meta.service.ownerId" class="badge badge-ghost badge-sm">
-                {{ meta.service.status === 'proposed' ? `suggested by ${meta.service.ownerName}` : `private · ${meta.service.ownerName}` }}
+              <span
+                v-if="meta.service.visibility === 'private'"
+                class="badge badge-ghost badge-sm"
+                title="Only you and the staff can see it"
+              >Private</span>
+              <span v-if="meta.service.ownerId && canManageServices" class="badge badge-ghost badge-sm">
+                {{ meta.service.status === 'proposed' ? `suggested by ${meta.service.ownerName}` : `added by ${meta.service.ownerName}` }}
               </span>
               <a
                 v-if="meta.service.url"
@@ -65,7 +79,12 @@ async function onSaved() {
           </div>
         </div>
         <div class="flex items-center gap-2">
-          <button type="button" class="btn btn-ghost btn-sm gap-2" @click="editing = true">
+          <button
+            v-if="canEdit"
+            type="button"
+            class="btn btn-ghost btn-sm gap-2"
+            @click="editing = true"
+          >
             <svg
               xmlns="http://www.w3.org/2000/svg"
               class="h-3.5 w-3.5"

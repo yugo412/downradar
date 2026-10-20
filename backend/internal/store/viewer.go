@@ -8,19 +8,15 @@ type Viewer struct {
 	IsStaff bool
 }
 
+// The two answers to who a service is for, kept apart from its status.
+const (
+	VisibilityPublic  = "public"
+	VisibilityPrivate = "private"
+)
+
 // Public is the viewer used by the open API.
 func Public() Viewer {
 	return Viewer{}
-}
-
-func (v Viewer) CanSee(ownerID *int64) bool {
-	if ownerID == nil {
-		return true
-	}
-	if v.IsStaff {
-		return true
-	}
-	return v.UserID != 0 && v.UserID == *ownerID
 }
 
 func (v Viewer) Owns(ownerID *int64) bool {

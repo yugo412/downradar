@@ -16,8 +16,11 @@ const props = withDefaults(
     busy?: boolean
     error?: string
     showStatus?: boolean
-    // Only staff may move a service between the catalogue and their own list.
-    canChooseVisibility?: boolean
+    // Who the service is for is the caller's own choice on the add screen.
+    showVisibility?: boolean
+    // Only staff pick the adapter. A subscriber's page is offered to the
+    // detection queue instead, which is what the API does with the empty field.
+    canChooseProfile?: boolean
   }>(),
   {
     initial: null,
@@ -26,7 +29,8 @@ const props = withDefaults(
     busy: false,
     error: '',
     showStatus: false,
-    canChooseVisibility: false,
+    showVisibility: false,
+    canChooseProfile: true,
   },
 )
 
@@ -46,12 +50,13 @@ const category = ref(props.initial?.category ?? '')
 const logoUrl = ref(props.initial?.logoUrl ?? '')
 const aliases = ref((props.initial?.aliases ?? []).join(', '))
 const status = ref<ServiceStatus>(props.initial?.status ?? 'published')
-// A proposal carries the id of whoever suggested it, but that is attribution for
-// the review queue rather than a visibility choice: approving it publishes the
-// row to the catalogue. Any other row with an owner is somebody's private
-// service, and keeps the private default.
+// The row says who may see it, which is the answer to edit rather than a guess
+// from the owner. Only a caller that never had one, such as the add form, falls
+// back to the default: a row with an owner that says nothing is private, and a
+// proposal is on its way to the catalogue.
 const visibility = ref<Visibility>(
-  props.initial?.ownerId && props.initial?.status !== 'proposed' ? 'private' : 'public',
+  props.initial?.visibility ??
+    (props.initial?.ownerId && props.initial?.status !== 'proposed' ? 'private' : 'public'),
 )
 
 // A vendor is only polled when it has both a url and a profile, so the form
@@ -75,6 +80,12 @@ const pickableProfiles = computed(() =>
 const detecting = ref(false)
 const detectError = ref('')
 const detected = ref('')
+const profileMenu = ref<HTMLDetailsElement | null>(null)
+
+function chooseProfile(name: string) {
+  profile.value = name
+  profileMenu.value?.removeAttribute('open')
+}
 
 async function detect() {
   detecting.value = true
@@ -99,7 +110,7 @@ function onSubmit() {
   emit('submit', {
     name: name.value,
     url: url.value,
-    profile: profile.value,
+    profile: props.canChooseProfile ? profile.value : '',
     category: category.value,
     logoUrl: logoUrl.value,
     aliases: aliases.value
@@ -109,7 +120,7 @@ function onSubmit() {
     ...(props.showStatus ? { status: status.value } : {}),
     // A caller who cannot choose is always private, and leaving the field out
     // is what tells the API to leave the ownership alone.
-    ...(props.canChooseVisibility ? { visibility: visibility.value } : {}),
+    ...(props.showVisibility ? { visibility: visibility.value } : {}),
   })
 }
 </script>
@@ -143,17 +154,43 @@ function onSubmit() {
       </span>
     </label>
 
-    <div class="form-control w-full">
+    <div v-if="canChooseProfile" class="form-control w-full">
       <div class="flex items-end gap-2">
-        <label class="flex w-full flex-col">
+        <div class="flex w-full flex-col">
           <span class="label-text mb-1 text-sm font-medium">Adapter profile</span>
-          <select v-model="profile" class="select select-bordered w-full">
-            <option value="">Not chosen yet</option>
-            <option v-for="p in pickableProfiles" :key="p.name" :value="p.name">
-              {{ p.name }} ({{ p.kind }})
-            </option>
-          </select>
-        </label>
+
+          <!-- A native select cannot show what each profile reads, and that one
+               line is the whole difference between two of them. The list is a
+               dropdown of its own for that reason. -->
+          <details ref="profileMenu" class="dropdown w-full">
+            <summary
+              class="flex cursor-pointer flex-col gap-0.5 rounded-box border border-base-300 bg-base-100 px-3 py-2 text-sm"
+              :class="profile ? '' : 'opacity-70'"
+            >
+              <span class="font-mono text-xs">
+                {{ profile ? `${profile} (${selectedProfile?.kind ?? ''})` : 'Not chosen yet' }}
+              </span>
+              <span v-if="selectedProfile?.description" class="text-xs opacity-70">
+                {{ selectedProfile.description }}
+              </span>
+            </summary>
+            <ul
+              class="dropdown-content menu z-20 mt-1 max-h-80 w-full flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-2 shadow"
+            >
+              <li>
+                <button type="button" class="text-sm" @click="chooseProfile('')">
+                  Not chosen yet
+                </button>
+              </li>
+              <li v-for="p in pickableProfiles" :key="p.name">
+                <button type="button" class="flex flex-col items-start gap-0.5" @click="chooseProfile(p.name)">
+                  <span class="font-mono text-xs">{{ p.name }} ({{ p.kind }})</span>
+                  <span class="text-xs opacity-70">{{ p.description }}</span>
+                </button>
+              </li>
+            </ul>
+          </details>
+        </div>
         <button
           type="button"
           class="btn btn-ghost btn-sm shrink-0"
@@ -166,9 +203,6 @@ function onSubmit() {
         </button>
       </div>
 
-      <span v-if="selectedProfile?.description" class="label-text-alt mt-1 opacity-60">
-        {{ selectedProfile.description }}
-      </span>
       <span class="label-text-alt mt-1 opacity-60">
         Says how the status page is read. Leave it empty and the page is offered to the detect
         queue when you save; a page that nothing can read is still kept, it just is not polled.
@@ -223,7 +257,7 @@ function onSubmit() {
       <span class="label-text-alt mt-1 opacity-60">Comma separated. Used by the site search.</span>
     </label>
 
-    <label v-if="canChooseVisibility" class="form-control w-full">
+    <label v-if="showVisibility" class="form-control w-full">
       <span class="label-text mb-1 text-sm font-medium">Visibility</span>
       <select v-model="visibility" class="select select-bordered w-full">
         <option value="public">Public — listed on the site for everyone</option>
