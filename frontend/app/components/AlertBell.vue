@@ -28,6 +28,11 @@ const busy = ref(false)
 const error = ref('')
 const step = ref<'form' | 'subscribed'>('form')
 
+// Which of the two ways the dialog is showing. A visitor without an account can
+// be told by an address they type, or can follow a feed in a reader of their own,
+// which needs nothing from here at all.
+const tab = ref<'email' | 'rss'>('email')
+
 const nothingPicked = computed(() => !whole.value && picked.value.length === 0)
 
 watch(user, () => void check(), { immediate: true })
@@ -64,6 +69,7 @@ function start() {
   open.value = true
   error.value = ''
   step.value = 'form'
+  tab.value = 'email'
 }
 
 function close() {
@@ -136,13 +142,40 @@ async function subscribe() {
       class="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-box border border-base-300 bg-base-100 shadow-xl"
     >
       <div class="flex items-center justify-between border-b border-base-300 px-5 py-3">
-        <h2 class="text-lg font-semibold">Email alerts</h2>
+        <h2 class="text-lg font-semibold">Alerts for {{ name }}</h2>
         <button type="button" class="btn btn-ghost btn-sm" aria-label="Close" @click="close">
           ✕
         </button>
       </div>
 
-      <div v-if="step === 'subscribed'" class="px-5 py-4">
+      <!-- The two things a visitor without an account can do here: leave an
+           address, or follow a feed that needs nothing at all. -->
+      <div role="tablist" class="tabs tabs-box mx-5 mt-4 w-fit">
+        <button
+          type="button"
+          role="tab"
+          class="tab"
+          :class="{ 'tab-active': tab === 'email' }"
+          @click="tab = 'email'"
+        >
+          Email
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="tab"
+          :class="{ 'tab-active': tab === 'rss' }"
+          @click="tab = 'rss'"
+        >
+          RSS
+        </button>
+      </div>
+
+      <div v-if="tab === 'rss'" class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+        <AlertFeed :slug="slug" :name="name" />
+      </div>
+
+      <div v-else-if="step === 'subscribed'" class="px-5 py-4">
         <p class="text-sm">
           {{ email.trim() }} will get an email each time {{ name }} changes, in either
           direction.

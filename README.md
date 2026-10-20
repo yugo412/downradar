@@ -343,6 +343,32 @@ that sends it. The templates are in `internal/mail/templates`, one file per
 message beside the shell they are all set in, and they carry the site's own
 colours, so an alert looks like the page it links to.
 
+## Feeds
+
+Every status change is published as a feed as well, one for the whole site and one
+for each service, in the two shapes a reader can ask for: `/rss.xml` and
+`/rss.json` for the site, and `/{slug}/rss.xml` and `/{slug}/rss.json` for a
+service. The XML is RSS and the JSON is JSON Feed, and both carry the same items.
+An item says the vendor, the component that moved or the whole service, the status
+it moved from and to, and when it happened, and its id is the status event's own,
+so a reader that keeps what it has seen does not show the same change twice. The
+first state a target is ever seen in is not carried, because that is where a
+component started rather than a change anybody was told about.
+
+The feeds are views of the history the pages already keep: nothing is subscribed
+to, nothing is stored and there is nothing to unsubscribe from. They are served by
+the site rather than by the API, from routes that read the API the way a page
+does, and they are cached for a minute like the pages are, so a reader polling one
+costs no more than a visitor loading the page it is about. The alert page for a
+service and the dialog a visitor without an account gets both offer the address of
+its feed, in either shape, with a button that copies it.
+
+A change now records the status it moved from as well as the one it moved to, in
+`previous_status` on `status_events`, which is what lets an item say where a change
+came from. The migration filled that column from the history that was already
+there, since the status a target was last recorded in is the same thing the writer
+reads before it writes a change.
+
 ## Private services
 
 A service row can belong to one person instead of to the catalogue. Set

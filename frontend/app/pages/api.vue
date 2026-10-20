@@ -74,11 +74,30 @@ useSeoMeta({
       <div class="mt-3 mockup-code bg-base-300 text-base-content">
         <pre data-prefix="GET"><code>{{ base }}/api/v1/vendors</code></pre>
         <pre data-prefix="GET"><code>{{ base }}/api/v1/vendors/{slug}</code></pre>
+        <pre data-prefix="GET"><code>{{ base }}/api/v1/changes</code></pre>
       </div>
       <p class="mt-3 text-sm opacity-70">
         The first returns every monitored service, around 25 KB for 71 services.
         The second returns one service with its components, recent status changes
-        and incidents.
+        and incidents. The third returns the newest status changes across every
+        service, newest first, with <code class="font-mono">?limit=</code> to ask
+        for fewer than the fifty it gives, up to a hundred.
+      </p>
+    </section>
+
+    <section class="mt-8">
+      <h2 class="text-lg font-semibold">Feeds</h2>
+      <div class="mt-3 mockup-code bg-base-300 text-base-content">
+        <pre data-prefix="GET"><code>{{ base }}/rss.xml</code></pre>
+        <pre data-prefix="GET"><code>{{ base }}/rss.json</code></pre>
+        <pre data-prefix="GET"><code>{{ base }}/{slug}/rss.xml</code></pre>
+        <pre data-prefix="GET"><code>{{ base }}/{slug}/rss.json</code></pre>
+      </div>
+      <p class="mt-3 text-sm opacity-70">
+        Every status change as a feed, in RSS or in JSON Feed: one for the whole
+        site and one for each service, each carrying its newest changes. They need
+        no account, nothing is subscribed to and nothing is stored, so a reader
+        that follows one costs no more than a visit to the page it is about.
       </p>
     </section>
 

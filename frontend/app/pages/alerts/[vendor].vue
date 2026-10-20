@@ -19,8 +19,11 @@ if (vendorError.value?.statusCode === 404) {
   throw createError({ statusCode: 404, statusMessage: 'Service not found', fatal: true })
 }
 
-// The two ways an alert can arrive, and a blank webhook the form starts from.
-type Way = 'email' | 'webhook'
+// The ways an alert can arrive, and a blank webhook the form starts from. The
+// feed is the third one: it is not an alert the site keeps, so nothing about it
+// is saved, but it is offered beside the other two because that is where somebody
+// looking for it will look.
+type Way = 'email' | 'rss' | 'webhook'
 
 function blankWebhook(): AlertWebhook {
   return { url: '', method: 'POST', headers: [] }
@@ -373,7 +376,7 @@ async function refreshCalls() {
             <button
               type="button"
               role="tab"
-              class="tab flex-1"
+              class="tab"
               :class="{ 'tab-active': way === 'email' }"
               @click="way = 'email'"
             >
@@ -385,7 +388,7 @@ async function refreshCalls() {
             <button
               type="button"
               role="tab"
-              class="tab flex-1"
+              class="tab"
               :class="{ 'tab-active': way === 'webhook' }"
               @click="way = 'webhook'"
             >
@@ -393,6 +396,15 @@ async function refreshCalls() {
               <span class="badge badge-xs ml-1" :class="webhookWay.cls">
                 {{ webhookWay.label }}
               </span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              class="tab"
+              :class="{ 'tab-active': way === 'rss' }"
+              @click="way = 'rss'"
+            >
+              RSS
             </button>
           </div>
 
@@ -426,6 +438,17 @@ async function refreshCalls() {
                 <span class="badge badge-xs" :class="webhookWay.cls">
                   {{ webhookWay.label }}
                 </span>
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                class="justify-between"
+                :class="{ 'menu-active': way === 'rss' }"
+                :aria-current="way === 'rss' ? 'true' : undefined"
+                @click="way = 'rss'"
+              >
+                RSS
               </button>
             </li>
           </ul>
@@ -695,11 +718,20 @@ async function refreshCalls() {
                 </div>
               </div>
             </div>
+
+            <!-- The feed is the one way here that nothing is kept for, so it has
+                 no switch and no field to save: what it is, is an address. It
+                 sits last because it is the way with nothing to set up. -->
+            <div v-show="way === 'rss'">
+              <h3 class="font-semibold">RSS</h3>
+              <AlertFeed class="mt-1" :slug="slug" :name="vendor.name" />
+            </div>
           </div>
 
           <!-- One Save writes the whole alert, so its row sits in the column of
-               the card it writes rather than across the page. -->
-          <div class="md:col-start-2">
+               the card it writes rather than across the page. The feed panel has
+               nothing to write, so the row is not there while it is open. -->
+          <div v-if="way !== 'rss'" class="md:col-start-2">
             <div class="flex flex-wrap items-center justify-end gap-3">
               <span v-if="saved" class="text-sm text-success">Saved.</span>
               <button
