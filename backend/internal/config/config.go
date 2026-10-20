@@ -71,7 +71,7 @@ func Load() Config {
 		SMTPPassword:            env("SMTP_PASSWORD", ""),
 		MailFrom:                env("MAIL_FROM", "DownRadar <alerts@downradar.info>"),
 		PublicURL:               env("PUBLIC_URL", "http://localhost:3000"),
-		ContactEmail:            env("CONTACT_EMAIL", "dedy.yugo.purwanto@gmail.com"),
+		ContactEmail:            env("CONTACT_EMAIL", "support@downradar.info"),
 		AlertPerHour:            envInt("ALERT_RATE_LIMIT_PER_HOUR", 6),
 		AlertBurst:              envInt("ALERT_RATE_LIMIT_BURST", 5),
 		AlertLimitPerSubscriber: envInt("ALERT_LIMIT_PER_SUBSCRIBER", 10),
