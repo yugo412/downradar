@@ -439,14 +439,12 @@ useSeoMeta({
         v-model="mineOnly"
         label="My services"
         :count="mineCount"
-        cls="badge-neutral"
       />
       <FilterChip
         v-if="user && (subscribedCount || subscribedOnly)"
         v-model="subscribedOnly"
         label="Subscribed"
         :count="subscribedCount"
-        cls="badge-neutral"
       />
     </StatusFilter>
 
