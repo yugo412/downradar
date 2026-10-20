@@ -1,8 +1,8 @@
-// Package notify sends what a status change earns: an email to an address, or a
-// call to a webhook. The change itself writes its deliveries as part of the same
-// transaction that records it, and this is the loop that drains them: polling
-// never waits for a mail server or a far end, and a delivery that fails is retried
-// a few times before it is left with its error.
+// Package notify sends what a status change earns: an email to an address, a
+// message to a Telegram chat, or a call to a webhook. The change itself writes
+// its deliveries as part of the same transaction that records it, and this is the
+// loop that drains them: polling never waits for a mail server or a far end, and a
+// delivery that fails is retried a few times before it is left with its error.
 package notify
 
 import (
@@ -40,6 +40,11 @@ type Notifier struct {
 	publicURL string
 	interval  time.Duration
 	log       *slog.Logger
+
+	// telegramAPI is where the Bot API lives, which a self-hosted bot can move.
+	// The bot itself belongs to the subscriber, so its token travels with each
+	// channel rather than with the sender.
+	telegramAPI string
 }
 
 func New(st *store.Store, sender Sender, publicURL string, interval time.Duration, log *slog.Logger) *Notifier {
@@ -54,6 +59,13 @@ func New(st *store.Store, sender Sender, publicURL string, interval time.Duratio
 		interval:  interval,
 		log:       log,
 	}
+}
+
+// WithTelegram tells the notifier where the Bot API lives. The bot tokens
+// themselves travel with the channels, since each subscriber brings their own.
+func (n *Notifier) WithTelegram(apiBase string) *Notifier {
+	n.telegramAPI = strings.TrimSpace(apiBase)
+	return n
 }
 
 func (n *Notifier) Run(ctx context.Context) {
@@ -81,9 +93,12 @@ func (n *Notifier) drain(ctx context.Context) error {
 
 	for _, alert := range pending {
 		var err error
-		if alert.Kind == store.ChannelWebhook {
+		switch alert.Kind {
+		case store.ChannelWebhook:
 			err = n.sendWebhook(ctx, alert)
-		} else {
+		case store.ChannelTelegram:
+			err = n.sendTelegram(ctx, alert)
+		default:
 			err = n.sendEmail(ctx, alert)
 		}
 		if err != nil {

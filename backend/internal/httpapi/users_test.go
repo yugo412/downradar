@@ -99,6 +99,14 @@ func tokenRune(r rune) bool {
 func testRouterWithMail(t *testing.T) (*store.Store, http.Handler, *mailSpy) {
 	t.Helper()
 
+	return testRouterWithOptions(t, nil)
+}
+
+// testRouterWithOptions is the same router with one thing turned on for one
+// test, such as a chat service pointed at a receiver the test runs.
+func testRouterWithOptions(t *testing.T, tune func(*Options)) (*store.Store, http.Handler, *mailSpy) {
+	t.Helper()
+
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		t.Skip("DATABASE_URL is not set, skipping the integration test")
@@ -120,7 +128,7 @@ func testRouterWithMail(t *testing.T) (*store.Store, http.Handler, *mailSpy) {
 	// Every request in these tests comes from the same address, so the per-IP
 	// limits would trip part way through and make the result depend on how many
 	// calls a test happens to make. They are the subject of their own tests.
-	router := NewRouter(st, quietLogger(), Options{
+	opts := Options{
 		Catalog:       catalog.Catalog{},
 		AccountMailer: account.New(spy, "https://downradar.test"),
 		ContactMailer: contact.New(spy, "owner@downradar.test"),
@@ -143,7 +151,12 @@ func testRouterWithMail(t *testing.T) (*store.Store, http.Handler, *mailSpy) {
 		PasswordBurst:       1000,
 		SessionCookieSecure: false,
 		AlertsEnabled:       true,
-	})
+	}
+	if tune != nil {
+		tune(&opts)
+	}
+
+	router := NewRouter(st, quietLogger(), opts)
 	return st, router, spy
 }
 

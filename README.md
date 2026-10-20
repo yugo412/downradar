@@ -119,7 +119,9 @@ carries, which has to be the public address or every unsubscribe link points at
 localhost. Without `SMTP_ADDR` the API starts with the feature off and refuses
 subscriptions instead of taking them and sending nothing. The relay has to
 accept the host's address; a relay that filters by IP rejects the SMTP login
-with a plain authentication failure.
+with a plain authentication failure. `TELEGRAM_API_BASE` points the Bot API at a
+server of your own rather than at Telegram, which is what a self-hosted bot needs;
+the bots themselves are the subscribers' own, so nothing about them is set here.
 
 Two things that are easy to get wrong:
 
@@ -218,15 +220,17 @@ and points at signing in.
 When the visitor is signed in the bell is a link instead of a dialog, to a page
 for that one service, and it says Subscribed if their account already has an alert
 here or Paused if it is quiet. The page sets up the ways the alert can arrive: an
-address, a webhook, or both, each shown as it is set and left empty to be turned
-off. The list of what the vendor reports sits inside the email way, because that
-is the way that reports on a pick, with what is already ticked shown as it is; a
-call carries the whole vendor, so it has nothing to pick. One Save writes the
+address, a webhook, a Telegram chat, or several of them, each shown as it is set
+and left empty to be turned off. The list of what the vendor reports sits inside
+the email way, because that is the way that reports on a pick, with what is
+already ticked shown as it is; a call carries the whole vendor, so it has nothing
+to pick, and a chat is told what the email is told. One Save writes the
 whole alert, so a component can be added or dropped and a way stopped in the same
 go. An alert is deleted from the alerts screen rather than from the page for its
 service. Each way that is set up can be
-paused on its own, which keeps the address or the URL where it is and stops that
-way alone until it is started again. The switch for that sits at the foot of the
+paused on its own, which keeps the address, the URL or the chat where it is and
+stops that way alone until it is started again. The switch for that sits at the
+foot of the
 way it belongs to, in the last row before Save. Pausing is the way's own switch rather than
 something Save does, so saving leaves a paused way paused and an address can be
 corrected without anything going out. An alert made while signed out belongs to
@@ -245,7 +249,7 @@ page for its service to change the address, the webhook or what it watches.
 Anything still waiting
 for a channel that has just been paused or ended is dropped, so starting it again
 does not deliver last week's news. The bell opens a page for that one service,
-where both ways an alert can arrive are set up. The address field starts empty
+where every way an alert can arrive is set up. The address field starts empty
 rather than holding the address of whoever is signed in, because whatever it
 holds is written with the alert and a webhook on its own should not bring an
 address along with it. A link under the field fills that address in, for anyone
@@ -325,15 +329,29 @@ got there. The body that was sent and the header list are not kept, because a
 header list carries the channel's own token, and older calls are dropped as new
 ones are written.
 
+A chat is the third way an alert can arrive, and the only one that belongs to an
+account alone: a visitor without one has no chat to name, so it is offered on the
+page for a signed in subscriber rather than in the bell. A message carries the
+same news an email does, in the words the site uses, with a link to the vendor
+page and a link that stops that chat's messages. The bot is the subscriber's own
+rather than the site's: they make one with BotFather, paste its token on the page
+and press Start on it, since a bot can only message a chat that started it, then
+name the chat's number, which @userinfobot gives them. The token is kept with that
+channel and is shown back to its owner masked, with a switch to reveal it, so it
+can be checked or replaced rather than only pasted again. A chat can be tried from
+the page before it is saved, with the same made up change a webhook is tried with,
+and what Telegram says about a chat it will not deliver to is shown as it is.
+
 Sending is an outbox rather than something the poller does inline. A status
 change writes one delivery per channel in the same transaction that records the
 change, and a loop drains them: over SMTP for an address, over HTTP for a
-webhook. A mail server or an endpoint that is slow or down therefore cannot hold
+webhook, over the Bot API for a chat. A mail server or an endpoint that is slow
+or down therefore cannot hold
 up polling, a delivery that fails is retried a few times and then left with its
 error, and nothing is lost if the process stops between the two steps. The
 feature is off unless `SMTP_ADDR` is set; while it is off the API refuses
 subscriptions, rather than taking them and sending nothing, and since the one
-loop sends both ways that covers a webhook as well. That
+loop sends every way that covers a webhook and a chat as well. That
 address is a host and a port: 465 is dialled with TLS from the first byte, which
 is what the port means, and every other port is dialled plainly and upgraded with
 STARTTLS when the server offers it.

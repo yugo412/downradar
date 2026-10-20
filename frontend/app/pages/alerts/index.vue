@@ -90,6 +90,7 @@ function watches(alert: AccountAlert) {
 const CHANNEL_LABELS: Record<string, string> = {
   email: 'Email',
   webhook: 'Webhook',
+  telegram: 'Telegram',
 }
 
 function channelNames(alert: AccountAlert) {

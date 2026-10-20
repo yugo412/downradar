@@ -20,10 +20,10 @@ if (vendorError.value?.statusCode === 404) {
 }
 
 // The ways an alert can arrive, and a blank webhook the form starts from. The
-// feed is the third one: it is not an alert the site keeps, so nothing about it
-// is saved, but it is offered beside the other two because that is where somebody
+// feed is the last one: it is not an alert the site keeps, so nothing about it
+// is saved, but it is offered beside the others because that is where somebody
 // looking for it will look.
-type Way = 'email' | 'rss' | 'webhook'
+type Way = 'email' | 'webhook' | 'telegram' | 'rss'
 
 function blankWebhook(): AlertWebhook {
   return { url: '', method: 'POST', headers: [] }
@@ -49,10 +49,19 @@ let copiedTimer: ReturnType<typeof setTimeout> | undefined
 const pausing = ref<Way | ''>('')
 
 // What the form holds. The address is what the email way goes to, so an empty one
-// is the way being off; the webhook is the same, with an empty URL.
+// is the way being off; the webhook is the same, with an empty URL, and the chat
+// with an empty chat id. The bot is the subscriber's own, so its token is filled
+// in when it is saved and masked until the eye in the field is pressed.
 const email = ref('')
 const hook = ref<AlertWebhook>(blankWebhook())
+const chat = ref('')
+const botToken = ref('')
 const way = ref<Way>('email')
+
+// Trying the chat, and what the chat service answered. It is a message like a
+// delivery, so what comes back is whether it arrived rather than a body.
+const trying = ref(false)
+const testAnswer = ref<{ ok: boolean; error: string } | null>(null)
 
 // What the email reports on. A call reports on the whole service, whatever is
 // picked here, because its body says what the service looks like now.
@@ -61,7 +70,8 @@ const picked = ref<string[]>([])
 
 const emailsOn = computed(() => email.value.trim() !== '')
 const callsOn = computed(() => hook.value.url.trim() !== '')
-const anyWay = computed(() => emailsOn.value || callsOn.value)
+const chatsOn = computed(() => chat.value.trim() !== '')
+const anyWay = computed(() => emailsOn.value || callsOn.value || chatsOn.value)
 
 // What is wrong with the webhook URL as it stands. An empty one is not wrong:
 // that is how the calls are stopped. Anything else has to be an address the
@@ -84,9 +94,10 @@ const hookProblem = computed(() => {
   return ''
 })
 
-// An address with nothing picked beside it would be a way of being told nothing.
-const nothingToEmailAbout = computed(
-  () => emailsOn.value && !whole.value && picked.value.length === 0,
+// An address or a chat with nothing picked beside it would be a way of being told
+// nothing, since both report on what was picked.
+const nothingToTellAbout = computed(
+  () => (emailsOn.value || chatsOn.value) && !whole.value && picked.value.length === 0,
 )
 
 // What the saved ways are, which is what a pause can be asked about: a way has
@@ -94,8 +105,14 @@ const nothingToEmailAbout = computed(
 // saved yet is not one yet.
 const savedEmail = computed(() => String(state.value?.email ?? ''))
 const savedWebhook = computed(() => String(state.value?.webhook?.url ?? ''))
+const savedTelegram = computed(() => String(state.value?.telegram ?? ''))
 const emailPaused = computed(() => state.value?.emailPaused === true)
 const webhookPaused = computed(() => state.value?.webhookPaused === true)
+const telegramPaused = computed(() => state.value?.telegramPaused === true)
+
+// Whether the site has a sender loop at all, which is what decides if a chat is
+// offered.
+const telegramEnabled = computed(() => state.value?.telegramEnabled === true)
 
 // Nothing arrives when every way the alert has is quiet. That is what the
 // account screen calls a paused alert, and it is the one state worth a banner
@@ -104,6 +121,7 @@ const nothingArriving = computed(() => {
   const ways = [
     { set: savedEmail.value !== '', paused: emailPaused.value },
     { set: savedWebhook.value !== '', paused: webhookPaused.value },
+    { set: savedTelegram.value !== '', paused: telegramPaused.value },
   ].filter((way) => way.set)
   return state.value?.subscribed === true && ways.length > 0 && ways.every((way) => way.paused)
 })
@@ -119,6 +137,7 @@ function wayState(on: boolean, paused: boolean) {
 
 const emailWay = computed(() => wayState(savedEmail.value !== '', emailPaused.value))
 const webhookWay = computed(() => wayState(savedWebhook.value !== '', webhookPaused.value))
+const telegramWay = computed(() => wayState(savedTelegram.value !== '', telegramPaused.value))
 
 // The address on the account, offered as a one click fill in the email panel
 // while the field is empty.
@@ -191,12 +210,16 @@ async function load() {
     hook.value = res.webhook
       ? { ...blankWebhook(), ...res.webhook }
       : blankWebhook()
+    chat.value = res.subscribed ? res.telegram ?? '' : ''
+    botToken.value = res.subscribed ? res.telegramBot ?? '' : ''
+    testAnswer.value = null
 
     whole.value = res.subscribed ? res.wholeService ?? true : true
     picked.value = res.subscribed ? res.components ?? [] : []
 
     // The way that is already set up decides which panel opens.
-    if (res.subscribed && !res.email && res.webhook) way.value = 'webhook'
+    if (res.subscribed && !res.email && res.webhook && !res.telegram) way.value = 'webhook'
+    else if (res.subscribed && !res.email && !res.webhook && res.telegram) way.value = 'telegram'
   } catch (err) {
     error.value = apiError(err, 'Could not load this alert.')
   } finally {
@@ -225,6 +248,9 @@ async function save() {
               headers: hook.value.headers,
             }
           : { url: '' },
+        // A chat is sent every time as well, so the panel says where the messages
+        // go: an empty one is the way being stopped rather than left as it was.
+        telegram: { chatId: chat.value.trim(), botToken: botToken.value.trim() },
         wholeService: whole.value,
         components: picked.value,
       },
@@ -258,7 +284,8 @@ async function setPaused(way: Way, event: Event) {
       body: { kind: way, paused: !on },
     })
     if (way === 'email') current.emailPaused = !on
-    else current.webhookPaused = !on
+    else if (way === 'webhook') current.webhookPaused = !on
+    else current.telegramPaused = !on
   } catch (err) {
     error.value = apiError(err)
     box.checked = !on
@@ -300,6 +327,33 @@ async function tryWebhook() {
     }
   } finally {
     testing.value = false
+  }
+}
+
+// A message is sent to the chat the page is holding, saved or not, so a chat can
+// be checked before it is relied on. What comes back is whether it arrived, and
+// what the chat service said when it did not.
+async function tryTelegram() {
+  if (!chat.value.trim()) return
+
+  trying.value = true
+  testAnswer.value = null
+  error.value = ''
+
+  try {
+    testAnswer.value = await $fetch<{ ok: boolean; error: string }>(
+      `/api/v1/vendors/${slug.value}/alerts/telegram/test`,
+      {
+        method: 'POST',
+        body: { chatId: chat.value.trim(), botToken: botToken.value.trim() },
+      },
+    )
+  } catch (err) {
+    // A refusal is shown in the answer box beside the button rather than in the
+    // banner at the top of the page, which is off screen from down here.
+    testAnswer.value = { ok: false, error: apiError(err, 'The message could not be sent.') }
+  } finally {
+    trying.value = false
   }
 }
 
@@ -350,8 +404,9 @@ async function refreshCalls() {
           Alerts for {{ vendor.name }}
         </h1>
         <p class="mt-1 text-sm opacity-70">
-          One alert per service, arriving by email, by webhook, or both. An email
-          reports on what you pick; a call carries the whole service.
+          One alert per service, arriving by email, by webhook, in a Telegram
+          chat, or several of them. An email and a chat report on what you pick;
+          a call carries the whole service.
         </p>
       </header>
 
@@ -381,7 +436,7 @@ async function refreshCalls() {
               @click="way = 'email'"
             >
               Email
-              <span class="badge badge-xs ml-1" :class="emailWay.cls">
+              <span class="badge badge-xs ml-1 max-sm:hidden" :class="emailWay.cls">
                 {{ emailWay.label }}
               </span>
             </button>
@@ -393,8 +448,20 @@ async function refreshCalls() {
               @click="way = 'webhook'"
             >
               Webhook
-              <span class="badge badge-xs ml-1" :class="webhookWay.cls">
+              <span class="badge badge-xs ml-1 max-sm:hidden" :class="webhookWay.cls">
                 {{ webhookWay.label }}
+              </span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              class="tab"
+              :class="{ 'tab-active': way === 'telegram' }"
+              @click="way = 'telegram'"
+            >
+              Telegram
+              <span class="badge badge-xs ml-1 max-sm:hidden" :class="telegramWay.cls">
+                {{ telegramWay.label }}
               </span>
             </button>
             <button
@@ -437,6 +504,20 @@ async function refreshCalls() {
                 Webhook
                 <span class="badge badge-xs" :class="webhookWay.cls">
                   {{ webhookWay.label }}
+                </span>
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                class="justify-between"
+                :class="{ 'menu-active': way === 'telegram' }"
+                :aria-current="way === 'telegram' ? 'true' : undefined"
+                @click="way = 'telegram'"
+              >
+                Telegram
+                <span class="badge badge-xs" :class="telegramWay.cls">
+                  {{ telegramWay.label }}
                 </span>
               </button>
             </li>
@@ -719,6 +800,124 @@ async function refreshCalls() {
               </div>
             </div>
 
+            <div v-show="way === 'telegram'">
+              <h3 class="font-semibold">Telegram</h3>
+              <p class="mt-1 text-sm opacity-70">
+                A message in a chat each time one of the things you pick below
+                changes, in either direction.
+              </p>
+
+              <template v-if="telegramEnabled">
+                <p class="mt-3 text-sm opacity-70">
+                  Make a bot of your own with
+                  <span class="font-medium">@BotFather</span> in Telegram and paste
+                  the token it gives you here. Then press Start on that bot, since
+                  a bot can only message a chat that started it.
+                </p>
+
+                <!-- The class goes on a wrapper rather than on the field: a
+                     PasswordInput hands its attributes to the input itself. -->
+                <div class="mt-3">
+                  <PasswordInput
+                    v-model="botToken"
+                    label="Bot token"
+                    secret="bot token"
+                    autocomplete="off"
+                    placeholder="123456789:AAH..."
+                  >
+                    <span class="mt-1 text-sm opacity-70">
+                      The token is kept with this alert, and only you can see it.
+                    </span>
+                  </PasswordInput>
+                </div>
+
+                <input
+                  v-model="chat"
+                  type="text"
+                  placeholder="123456789 or -1001234567890"
+                  aria-label="Chat id"
+                  class="input input-bordered mt-3 w-full"
+                >
+                <p class="mt-2 text-sm opacity-70">
+                  The chat's number goes here: @userinfobot gives you yours, and for
+                  a group, add your bot to the group first. Leave the chat empty to
+                  stop the messages for good.
+                </p>
+
+                <div class="mt-3 flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    class="btn btn-outline btn-sm"
+                    :disabled="trying || !chat.trim() || !botToken.trim()"
+                    @click="tryTelegram"
+                  >
+                    <span v-if="trying" class="loading loading-spinner loading-xs" />
+                    Send a test message
+                  </button>
+                  <span v-if="!testAnswer" class="text-xs opacity-70">
+                    A message goes to this chat now, saved or not.
+                  </span>
+                </div>
+
+                <div
+                  v-if="testAnswer"
+                  class="mt-3 rounded-box border border-base-300 bg-base-200 p-3"
+                >
+                  <p class="flex flex-wrap items-center gap-2 text-sm">
+                    <span class="font-medium">What Telegram answered</span>
+                    <span class="badge badge-sm" :class="testAnswer.ok ? 'badge-success' : 'badge-error'">
+                      {{ testAnswer.ok ? 'delivered' : 'refused' }}
+                    </span>
+                  </p>
+                  <p v-if="testAnswer.error" class="mt-2 text-sm text-error">
+                    {{ testAnswer.error }}
+                  </p>
+                  <p v-else class="mt-2 text-sm opacity-70">
+                    The message arrived in that chat.
+                  </p>
+                </div>
+              </template>
+
+              <p v-else class="mt-3 text-sm opacity-70">
+                Telegram is not available right now, so there is nowhere for a
+                message to go. Try again later.
+              </p>
+
+              <!-- The way's own switch, at the end of the way and just before
+                   Save, the same as the other two. -->
+              <div class="mt-5 border-t border-base-300 pt-4">
+                <div class="flex items-center gap-3">
+                  <input
+                    id="pause-telegram"
+                    type="checkbox"
+                    class="toggle toggle-sm"
+                    :checked="!!savedTelegram && !telegramPaused"
+                    :disabled="!savedTelegram || pausing === 'telegram'"
+                    @change="setPaused('telegram', $event)"
+                  >
+                  <label
+                    for="pause-telegram"
+                    class="text-sm"
+                    :class="savedTelegram ? 'cursor-pointer' : ''"
+                  >
+                    <template v-if="!savedTelegram">
+                      Nothing to pause yet.
+                      <span class="opacity-70">Save a chat and this switch will
+                        hold the messages back without taking it away.</span>
+                    </template>
+                    <template v-else-if="telegramPaused">
+                      Messages are paused.
+                      <span class="opacity-70">Switch this on to hear about changes again.</span>
+                    </template>
+                    <template v-else>
+                      Messages are on.
+                      <span class="opacity-70">Switch this off to pause them without taking the chat away.</span>
+                    </template>
+                  </label>
+                </div>
+              </div>
+            </div>
+
             <!-- The feed is the one way here that nothing is kept for, so it has
                  no switch and no field to save: what it is, is an address. It
                  sits last because it is the way with nothing to set up. -->
@@ -737,7 +936,7 @@ async function refreshCalls() {
               <button
                 type="button"
                 class="btn btn-primary btn-sm"
-                :disabled="busy || nothingToEmailAbout || (!anyWay && !state?.subscribed) || !!hookProblem"
+                :disabled="busy || nothingToTellAbout || (!anyWay && !state?.subscribed) || !!hookProblem"
                 @click="save"
               >
                 <span v-if="busy" class="loading loading-spinner loading-xs" />
@@ -745,11 +944,11 @@ async function refreshCalls() {
               </button>
             </div>
 
-            <p v-if="nothingToEmailAbout" class="mt-2 text-sm opacity-70">
-              Pick at least one thing to be emailed about.
+            <p v-if="nothingToTellAbout" class="mt-2 text-sm opacity-70">
+              Pick at least one thing to be told about.
             </p>
             <p v-else-if="!anyWay && !state?.subscribed" class="mt-2 text-sm opacity-70">
-              An alert needs an address or a webhook to arrive on.
+              An alert needs an address, a webhook or a chat to arrive on.
             </p>
           </div>
         </div>

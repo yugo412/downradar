@@ -19,10 +19,13 @@ const (
 	AlertUnsubscribed = "unsubscribed"
 )
 
-// The ways an alert can arrive, as the channel's kind column holds them.
+// The ways an alert can arrive, as the channel's kind column holds them. Email
+// and Telegram report on what the subscriber picked, so they are written a
+// delivery for the things they watch; a webhook hears about the whole vendor.
 const (
-	ChannelEmail   = "email"
-	ChannelWebhook = "webhook"
+	ChannelEmail    = "email"
+	ChannelWebhook  = "webhook"
+	ChannelTelegram = "telegram"
 )
 
 // The two kinds of webhook call that are written down: one the sender made for a
@@ -63,8 +66,18 @@ type AlertView struct {
 	// Whether a way that is set up is quiet. A way can be paused on its own,
 	// which is how one of them is stopped without taking its address or its URL
 	// away, so a page that offers to do that needs both.
-	EmailPaused   bool `json:"emailPaused"`
-	WebhookPaused bool `json:"webhookPaused"`
+	EmailPaused    bool `json:"emailPaused"`
+	WebhookPaused  bool `json:"webhookPaused"`
+	TelegramPaused bool `json:"telegramPaused"`
+
+	// Telegram is the chat a message goes to, and Kind is the kind of channel a
+	// view is about when it is about one: the unsubscribe link in a message is
+	// read through the channel's own token, and the page it opens says what it is
+	// about to stop. TelegramBot is the bot that speaks to that chat, which is the
+	// subscriber's own rather than the site's and is never handed back to a page.
+	Telegram    string `json:"-"`
+	TelegramBot string `json:"-"`
+	Kind        string `json:"-"`
 
 	// The kinds of channel the subscription arrives by, in a stable order. The
 	// ones that are still live are what a screen listing the rows shows, and a
@@ -166,6 +179,37 @@ func (s *Store) UserAlerts(ctx context.Context, userID int64) ([]AlertView, erro
 		out = append(out, v)
 	}
 	return out, rows.Err()
+}
+
+// SetChannelPausedByToken stops or starts the one channel a link came from. It is
+// the same switch the page offers a way, reached from a message rather than from a
+// signed in screen, so the token is the whole of what proves it: the link is the
+// channel. What was waiting for it is dropped, the same way the page's switch does
+// it, and a channel that was stopped for good cannot be started again by it.
+func (s *Store) SetChannelPausedByToken(ctx context.Context, token string, paused bool) error {
+	var moved int
+	err := s.pool.QueryRow(ctx, `
+		with mine as (
+			select id from alert_channels
+			where token = $1 and unsubscribed_at is null
+		), moved as (
+			update alert_channels
+			set paused_at = case when $2 then coalesce(paused_at, now()) else null end,
+			    updated_at = now()
+			where id in (select id from mine)
+			returning id
+		), dropped as (
+			delete from alert_deliveries
+			where $2 and sent_at is null and channel_id in (select id from mine)
+		)
+		select count(*) from moved`, token, paused).Scan(&moved)
+	if err != nil {
+		return fmt.Errorf("alerts: pause a channel by its link: %w", err)
+	}
+	if moved == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // SetUserAlertState moves one of an account's own subscriptions between active,
@@ -279,12 +323,14 @@ func (s *Store) SetChannelPaused(ctx context.Context, userID, serviceID int64, k
 // Kind is how this one goes out: an email channel carries the address in Email,
 // and a webhook carries the call to make in Webhook.
 type PendingAlert struct {
-	ID        int64
-	Kind      string
-	Email     string
-	Webhook   AlertWebhook
-	ServiceID int64
-	ChannelID int64
+	ID          int64
+	Kind        string
+	Email       string
+	ChatID      string
+	TelegramBot string
+	Webhook     AlertWebhook
+	ServiceID   int64
+	ChannelID   int64
 	// UserID is the account the subscription belongs to, which is who a webhook
 	// call is recorded for so the page can show what happened. It is nil for a
 	// subscription whose owner is gone, which has nobody to show a log to.
@@ -412,6 +458,14 @@ type AlertChange struct {
 	// why it has nothing to pick: its body says what the vendor looks like now.
 	Webhook      *AlertWebhook
 	WebhookToken string
+
+	// Telegram is the chat a message goes to, which is the third way an alert can
+	// arrive. It reports on what was picked like an email does, and it belongs to
+	// an account rather than to the address somebody typed, because a chat is not
+	// something a visitor without an account has to hand. The bot that speaks to
+	// it is the subscriber's own, so the token is saved with the channel.
+	Telegram      *AlertTelegram
+	TelegramToken string
 
 	// Targets is what the email way reports on: the vendor's own status, the
 	// components of it that were picked, or both.
@@ -564,6 +618,11 @@ func (s *Store) SubscribeAlert(ctx context.Context, serviceID int64, userID *int
 			return fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
 		}
 	}
+	if change.Telegram != nil {
+		if err := saveTelegramChannel(ctx, tx, subscriptionID, *change.Telegram, change.TelegramToken); err != nil {
+			return fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
+		}
+	}
 
 	if err := setAlertTargets(ctx, tx, subscriptionID, serviceID, change.Targets); err != nil {
 		return fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
@@ -694,6 +753,116 @@ func saveWebhookChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, ho
 	return dropChannelsApartFrom(ctx, tx, subscriptionID, ChannelWebhook, channelID)
 }
 
+// AlertTelegram is the third way an alert can arrive: a chat, and the bot that
+// speaks to it. The bot belongs to the subscriber rather than to the site, so the
+// token is what this way is set up with; it is kept with the channel rather than
+// in configuration, and a page is never handed it back.
+type AlertTelegram struct {
+	ChatID   string
+	BotToken string
+}
+
+type telegramSettings struct {
+	BotToken string `json:"botToken"`
+}
+
+// encodeTelegram writes one chat's bot for the settings column.
+func encodeTelegram(way AlertTelegram) ([]byte, error) {
+	return json.Marshal(telegramSettings{BotToken: way.BotToken})
+}
+
+// parseTelegramSettings reads back what encodeTelegram wrote. Any other settings,
+// which is what an email channel carries, read as no bot at all.
+func parseTelegramSettings(raw []byte) (string, error) {
+	if len(raw) == 0 {
+		return "", nil
+	}
+
+	var settings telegramSettings
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		return "", fmt.Errorf("alerts: read telegram settings: %w", err)
+	}
+	return settings.BotToken, nil
+}
+
+// saveTelegramChannel makes the subscription's chat say what this save asked for.
+// An empty chat stops the messages rather than leaving a way with nowhere to go,
+// which is the same bargain an address has. A chat with no bot could never be
+// sent to, so the save has to name one rather than leave a way that looks set up
+// and is not. A channel that is already there keeps its token, so the link in a
+// message already sent still stops it.
+//
+// One chat per subscription, like one address: a save is a person saying where
+// they want to be told, and what they name is what they get.
+func saveTelegramChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, way AlertTelegram, token string) error {
+	if way.ChatID == "" {
+		return stopChannels(ctx, tx, subscriptionID, ChannelTelegram)
+	}
+	if way.BotToken == "" {
+		return ErrNoBotToken
+	}
+
+	settings, err := encodeTelegram(way)
+	if err != nil {
+		return fmt.Errorf("write the telegram way: %w", err)
+	}
+
+	var channelID int64
+	var channelToken string
+	err = tx.QueryRow(ctx, `
+		select id, token from alert_channels
+		where subscription_id = $1 and kind = 'telegram'
+		order by (unsubscribed_at is null) desc, id
+		limit 1`, subscriptionID).Scan(&channelID, &channelToken)
+
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		channelToken = token
+	case err != nil:
+		return fmt.Errorf("read the telegram way: %w", err)
+	}
+
+	// A row id is never zero, so nothing found means nothing is there yet.
+	if channelID == 0 {
+		if _, err := tx.Exec(ctx, `
+			insert into alert_channels (subscription_id, kind, address, settings, token)
+			values ($1, 'telegram', $2, $3, $4)`,
+			subscriptionID, way.ChatID, settings, channelToken); err != nil {
+			return fmt.Errorf("add the telegram way: %w", err)
+		}
+		return nil
+	}
+
+	if _, err := tx.Exec(ctx, `
+		update alert_channels
+		set address = $2, settings = $3, unsubscribed_at = null, updated_at = now()
+		where id = $1`, channelID, way.ChatID, settings); err != nil {
+		return fmt.Errorf("update the telegram way: %w", err)
+	}
+	return dropChannelsApartFrom(ctx, tx, subscriptionID, ChannelTelegram, channelID)
+}
+
+// TelegramBot returns the bot a chat on this vendor is set up with, for a message
+// tried from the page that does not ask for the token again. It is empty when
+// there is no chat to send to.
+func (s *Store) TelegramBot(ctx context.Context, userID, serviceID int64) (string, error) {
+	var raw []byte
+	err := s.pool.QueryRow(ctx, `
+		select c.settings
+		from alert_channels c
+		join alert_subscriptions a on a.id = c.subscription_id
+		where a.user_id = $1 and a.service_id = $2 and c.kind = 'telegram'
+		order by (c.unsubscribed_at is null) desc, c.id
+		limit 1`, userID, serviceID).Scan(&raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("alerts: the telegram bot: %w", err)
+	}
+	return parseTelegramSettings(raw)
+}
+
 // stopChannels ends every live channel of one kind on a subscription, and drops
 // what was waiting for them: the point of stopping a way is that nothing more
 // arrives by it.
@@ -745,20 +914,22 @@ func dropChannelsApartFrom(ctx context.Context, tx pgx.Tx, subscriptionID int64,
 	return nil
 }
 
-// setAlertTargets makes one subscription's email report on exactly what was
+// setAlertTargets makes one subscription's messages report on exactly what was
 // asked for. A target that is still wanted is left where it is, so a message
 // already queued about it is not thrown away by an unrelated change of mind; the
 // partial unique indexes are what says which of them is already there. What a
-// target that goes takes with it is the email waiting for it: the change was
-// real, but the person has just said they do not want to hear about that thing,
-// and the calls are not affected because a webhook hears about the whole vendor.
+// target that goes takes with it is what was waiting to be sent about it, by
+// address or by chat: the change was real, but the person has just said they do
+// not want to hear about that thing. The calls are not affected, because a
+// webhook hears about the whole vendor.
 func setAlertTargets(ctx context.Context, tx pgx.Tx, subscriptionID, serviceID int64, want AlertTargets) error {
 	// Written out rather than left to a foreign key, which is what dropped these
 	// while a delivery pointed at the target it was for.
 	if _, err := tx.Exec(ctx, `
 		delete from alert_deliveries d
 		using alert_channels c
-		where c.subscription_id = $1 and c.kind = 'email' and d.channel_id = c.id
+		where c.subscription_id = $1 and c.kind in ('email', 'telegram')
+		  and d.channel_id = c.id
 		  and d.sent_at is null
 		  and (($2 = false and d.component_id is null)
 		       or (d.component_id is not null and d.component_id <> all(coalesce($3::bigint[], '{}'))))`,
@@ -866,12 +1037,14 @@ func (s *Store) WatchedServiceCount(ctx context.Context, userID int64) (int, err
 func (s *Store) AlertByToken(ctx context.Context, token string) (*AlertView, error) {
 	var view AlertView
 	err := s.pool.QueryRow(ctx, `
-		select v.slug, v.name, c.address, c.created_at, c.unsubscribed_at
+		select v.slug, v.name, c.address, c.kind, c.created_at,
+		       c.paused_at, c.unsubscribed_at
 		from alert_channels c
 		join alert_subscriptions a on a.id = c.subscription_id
 		join services v on v.id = a.service_id
 		where c.token = $1`, token,
-	).Scan(&view.VendorSlug, &view.VendorName, &view.Email, &view.CreatedAt, &view.UnsubscribedAt)
+	).Scan(&view.VendorSlug, &view.VendorName, &view.Email, &view.Kind,
+		&view.CreatedAt, &view.PausedAt, &view.UnsubscribedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -928,6 +1101,7 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 	var view AlertView
 	var webhookAddress string
 	var webhookSettings []byte
+	var telegramSettings []byte
 	err := s.pool.QueryRow(ctx, `
 		select a.id, v.slug, v.name, coalesce(ch.address, ''), a.created_at,
 		       case when ch.total > 0 and ch.ended < ch.total and ch.live = 0
@@ -936,7 +1110,8 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 		            then ch.last_ended end,
 		       w.whole, w.components,
 		       coalesce(ch.webhook_address, ''), coalesce(ch.webhook_settings, '{}'::jsonb),
-		       ch.email_paused, ch.webhook_paused
+		       coalesce(ch.telegram_address, ''), coalesce(ch.telegram_settings, '{}'::jsonb),
+		       ch.email_paused, ch.webhook_paused, ch.telegram_paused
 		from alert_subscriptions a
 		join services v on v.id = a.service_id
 		left join lateral (
@@ -954,6 +1129,10 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 			        filter (where c.kind = 'webhook' and c.unsubscribed_at is null))[1] as webhook_address,
 			       (array_agg(c.settings order by c.id)
 			        filter (where c.kind = 'webhook' and c.unsubscribed_at is null))[1] as webhook_settings,
+			       (array_agg(c.address order by c.id)
+			        filter (where c.kind = 'telegram' and c.unsubscribed_at is null))[1] as telegram_address,
+			       (array_agg(c.settings order by c.id)
+			        filter (where c.kind = 'telegram' and c.unsubscribed_at is null))[1] as telegram_settings,
 			       count(*) as total,
 			       count(*) filter (where c.unsubscribed_at is not null) as ended,
 			       count(*) filter (where c.unsubscribed_at is null and c.paused_at is null) as live,
@@ -962,7 +1141,9 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 			       count(*) filter (where c.kind = 'email' and c.unsubscribed_at is null
 			                          and c.paused_at is not null) > 0 as email_paused,
 			       count(*) filter (where c.kind = 'webhook' and c.unsubscribed_at is null
-			                          and c.paused_at is not null) > 0 as webhook_paused
+			                          and c.paused_at is not null) > 0 as webhook_paused,
+			       count(*) filter (where c.kind = 'telegram' and c.unsubscribed_at is null
+			                          and c.paused_at is not null) > 0 as telegram_paused
 			from alert_channels c
 			where c.subscription_id = a.id
 		) ch on true
@@ -978,7 +1159,8 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 		&view.CreatedAt, &view.PausedAt, &view.UnsubscribedAt,
 		&view.WholeService, &view.ComponentIDs,
 		&webhookAddress, &webhookSettings,
-		&view.EmailPaused, &view.WebhookPaused)
+		&view.Telegram, &telegramSettings,
+		&view.EmailPaused, &view.WebhookPaused, &view.TelegramPaused)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -992,6 +1174,13 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 			return nil, err
 		}
 		view.Webhook = &hook
+	}
+	if view.Telegram != "" {
+		bot, err := parseTelegramSettings(telegramSettings)
+		if err != nil {
+			return nil, err
+		}
+		view.TelegramBot = bot
 	}
 	return &view, nil
 }
@@ -1082,15 +1271,24 @@ func (s *Store) PendingAlerts(ctx context.Context, maxAttempts, limit int) ([]Pe
 			return nil, fmt.Errorf("alerts: scan pending: %w", err)
 		}
 
-		// The address is the inbox for an email and the URL for a webhook, and
-		// what the settings hold is what a webhook has to carry with it.
-		if p.Kind == ChannelWebhook {
+		// The address is the inbox for an email, the chat for a Telegram message
+		// and the URL for a webhook, and what the settings hold is what a webhook
+		// has to carry with it.
+		switch p.Kind {
+		case ChannelWebhook:
 			hook, err := parseWebhookSettings(settings, address)
 			if err != nil {
 				return nil, err
 			}
 			p.Webhook = hook
-		} else {
+		case ChannelTelegram:
+			p.ChatID = address
+			bot, err := parseTelegramSettings(settings)
+			if err != nil {
+				return nil, err
+			}
+			p.TelegramBot = bot
+		default:
 			p.Email = address
 		}
 		out = append(out, p)

@@ -1,0 +1,14 @@
+{{- /* What a Telegram message says. It is plain text: a chat is not a page, so the
+statuses are the words the site uses and the links stand on their own. A message
+tried from the page is the shape of a real one, with a line saying that it is a
+test and no way out, because nothing has been saved yet for a link to stop. */ -}}
+{{define "telegram"}}
+{{.What}} moved from {{.From}} to {{.To}} at {{.ChangedAt}}.
+
+{{.URL}}
+{{if .Test}}
+This is a test message from DownRadar. The change above is made up, and nothing is saved yet.
+{{else if .Unsubscribe}}
+Pause or stop these messages: {{.Unsubscribe}}
+{{end}}
+{{end}}

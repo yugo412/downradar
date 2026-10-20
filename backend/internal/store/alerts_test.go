@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"downradar.info/backend/internal/adapters"
 )
@@ -212,15 +213,27 @@ func TestApplyReportQueuesOneAlertPerChange(t *testing.T) {
 		t.Fatalf("third poll: %v", err)
 	}
 
-	pending, err := st.PendingAlerts(ctx, 3, 10)
+	// The queue is shared with whatever else the database holds, so the question
+	// is what this change wrote rather than how many rows the table has: the
+	// running stack may be delivering something of its own at the same time.
+	if n := queuedFor(t, st, id); n != 1 {
+		t.Fatalf("waiting for this service = %d, want one alert", n)
+	}
+
+	pending, err := st.PendingAlerts(ctx, 3, 100)
 	if err != nil {
 		t.Fatalf("PendingAlerts: %v", err)
 	}
-	if len(pending) != 1 {
-		t.Fatalf("pending = %d, want one alert", len(pending))
-	}
 
-	alert := pending[0]
+	var alert *PendingAlert
+	for i := range pending {
+		if pending[i].ServiceID == id {
+			alert = &pending[i]
+		}
+	}
+	if alert == nil {
+		t.Fatalf("the alert for this service is not queued")
+	}
 	if alert.Email != "dave@example.com" || alert.Token != "token-dave" {
 		t.Errorf("alert goes to %q with token %q", alert.Email, alert.Token)
 	}
@@ -1449,5 +1462,292 @@ func TestTheSnapshotNamesTheService(t *testing.T) {
 	}
 	if len(snapshot.Components) != 1 {
 		t.Errorf("snapshot components = %d, want the one the vendor reports", len(snapshot.Components))
+	}
+}
+
+// A chat is a third way for one alert, and it belongs to an account: it is saved
+// from the page beside the other ways, and clearing it stops the messages the way
+// an empty address stops the emails.
+func TestAChatIsAThirdWayForOneAlert(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	user := newTestUser(t, st, "subscriber")
+	id := alertService(t, st, uniqueName("alert chat"))
+
+	email := "hana@example.com"
+	chat := &AlertTelegram{ChatID: "-1001234567890", BotToken: "999:bot-secret"}
+	if err := st.SubscribeAlert(ctx, id, &user.ID, AlertChange{
+		Email:         &email,
+		EmailToken:    "token-chat-mail",
+		Telegram:      chat,
+		TelegramToken: "token-chat-telegram",
+		Targets:       WholeVendor,
+	}); err != nil {
+		t.Fatalf("SubscribeAlert: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = st.UnsubscribeAlert(context.Background(), "token-chat-mail")
+		_ = st.UnsubscribeAlert(context.Background(), "token-chat-telegram")
+	})
+
+	view, err := st.UserAlert(ctx, user.ID, id)
+	if err != nil {
+		t.Fatalf("UserAlert: %v", err)
+	}
+	if view.Telegram != chat.ChatID {
+		t.Errorf("chat = %q, want %q", view.Telegram, chat.ChatID)
+	}
+	if view.TelegramBot != chat.BotToken {
+		t.Errorf("bot = %q, want the one the chat was saved with", view.TelegramBot)
+	}
+	if view.Email != email {
+		t.Errorf("email = %q, want %q", view.Email, email)
+	}
+	if view.TelegramPaused {
+		t.Error("a chat that was just saved reads as paused")
+	}
+
+	// Saving the same chat again is the same channel rather than a second one, so
+	// the token a message already carries still stops it.
+	moved := &AlertTelegram{ChatID: "-1009999999999", BotToken: chat.BotToken}
+	if err := st.SubscribeAlert(ctx, id, &user.ID, AlertChange{
+		Telegram: moved, TelegramToken: "token-chat-other",
+	}); err != nil {
+		t.Fatalf("SubscribeAlert again: %v", err)
+	}
+	if n := countRows(t, st, `select count(*) from alert_channels
+		where subscription_id = (select id from alert_subscriptions where user_id = $1 and service_id = $2)
+		  and kind = 'telegram'`, user.ID, id); n != 1 {
+		t.Errorf("chat channels = %d, want one", n)
+	}
+	if n := countRows(t, st,
+		`select count(*) from alert_channels where token = $1`, "token-chat-telegram"); n != 1 {
+		t.Error("the chat lost the token a message already carries")
+	}
+	again, err := st.UserAlert(ctx, user.ID, id)
+	if err != nil {
+		t.Fatalf("UserAlert after moving the chat: %v", err)
+	}
+	if again.Telegram != moved.ChatID {
+		t.Errorf("chat = %q, want the one that was named", again.Telegram)
+	}
+	if again.TelegramBot != chat.BotToken {
+		t.Errorf("bot = %q, want the one already there", again.TelegramBot)
+	}
+
+	// An empty chat is somebody stopping the messages: the way ends and what was
+	// waiting for it goes, while the address beside it carries on.
+	if err := st.SubscribeAlert(ctx, id, &user.ID, AlertChange{
+		Telegram: &AlertTelegram{},
+	}); err != nil {
+		t.Fatalf("stopping the chat: %v", err)
+	}
+	if n := countRows(t, st, `select count(*) from alert_channels
+		where token = $1 and unsubscribed_at is not null`, "token-chat-telegram"); n != 1 {
+		t.Error("the chat way was not stopped")
+	}
+	after, err := st.UserAlert(ctx, user.ID, id)
+	if err != nil {
+		t.Fatalf("UserAlert after stopping the chat: %v", err)
+	}
+	if after.Telegram != "" {
+		t.Errorf("chat = %q, want the way gone", after.Telegram)
+	}
+	if after.Email != email {
+		t.Errorf("email = %q, want the address left alone", after.Email)
+	}
+}
+
+// A chat is told what an address is told: the things its subscriber picked, and
+// nothing else the vendor reports. A webhook is the one that hears about the
+// whole vendor.
+func TestAChatIsToldWhatTheAddressIsTold(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	user := newTestUser(t, st, "subscriber")
+	id := alertService(t, st, uniqueName("alert chat component"))
+
+	report := func(first, second adapters.Health) adapters.Report {
+		return adapters.Report{
+			Global:    adapters.HealthOK,
+			FetchedAt: time.Now().UTC(),
+			Components: []adapters.ComponentStatus{
+				{SourceID: "c1", Name: "Web", Position: 1, Status: first},
+				{SourceID: "c2", Name: "API", Position: 2, Status: second},
+			},
+		}
+	}
+	if _, err := st.ApplyReport(ctx, id, report(adapters.HealthOK, adapters.HealthOK)); err != nil {
+		t.Fatalf("first poll: %v", err)
+	}
+
+	picked, err := st.ComponentIDs(ctx, id, []string{"c1"})
+	if err != nil {
+		t.Fatalf("ComponentIDs: %v", err)
+	}
+
+	email := "ivan@example.com"
+	if err := st.SubscribeAlert(ctx, id, &user.ID, AlertChange{
+		Email:         &email,
+		EmailToken:    "token-chat-mail-c",
+		Telegram:      &AlertTelegram{ChatID: "42", BotToken: "999:bot-secret"},
+		TelegramToken: "token-chat-telegram-c",
+		Targets:       AlertTargets{Components: picked},
+	}); err != nil {
+		t.Fatalf("SubscribeAlert: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = st.UnsubscribeAlert(context.Background(), "token-chat-mail-c")
+		_ = st.UnsubscribeAlert(context.Background(), "token-chat-telegram-c")
+	})
+
+	waiting := func(token string, componentID *int64) int {
+		t.Helper()
+		return countRows(t, st, `
+			select count(*)
+			from alert_deliveries d
+			join alert_channels c on c.id = d.channel_id
+			where c.token = $1 and d.component_id is not distinct from $2
+			  and d.sent_at is null`, token, componentID)
+	}
+
+	// The component the subscriber picked moves, so both ways hear about it.
+	if _, err := st.ApplyReport(ctx, id, report(adapters.HealthDegraded, adapters.HealthOK)); err != nil {
+		t.Fatalf("second poll: %v", err)
+	}
+	first := componentIDFor(t, st, id, "c1")
+	for _, token := range []string{"token-chat-mail-c", "token-chat-telegram-c"} {
+		if n := waiting(token, &first); n != 1 {
+			t.Errorf("%s after the picked component moved = %d, want one", token, n)
+		}
+	}
+
+	// The other component moves, which neither of them asked about.
+	if _, err := st.ApplyReport(ctx, id, report(adapters.HealthDegraded, adapters.HealthMajor)); err != nil {
+		t.Fatalf("third poll: %v", err)
+	}
+	second := componentIDFor(t, st, id, "c2")
+	for _, token := range []string{"token-chat-mail-c", "token-chat-telegram-c"} {
+		if n := waiting(token, &second); n != 0 {
+			t.Errorf("%s about a component nobody picked = %d, want none", token, n)
+		}
+	}
+}
+
+// A chat with no bot could never be sent to, so the first save has to name one
+// rather than leave a way that looks set up and is not. The bot is kept with the
+// channel, and read back for a message tried from the page.
+func TestAChatNeedsABotToBeSentWith(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	user := newTestUser(t, st, "subscriber")
+	slug := uniqueName("alert chat bot")
+	id := alertService(t, st, slug)
+	token := "token-bot-" + slug
+	t.Cleanup(func() { _ = st.UnsubscribeAlert(context.Background(), token) })
+
+	err := st.SubscribeAlert(ctx, id, &user.ID, AlertChange{
+		Telegram: &AlertTelegram{ChatID: "42"},
+		Targets:  WholeVendor,
+	})
+	if !errors.Is(err, ErrNoBotToken) {
+		t.Fatalf("saving a chat with no bot = %v, want ErrNoBotToken", err)
+	}
+
+	if err := st.SubscribeAlert(ctx, id, &user.ID, AlertChange{
+		Telegram:      &AlertTelegram{ChatID: "42", BotToken: "999:bot-secret"},
+		TelegramToken: token,
+		Targets:       WholeVendor,
+	}); err != nil {
+		t.Fatalf("SubscribeAlert: %v", err)
+	}
+
+	bot, err := st.TelegramBot(ctx, user.ID, id)
+	if err != nil {
+		t.Fatalf("TelegramBot: %v", err)
+	}
+	if bot != "999:bot-secret" {
+		t.Errorf("bot = %q, want the one the chat was saved with", bot)
+	}
+}
+
+// The link in a message can quieten the way it came from without taking it away,
+// and the token is the whole of what proves it belongs to whoever opened it.
+func TestALinkCanPauseTheWayItCameFrom(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	user := newTestUser(t, st, "subscriber")
+	slug := uniqueName("alert pause link")
+	id := alertService(t, st, slug)
+	token := "token-pause-" + slug
+	t.Cleanup(func() { _ = st.UnsubscribeAlert(context.Background(), token) })
+
+	if err := st.SubscribeAlert(ctx, id, &user.ID, AlertChange{
+		Telegram:      &AlertTelegram{ChatID: "42", BotToken: "999:bot-secret"},
+		TelegramToken: token,
+		Targets:       WholeVendor,
+	}); err != nil {
+		t.Fatalf("SubscribeAlert: %v", err)
+	}
+
+	waiting := func() int {
+		t.Helper()
+		return countRows(t, st, `
+			select count(*)
+			from alert_deliveries d
+			join alert_channels c on c.id = d.channel_id
+			where c.token = $1 and d.sent_at is null`, token)
+	}
+
+	if _, err := st.ApplyReport(ctx, id, reportWith(adapters.HealthOK)); err != nil {
+		t.Fatalf("first poll: %v", err)
+	}
+	if _, err := st.ApplyReport(ctx, id, reportWith(adapters.HealthMajor)); err != nil {
+		t.Fatalf("second poll: %v", err)
+	}
+	if n := waiting(); n != 1 {
+		t.Fatalf("waiting for the chat = %d, want one", n)
+	}
+
+	if err := st.SetChannelPausedByToken(ctx, token, true); err != nil {
+		t.Fatalf("pause by its link: %v", err)
+	}
+	view, err := st.AlertByToken(ctx, token)
+	if err != nil {
+		t.Fatalf("AlertByToken: %v", err)
+	}
+	if view.PausedAt == nil {
+		t.Error("the way the link came from is not paused")
+	}
+	if n := waiting(); n != 0 {
+		t.Errorf("waiting after the pause = %d, want none", n)
+	}
+
+	// The same switch, the other way.
+	if err := st.SetChannelPausedByToken(ctx, token, false); err != nil {
+		t.Fatalf("start again by its link: %v", err)
+	}
+	view, err = st.AlertByToken(ctx, token)
+	if err != nil {
+		t.Fatalf("AlertByToken: %v", err)
+	}
+	if view.PausedAt != nil {
+		t.Error("the way did not start again")
+	}
+
+	// A stopped way is not one a link can start, and a link that is not one has
+	// nothing to pause at all.
+	if err := st.UnsubscribeAlert(ctx, token); err != nil {
+		t.Fatalf("UnsubscribeAlert: %v", err)
+	}
+	if err := st.SetChannelPausedByToken(ctx, token, false); !errors.Is(err, ErrNotFound) {
+		t.Errorf("starting a stopped way = %v, want ErrNotFound", err)
+	}
+	if err := st.SetChannelPausedByToken(ctx, "not-a-token", true); !errors.Is(err, ErrNotFound) {
+		t.Errorf("an unknown link = %v, want ErrNotFound", err)
 	}
 }

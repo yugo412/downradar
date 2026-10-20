@@ -100,6 +100,10 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       MAIL_FROM: ${MAIL_FROM:-DownRadar <alerts@downradar.test>}
+      # A Bot API server to talk to, for a self-hosted bot or for trying this
+      # without a real one. Empty means Telegram itself. The bots are the
+      # subscribers' own, so no token is configured here.
+      TELEGRAM_API_BASE: ${TELEGRAM_API_BASE:-}
       # A background sender has no request to read the site address from, so the
       # links it writes into an email come from here.
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:3000}

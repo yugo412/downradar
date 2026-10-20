@@ -140,8 +140,10 @@ export interface ServiceCreated {
 export interface AlertSubscription {
   vendorSlug: string
   vendorName: string
-  email: string
+  kind: string
+  destination: string
   createdAt: string
+  paused?: boolean
   unsubscribedAt?: string | null
 }
 
@@ -187,9 +189,16 @@ export interface AlertState {
   // without the other, which is how a way is stopped without being taken away.
   emailPaused?: boolean
   webhookPaused?: boolean
+  telegramPaused?: boolean
   wholeService?: boolean
   components?: string[]
   webhook?: AlertWebhook | null
+  // The chat a message goes to, the bot that speaks to it, and whether the site
+  // has a sender loop at all. The bot belongs to the subscriber, and its token is
+  // shown masked on their own page with a switch to reveal it.
+  telegram?: string
+  telegramBot?: string
+  telegramEnabled?: boolean
   calls?: WebhookCall[]
 }
 

@@ -43,6 +43,7 @@ type handlers struct {
 	sessionTTL      time.Duration
 	sessionSecure   bool
 	alertsEnabled   bool
+	telegramEnabled bool
 	alertLimit      int
 	dummyHash       string
 }
@@ -72,6 +73,7 @@ type Options struct {
 	SessionTTL              time.Duration
 	SessionCookieSecure     bool
 	AlertsEnabled           bool
+	TelegramEnabled         bool
 }
 
 func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
@@ -147,6 +149,7 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 		sessionTTL:      sessionTTL,
 		sessionSecure:   opts.SessionCookieSecure,
 		alertsEnabled:   opts.AlertsEnabled,
+		telegramEnabled: opts.TelegramEnabled,
 		alertLimit:      alertLimit,
 		dummyHash:       auth.DummyHash(),
 	}
@@ -172,6 +175,7 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	mux.HandleFunc("OPTIONS /api/v1/vendors/{slug}/alerts", h.publicAlert(h.subscribeAlert))
 	mux.HandleFunc("GET /api/v1/alerts/{token}", h.publicRead(h.getAlert))
 	mux.HandleFunc("DELETE /api/v1/alerts/{token}", h.publicRead(h.unsubscribeAlert))
+	mux.HandleFunc("PATCH /api/v1/alerts/{token}", h.publicRead(h.pauseAlert))
 	mux.HandleFunc("OPTIONS /api/v1/alerts/{token}", h.publicRead(h.getAlert))
 
 	// The same path, for somebody signed in: the bell reads whether they already
@@ -188,6 +192,13 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 		h.requireAuth(h.limited(h.alertLimiter, false,
 			"You have tried that webhook several times already, please try again later",
 			h.testWebhook)))
+
+	// A message to a chat is tried the same way, and counted against the same
+	// budget: it is a message to somebody else's end either way.
+	mux.HandleFunc("POST /api/v1/vendors/{slug}/alerts/telegram/test",
+		h.requireAuth(h.limited(h.alertLimiter, false,
+			"You have tried that chat several times already, please try again later",
+			h.testTelegram)))
 
 	// Stopping one way without taking away what it was told, which is how a
 	// subscriber makes one of them quiet for a while.
