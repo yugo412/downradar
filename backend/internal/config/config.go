@@ -31,6 +31,7 @@ type Config struct {
 	SMTPUser                string
 	SMTPPassword            string
 	MailFrom                string
+	TelegramAPIBase         string
 	PublicURL               string
 	ContactEmail            string
 	AlertPerHour            int
@@ -70,6 +71,7 @@ func Load() Config {
 		SMTPUser:                env("SMTP_USER", ""),
 		SMTPPassword:            env("SMTP_PASSWORD", ""),
 		MailFrom:                env("MAIL_FROM", "DownRadar <alerts@downradar.info>"),
+		TelegramAPIBase:         env("TELEGRAM_API_BASE", "https://api.telegram.org"),
 		PublicURL:               env("PUBLIC_URL", "http://localhost:3000"),
 		ContactEmail:            env("CONTACT_EMAIL", "support@downradar.info"),
 		AlertPerHour:            envInt("ALERT_RATE_LIMIT_PER_HOUR", 6),

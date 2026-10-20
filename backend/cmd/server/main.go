@@ -77,7 +77,8 @@ func run() error {
 		accountMailer = account.New(sender, cfg.PublicURL)
 		contactMailer = contact.New(sender, cfg.ContactEmail)
 
-		notifier = notify.New(st, sender, cfg.PublicURL, cfg.AlertSendInterval, log)
+		notifier = notify.New(st, sender, cfg.PublicURL, cfg.AlertSendInterval, log).
+			WithTelegram(cfg.TelegramAPIBase)
 		go notifier.Run(ctx)
 	} else {
 		log.Warn("mail is off: SMTP_ADDR is not set, so no email is sent, alerts cannot be subscribed to, the contact form is refused, and no account can be made from the site")
@@ -116,6 +117,11 @@ func run() error {
 			SessionTTL:              cfg.SessionTTL,
 			SessionCookieSecure:     cfg.SessionCookieSecure,
 			AlertsEnabled:           cfg.SMTPAddr != "",
+			// Telegram is offered only while there is a sender loop to drain what
+			// it writes, which is the loop above: a chat that would be accepted
+			// and never sent is what the site refuses to do. The bot itself is the
+			// subscriber's, so nothing about it is configured here.
+			TelegramEnabled: cfg.SMTPAddr != "",
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,

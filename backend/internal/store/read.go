@@ -12,6 +12,10 @@ import (
 
 var ErrNotFound = errors.New("store: not found")
 
+// ErrNoBotToken is a chat that has no bot to speak to it. A way that could never
+// be sent to is refused rather than saved and left looking set up.
+var ErrNoBotToken = errors.New("store: no bot for the chat")
+
 type VendorSummary struct {
 	Slug         string     `json:"slug"`
 	Name         string     `json:"name"`

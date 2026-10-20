@@ -7,7 +7,10 @@ defineOptions({ inheritAttrs: false })
 
 const model = defineModel<string>({ required: true })
 
-defineProps<{ label: string }>()
+// The label above the field names what is being typed, and the switch inside it
+// says what it is showing: a password is the usual secret here, and another kind
+// of one can name itself rather than being called a password.
+defineProps<{ label: string; secret?: string }>()
 
 const id = useId()
 const shown = ref(false)
@@ -17,7 +20,7 @@ const shown = ref(false)
   <div class="form-control w-full">
     <label :for="id" class="label-text mb-1 cursor-pointer text-sm font-medium">{{ label }}</label>
 
-    <div class="relative">
+    <div class="relative flex">
       <input
         :id="id"
         v-model="model"
@@ -28,7 +31,7 @@ const shown = ref(false)
       <button
         type="button"
         class="btn btn-ghost btn-xs absolute inset-y-0 right-1 my-auto"
-        :aria-label="shown ? 'Hide password' : 'Show password'"
+        :aria-label="shown ? `Hide ${secret ?? 'password'}` : `Show ${secret ?? 'password'}`"
         :aria-pressed="shown"
         @click="shown = !shown"
       >

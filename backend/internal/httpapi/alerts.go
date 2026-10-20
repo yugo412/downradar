@@ -28,6 +28,14 @@ type webhookRequest struct {
 	Headers []store.AlertField `json:"headers"`
 }
 
+// telegramRequest is one chat and the bot that speaks to it. The bot belongs to
+// the subscriber, so the token is what a save brings; a save without one is
+// changing the chat rather than the bot, and an empty chat stops the messages.
+type telegramRequest struct {
+	ChatID   string `json:"chatId"`
+	BotToken string `json:"botToken"`
+}
+
 type alertRequest struct {
 	// Email is the address the alert should go to. An empty one stops the emails;
 	// a request that says nothing about it, which is what the bell sends, leaves
@@ -37,6 +45,13 @@ type alertRequest struct {
 	// Webhook is the other way an alert can arrive. A page that shows both ways
 	// sends it every time; the bell sends nothing about it.
 	Webhook *webhookRequest `json:"webhook"`
+
+	// Telegram is the chat a message should go to, and the bot that speaks to it.
+	// It is the only way that belongs to an account alone: a visitor without one
+	// has no chat to name. An empty chat stops the messages, a save without a bot
+	// keeps the one already there, and a request that says nothing about it leaves
+	// the way as it is.
+	Telegram *telegramRequest `json:"telegram"`
 
 	// What the email reports on. WholeService is the vendor's own status;
 	// Components names components by the identifiers the vendor page shows,
@@ -102,12 +117,54 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		hook = parsed
 	}
 
+	// A chat is named rather than typed freely: the message goes wherever this
+	// says, and Telegram is what decides whether it can be reached. An empty chat
+	// is somebody stopping the messages, which is the same bargain an address has.
+	// The bot is the subscriber's own, and one that is not named on a save is the
+	// one already saved.
+	var telegram *store.AlertTelegram
+	saveTelegram := body.Telegram != nil
+	if body.Telegram != nil {
+		chatID := ""
+		if strings.TrimSpace(body.Telegram.ChatID) != "" {
+			parsed, problem := parseChatID(body.Telegram.ChatID)
+			if problem != "" {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": problem})
+				return
+			}
+			chatID = parsed
+		}
+
+		botToken := ""
+		if strings.TrimSpace(body.Telegram.BotToken) != "" {
+			parsed, problem := parseBotToken(body.Telegram.BotToken)
+			if problem != "" {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": problem})
+				return
+			}
+			botToken = parsed
+		}
+
+		telegram = &store.AlertTelegram{ChatID: chatID, BotToken: botToken}
+	}
+
 	// A request that names no way at all would write a subscription with nothing
 	// to send, which is not an alert. Clearing a way is naming it: an empty
 	// address is how somebody stops the emails.
-	if body.Email == nil && body.Webhook == nil {
+	if body.Email == nil && body.Webhook == nil && body.Telegram == nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "An email address or a webhook is required",
+			"error": "An email address, a webhook or a chat is required",
+		})
+		return
+	}
+
+	// The chat is set only where the bot is: a save that names one while the bot
+	// is not configured would be taken and never sent, which is exactly what the
+	// site refuses to do with an address it cannot reach. Stopping a way is always
+	// allowed, because what is already there should be able to be taken away.
+	if telegram != nil && telegram.ChatID != "" && !h.telegramEnabled {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "Telegram is not available right now",
 		})
 		return
 	}
@@ -144,12 +201,13 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// An email reports on what was picked, so an address with nothing picked
-	// beside it would be a way that never has anything to say. A webhook needs no
-	// pick of its own: it hears about the vendor itself.
-	if saveEmail && address != "" && !whole && len(componentIDs) == 0 {
+	// An email and a chat report on what was picked, so either of them with
+	// nothing picked beside it would be a way that never has anything to say. A
+	// webhook needs no pick of its own: it hears about the vendor itself.
+	watchesByPick := (saveEmail && address != "") || (telegram != nil && telegram.ChatID != "")
+	if watchesByPick && !whole && len(componentIDs) == 0 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "Pick at least one thing to be emailed about",
+			"error": "Pick at least one thing to be told about",
 		})
 		return
 	}
@@ -193,6 +251,12 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		if calls {
 			writeJSON(w, http.StatusConflict, map[string]string{
 				"error": "Webhooks are for subscribers. Sign in to add one.",
+			})
+			return
+		}
+		if saveTelegram {
+			writeJSON(w, http.StatusConflict, map[string]string{
+				"error": "Telegram is for subscribers. Sign in to add one.",
 			})
 			return
 		}
@@ -278,8 +342,22 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		}
 		change.Webhook, change.WebhookToken = hook, token
 	}
+	if saveTelegram {
+		token, err := auth.NewToken()
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		change.Telegram, change.TelegramToken = telegram, token
+	}
 
 	if err := h.store.SubscribeAlert(r.Context(), serviceID, userID, change); err != nil {
+		if errors.Is(err, store.ErrNoBotToken) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "A bot token is required for a chat",
+			})
+			return
+		}
 		h.fail(w, r, err)
 		return
 	}
@@ -287,7 +365,9 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 	// The answer says nothing about whether the address was already subscribed,
 	// so this cannot be used to ask whether somebody else's is.
 	h.log.Info("alert subscription saved", "vendor", name, "email", address != "" && saveEmail,
-		"webhook", calls, "signed_in", userID != nil, "whole", whole, "components", len(componentIDs))
+		"webhook", calls, "telegram", telegram != nil && telegram.ChatID != "",
+		"signed_in", userID != nil,
+		"whole", whole, "components", len(componentIDs))
 	writeJSON(w, http.StatusCreated, map[string]any{"status": "subscribed"})
 }
 
@@ -421,6 +501,77 @@ func (h *handlers) testWebhook(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// testTelegram sends the message a delivery would, through the bot the page is
+// holding or the one the chat is already saved with, so a chat can be checked
+// before it is relied on. Telegram is what says whether the chat can be reached,
+// and what it says is handed back as it is.
+func (h *handlers) testTelegram(w http.ResponseWriter, r *http.Request) {
+	if !h.telegramEnabled || h.notifier == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "Telegram is not available right now",
+		})
+		return
+	}
+
+	var body telegramRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
+		return
+	}
+
+	chatID, problem := parseChatID(body.ChatID)
+	if problem != "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": problem})
+		return
+	}
+
+	botToken := ""
+	if strings.TrimSpace(body.BotToken) != "" {
+		parsed, problem := parseBotToken(body.BotToken)
+		if problem != "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": problem})
+			return
+		}
+		botToken = parsed
+	}
+
+	serviceID, name, err := h.store.PublicService(r.Context(), r.PathValue("slug"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Vendor not found"})
+		return
+	}
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	// The token is a secret a page is never handed back, so a chat that is already
+	// saved is tried with the bot it was saved with.
+	if botToken == "" {
+		botToken, err = h.store.TelegramBot(r.Context(), h.user(r).ID, serviceID)
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		if botToken == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "A bot token is required for a chat",
+			})
+			return
+		}
+	}
+
+	result, err := h.notifier.TestTelegram(r.Context(), serviceID, botToken, chatID)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	h.log.Info("telegram tried from the alert page", "vendor", name,
+		"user", h.user(r).Email, "ok", result.OK, "error", result.Error)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": result.OK, "error": result.Error})
+}
+
 // statusOrNil writes "no answer" as a null rather than a zero, so a call that was
 // never answered does not read as one that got a 0.
 func statusOrNil(status int) *int {
@@ -446,9 +597,10 @@ func (h *handlers) setAlertChannelPaused(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
 		return
 	}
-	if body.Kind != store.ChannelEmail && body.Kind != store.ChannelWebhook {
+	if body.Kind != store.ChannelEmail && body.Kind != store.ChannelWebhook &&
+		body.Kind != store.ChannelTelegram {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "Kind must be email or webhook",
+			"error": "Kind must be email, webhook or telegram",
 		})
 		return
 	}
@@ -496,10 +648,41 @@ func (h *handlers) getAlert(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"vendorSlug":     view.VendorSlug,
 		"vendorName":     view.VendorName,
-		"email":          maskEmail(view.Email),
+		"kind":           view.Kind,
+		"destination":    maskDestination(view.Kind, view.Email),
 		"createdAt":      view.CreatedAt,
+		"paused":         view.PausedAt != nil,
 		"unsubscribedAt": view.UnsubscribedAt,
 	})
+}
+
+// pauseAlert is the other thing the link in a message can do: stop that one way
+// for a while without taking it away, which is the switch the page offers for a
+// way, reached without signing in. The token is the whole of what proves it is
+// the owner's, and it is safe to press twice.
+func (h *handlers) pauseAlert(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+
+	var body struct {
+		Paused bool `json:"paused"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
+		return
+	}
+
+	err := h.store.SetChannelPausedByToken(r.Context(), r.PathValue("token"), body.Paused)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "This link is not valid"})
+		return
+	}
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	h.log.Info("alert way paused from its link", "paused", body.Paused)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // listUserAlerts is the account screen: everything this person has asked to be
@@ -661,7 +844,12 @@ func (h *handlers) getUserAlert(w http.ResponseWriter, r *http.Request) {
 
 	view, err := h.store.UserAlert(r.Context(), h.user(r).ID, serviceID)
 	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusOK, map[string]any{"subscribed": false, "calls": calls})
+		writeJSON(w, http.StatusOK, map[string]any{
+			"subscribed":      false,
+			"calls":           calls,
+			"telegramEnabled": h.telegramEnabled,
+			"telegramBot":     "",
+		})
 		return
 	}
 	if err != nil {
@@ -670,15 +858,21 @@ func (h *handlers) getUserAlert(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"subscribed":    true,
-		"email":         view.Email,
-		"paused":        view.State() == store.AlertPaused,
-		"emailPaused":   view.EmailPaused,
-		"webhookPaused": view.WebhookPaused,
-		"wholeService":  view.WholeService,
-		"components":    view.ComponentIDs,
-		"webhook":       view.Webhook,
-		"calls":         calls,
+		"subscribed":      true,
+		"email":           view.Email,
+		"paused":          view.State() == store.AlertPaused,
+		"emailPaused":     view.EmailPaused,
+		"webhookPaused":   view.WebhookPaused,
+		"telegramPaused":  view.TelegramPaused,
+		"wholeService":    view.WholeService,
+		"components":      view.ComponentIDs,
+		"webhook":         view.Webhook,
+		"telegram":        view.Telegram,
+		"telegramEnabled": h.telegramEnabled,
+		// The bot is the owner's own, and the page shows it masked with a switch to
+		// reveal it, so it can be seen and replaced rather than only pasted again.
+		"telegramBot": view.TelegramBot,
+		"calls":       calls,
 	})
 }
 
@@ -705,11 +899,16 @@ func (h *handlers) deleteUserAlert(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// maskEmail names the inbox the alerts go to without repeating the address. The
-// page is reached through a link that can be forwarded, so the full one is not
-// handed back to whoever holds it.
-func maskEmail(email string) string {
-	local, domain, ok := strings.Cut(email, "@")
+// maskDestination names where the messages go without repeating it. The page is
+// reached through a link that can be forwarded, so the whole address is not handed
+// back to whoever holds it. A chat is named rather than spelled out: there is
+// nothing in it a person does not already know, and a number is no help to read.
+func maskDestination(kind, address string) string {
+	if kind == store.ChannelTelegram {
+		return "your chat"
+	}
+
+	local, domain, ok := strings.Cut(address, "@")
 	if !ok || local == "" {
 		return "your address"
 	}
@@ -754,6 +953,81 @@ func parseEmail(raw string) (string, string) {
 		return "", "That does not look like an email address"
 	}
 	return email, ""
+}
+
+// parseChatID reads the chat a Telegram message should go to. The Bot API takes
+// either the number of a chat or the @name of a public channel, and which chats
+// exist is Telegram's to say: the page offers a test message before anything is
+// saved for exactly that reason. What is checked here is that it looks like one
+// of the two rather than like a sentence.
+func parseChatID(raw string) (string, string) {
+	chat := strings.TrimSpace(raw)
+	if chat == "" {
+		return "", "A chat is required"
+	}
+	if len(chat) > 64 {
+		return "", "That chat is too long"
+	}
+
+	if name, ok := strings.CutPrefix(chat, "@"); ok {
+		if !isChatName(name) {
+			return "", "A channel name is letters, numbers and underscores, like @my_channel"
+		}
+		return chat, ""
+	}
+
+	// A group or a channel has a negative number, so the sign is part of it.
+	digits := strings.TrimPrefix(chat, "-")
+	if digits == "" || !isDigits(digits) {
+		return "", "A chat is a number, or the @name of a channel"
+	}
+	return chat, ""
+}
+
+// parseBotToken reads the token of the bot that speaks to a chat. Telegram is
+// the one that can say whether a token is good, and the test message is there for
+// exactly that; what is checked here is that it looks like a token rather than
+// like a sentence, which a stray paste is.
+func parseBotToken(raw string) (string, string) {
+	token := strings.TrimSpace(raw)
+	if token == "" {
+		return "", "A bot token is required"
+	}
+	if len(token) > 128 {
+		return "", "That bot token is too long"
+	}
+	if strings.ContainsAny(token, " \t\r\n") {
+		return "", "A bot token has no spaces in it"
+	}
+
+	id, secret, ok := strings.Cut(token, ":")
+	if !ok || !isDigits(id) || secret == "" {
+		return "", "A bot token looks like 123456789:AAH..."
+	}
+	return token, ""
+}
+
+func isDigits(value string) bool {
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return value != ""
+}
+
+func isChatName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // shortToken is enough of a token to recognise one in a log line, and not enough
