@@ -100,20 +100,6 @@
   }
 }
 
-/* A state chip on a filter row that is currently on. daisyUI paints a badge with a
-   rule of its own, and that rule sits in a nested layer inside `utilities`, which
-   outranks a plain Tailwind utility like `bg-base-content/70` however specific it
-   is. So this look is written as its own rule, outside any layer, where it wins.
-
-   The fill is base-content dimmed, with base-100 as the text: a faded black on the
-   light theme and a faded white on the dark one, so a picked chip stands out from
-   the page and from the state colours around it either way. */
-.badge-picked {
-  background-color: color-mix(in oklab, var(--color-base-content) 70%, transparent);
-  border-color: transparent;
-  color: var(--color-base-100);
-}
-
 /* The way being shown in the menu on the alert page. daisyUI marks the picked
    item by filling it with `neutral`, which on the light theme is near black: in
    a column this small it reads as heavier than the choice is worth and competes
