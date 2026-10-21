@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -355,5 +356,85 @@ func TestASubscriberEditsTheirOwnService(t *testing.T) {
 		`{"name":"zz-hijacked"}`, sessionFor(t, st, other))
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("editing somebody else's service = %d, want 404: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// The address is staff business. A subscriber's edit leaves it alone, staff can
+// correct it, and an address another row already answers to is refused.
+func TestOnlyStaffCorrectAServiceSlug(t *testing.T) {
+	st, router := testRouter(t)
+	ctx := context.Background()
+
+	owner := testUser(t, st, auth.RoleSubscriber)
+	cookie := sessionFor(t, st, owner)
+	name := fmt.Sprintf("zz-slug-%d", time.Now().UnixNano())
+	slug := addService(t, st, router, cookie, fmt.Sprintf(
+		`{"name":%q,"url":"https://status.example.invalid","visibility":"private"}`, name))
+
+	rec := call(t, router, http.MethodPatch, "/api/v1/services/"+slug,
+		`{"slug":"zz-the-owner-asked"}`, cookie)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the owner editing their own service = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if row, err := st.AdminGetService(ctx, slug); err != nil {
+		t.Fatalf("AdminGetService: %v", err)
+	} else if row.Slug != slug {
+		t.Errorf("slug = %q, want the owner's request ignored", row.Slug)
+	}
+
+	moderator := testUser(t, st, auth.RoleModerator)
+	modCookie := sessionFor(t, st, moderator)
+
+	free := fmt.Sprintf("zz-corrected-%d", time.Now().UnixNano())
+	raw := "  " + strings.ToUpper(free) + "  "
+	t.Cleanup(func() { _ = st.PurgeService(context.Background(), free) })
+
+	// What a person types is normalised the same way a new row's name is.
+	rec = call(t, router, http.MethodPatch, "/api/v1/services/"+slug,
+		fmt.Sprintf(`{"slug":%q}`, raw), modCookie)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("staff renaming a service = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var renamed struct {
+		Service store.AdminService `json:"service"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &renamed); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if renamed.Service.Slug != free {
+		t.Fatalf("slug = %q, want %q", renamed.Service.Slug, free)
+	}
+	if renamed.Service.Name != name {
+		t.Errorf("name = %q, want it left alone", renamed.Service.Name)
+	}
+
+	// The old address is gone, as the issue asks: no redirect is kept.
+	if rec := call(t, router, http.MethodGet, "/api/v1/services/"+slug, "", modCookie); rec.Code != http.StatusNotFound {
+		t.Errorf("the old address = %d, want 404: %s", rec.Code, rec.Body.String())
+	}
+	if rec := call(t, router, http.MethodGet, "/api/v1/services/"+free, "", modCookie); rec.Code != http.StatusOK {
+		t.Errorf("the new address = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+
+	// An address another row has is refused, and the row keeps the one it had.
+	taken := addService(t, st, router, cookie, fmt.Sprintf(
+		`{"name":"zz-taken-%d","url":"https://status.example.invalid","visibility":"private"}`,
+		time.Now().UnixNano()))
+	rec = call(t, router, http.MethodPatch, "/api/v1/services/"+free,
+		fmt.Sprintf(`{"slug":%q}`, taken), modCookie)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("rename to a taken slug = %d, want 409: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "another service already answers to that address") {
+		t.Errorf("body = %s, want the reason", rec.Body.String())
+	}
+	if rec := call(t, router, http.MethodGet, "/api/v1/services/"+free, "", modCookie); rec.Code != http.StatusOK {
+		t.Errorf("the row after a refused rename = %d, want 200", rec.Code)
+	}
+
+	// Something with no letter or number in it is not an address at all.
+	rec = call(t, router, http.MethodPatch, "/api/v1/services/"+free, `{"slug":"!!!"}`, modCookie)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("an empty slug = %d, want 400: %s", rec.Code, rec.Body.String())
 	}
 }

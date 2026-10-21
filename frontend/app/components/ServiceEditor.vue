@@ -90,6 +90,7 @@ async function save(payload: ServicePayload) {
           :categories="categories"
           show-visibility
           :can-choose-profile="canManageServices"
+          :show-slug="canManageServices"
           submit-label="Save changes"
           :busy="busy"
           :error="error"

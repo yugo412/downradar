@@ -187,7 +187,7 @@ const (
 // and profile are validated by the caller: a published row without a profile is
 // silently skipped by the poller.
 func (s *Store) CreateService(ctx context.Context, in NewService) (string, error) {
-	slug, err := s.uniqueSlug(ctx, slugify(in.Name))
+	slug, err := s.uniqueSlug(ctx, Slugify(in.Name))
 	if err != nil {
 		return "", err
 	}
@@ -237,7 +237,10 @@ func (s *Store) CreateService(ctx context.Context, in NewService) (string, error
 // ServicePatch carries only the fields the caller wants to change. A nil field
 // is left alone; an empty string clears a nullable column.
 type ServicePatch struct {
-	Name     *string
+	Name *string
+	// Slug moves the row to another address. A slug that is already taken is
+	// refused with ErrSlugTaken rather than numbered.
+	Slug     *string
 	URL      *string
 	Profile  *string
 	Category *string
@@ -260,7 +263,7 @@ type ServicePatch struct {
 }
 
 func (p ServicePatch) Empty() bool {
-	return p.Name == nil && p.URL == nil && p.Profile == nil && p.Category == nil &&
+	return p.Name == nil && p.Slug == nil && p.URL == nil && p.Profile == nil && p.Category == nil &&
 		p.LogoURL == nil && p.Endpoint == nil && p.Aliases == nil && p.Status == nil &&
 		p.Active == nil && p.PollIntervalSeconds == nil && p.ActiveIntervalSeconds == nil &&
 		!p.SetOwner && p.Visibility == nil
@@ -282,12 +285,18 @@ func (s *Store) UpdateService(ctx context.Context, slug string, p ServicePatch) 
 			poll_interval_seconds   = coalesce($13::int, poll_interval_seconds),
 			active_interval_seconds = coalesce($14::int, active_interval_seconds),
 			visibility = coalesce($15::text, visibility),
+			slug       = coalesce($16::text, slug),
 			updated_at = now()
 		where slug = $1`,
 		slug, p.Name, p.URL, p.Profile, p.Category, p.LogoURL, p.Endpoint,
 		p.Aliases, p.Status, p.Active, p.SetOwner, p.OwnerID,
-		p.PollIntervalSeconds, p.ActiveIntervalSeconds, p.Visibility)
+		p.PollIntervalSeconds, p.ActiveIntervalSeconds, p.Visibility, p.Slug)
 	if err != nil {
+		// The unique index on the address is the only one this statement can
+		// trip, and a taken address is a person's answer to correct, not a fault.
+		if isUniqueViolation(err) {
+			return ErrSlugTaken
+		}
 		return fmt.Errorf("services: update %s: %w", slug, err)
 	}
 	if tag.RowsAffected() == 0 {

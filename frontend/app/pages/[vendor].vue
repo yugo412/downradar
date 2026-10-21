@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { VendorDetail } from '~/types/api'
+import type { AdminService, VendorDetail } from '~/types/api'
 
 const { canManageServices } = useAuth()
 
@@ -19,8 +19,13 @@ if (error.value?.statusCode === 404) {
 
 const editing = ref(false)
 
-async function onSaved() {
+async function onSaved(service: AdminService) {
   editing.value = false
+  // A corrected address is where the page answers from now on.
+  if (service.slug !== vendor.value?.slug) {
+    await navigateTo(`/${service.slug}`)
+    return
+  }
   await refresh()
 }
 

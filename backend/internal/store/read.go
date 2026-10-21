@@ -12,6 +12,11 @@ import (
 
 var ErrNotFound = errors.New("store: not found")
 
+// ErrSlugTaken is a service asked to answer to an address that another row
+// already has. A slug someone typed is refused rather than numbered: they meant
+// that address, not the next free one.
+var ErrSlugTaken = errors.New("store: slug taken")
+
 // ErrNoBotToken is a chat that has no bot to speak to it. A way that could never
 // be sent to is refused rather than saved and left looking set up.
 var ErrNoBotToken = errors.New("store: no bot for the chat")

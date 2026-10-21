@@ -218,6 +218,8 @@ export interface AccountAlert {
   channels: string[]
 }export interface ServicePayload {
   name: string
+  // Staff correct the address; a subscriber's payload never carries one.
+  slug?: string
   url: string
   profile: string
   category: string
