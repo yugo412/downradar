@@ -56,8 +56,9 @@ app itself, not from fixtures.
   see the ones it added there, while admin and moderator see the whole catalogue.
   A subscriber never picks an adapter, so their row is saved as no match and the
   detection pass publishes it once a profile reads its page. The owner edits the
-  fields of their own row, while the adapter, its endpoint, the stage and the
-  detection queue stay with staff.
+  fields of their own row, while the address, the adapter, its endpoint, the
+  stage and the detection queue stay with staff. A slug staff correct is replaced
+  outright, with no redirect left behind.
 - Visibility and ownership are separate answers. `visibility` says who may see a
   row, `owner_id` says who added it and looks after it, so a catalogue service
   can still belong to somebody. A subscriber's suggestion keeps its owner when it

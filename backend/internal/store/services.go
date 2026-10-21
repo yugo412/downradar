@@ -77,7 +77,7 @@ func (s *Store) Services(ctx context.Context) ([]ServiceRow, error) {
 // not a visibility choice: approving the suggestion clears it and publishes the
 // row to the catalogue.
 func (s *Store) ProposeService(ctx context.Context, name, pageURL string, ownerID *int64) (string, error) {
-	slug, err := s.uniqueSlug(ctx, slugify(name))
+	slug, err := s.uniqueSlug(ctx, Slugify(name))
 	if err != nil {
 		return "", err
 	}
@@ -120,9 +120,9 @@ func (s *Store) uniqueSlug(ctx context.Context, base string) (string, error) {
 
 const maxSlugLength = 60
 
-// slugify turns a display name into something usable in a url. Letters and
-// digits are kept, everything else becomes a dash.
-func slugify(name string) string {
+// Slugify turns a display name, or an address someone typed, into something
+// usable in a url. Letters and digits are kept, everything else becomes a dash.
+func Slugify(name string) string {
 	var sb strings.Builder
 	dashed := false
 

@@ -32,6 +32,7 @@ const detectionBudget = 20 * time.Second
 // alone, which is what makes the same struct work for create and for patch.
 type servicePayload struct {
 	Name       *string   `json:"name"`
+	Slug       *string   `json:"slug"`
 	URL        *string   `json:"url"`
 	Profile    *string   `json:"profile"`
 	Category   *string   `json:"category"`
@@ -527,7 +528,7 @@ func (h *handlers) updateService(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if body.Name == nil && body.URL == nil && body.Profile == nil && body.Category == nil &&
+	if body.Name == nil && body.Slug == nil && body.URL == nil && body.Profile == nil && body.Category == nil &&
 		body.LogoURL == nil && body.Endpoint == nil && body.Aliases == nil &&
 		body.Status == nil && body.Active == nil && body.Visibility == nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Nothing to update"})
@@ -538,10 +539,11 @@ func (h *handlers) updateService(w http.ResponseWriter, r *http.Request) {
 	staff := auth.CanManageServices(user.Role)
 
 	// A subscriber edits the service they added: its name, its page, its logo,
-	// its category, its aliases and who may see it. The adapter, its endpoint,
-	// the stage and the active flag stay with staff, so a body that carries them
-	// changes nothing.
+	// its category, its aliases and who may see it. The address, the adapter, its
+	// endpoint, the stage and the active flag stay with staff, so a body that
+	// carries them changes nothing.
 	if !staff {
+		body.Slug = nil
 		body.Profile = nil
 		body.Endpoint = nil
 		body.Status = nil
@@ -585,6 +587,19 @@ func (h *handlers) updateService(w http.ResponseWriter, r *http.Request) {
 		status = strings.ToLower(clean(sanitize(*body.Status)))
 	}
 
+	// The address is corrected rather than kept: it is normalised the same way a
+	// new row's is, so what a person typed and what the page answers to agree.
+	nextSlug := current.Slug
+	if body.Slug != nil {
+		nextSlug = store.Slugify(*body.Slug)
+		if nextSlug == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "an address needs at least one letter or number",
+			})
+			return
+		}
+	}
+
 	// A page that moves is matched again: which adapter reads it is not the
 	// owner's to know, and the one on the row may not read the new page.
 	if !staff && pageURL != current.URL &&
@@ -617,6 +632,9 @@ func (h *handlers) updateService(w http.ResponseWriter, r *http.Request) {
 	patch := store.ServicePatch{Active: body.Active}
 	if body.Name != nil {
 		patch.Name = &name
+	}
+	if nextSlug != current.Slug {
+		patch.Slug = &nextSlug
 	}
 	if body.URL != nil {
 		patch.URL = &pageURL
@@ -668,21 +686,28 @@ func (h *handlers) updateService(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.store.UpdateService(r.Context(), slug, patch); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		switch {
+		case errors.Is(err, store.ErrNotFound):
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "Service not found"})
-			return
+		case errors.Is(err, store.ErrSlugTaken):
+			writeJSON(w, http.StatusConflict, map[string]string{
+				"error": "another service already answers to that address",
+			})
+		default:
+			h.fail(w, r, err)
 		}
-		h.fail(w, r, err)
 		return
 	}
 
-	updated, err := h.store.AdminGetService(r.Context(), slug)
+	// The row answers to its new address from here on, with no redirect left
+	// behind: a slug that was wrong is corrected, not preserved.
+	updated, err := h.store.AdminGetService(r.Context(), nextSlug)
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
 
-	h.log.Info("service updated", "slug", slug, "status", status, "by", user.Email)
+	h.log.Info("service updated", "slug", nextSlug, "was", slug, "status", status, "by", user.Email)
 	writeJSON(w, http.StatusOK, map[string]any{"service": updated})
 }
 

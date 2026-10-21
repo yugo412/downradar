@@ -20,8 +20,8 @@ func TestSlugify(t *testing.T) {
 	}
 
 	for in, want := range cases {
-		if got := slugify(in); got != want {
-			t.Errorf("slugify(%q) = %q, want %q", in, got, want)
+		if got := Slugify(in); got != want {
+			t.Errorf("Slugify(%q) = %q, want %q", in, got, want)
 		}
 	}
 }
@@ -31,7 +31,7 @@ func TestSlugifyCapsLength(t *testing.T) {
 	for i := 0; i < 200; i++ {
 		long += "a"
 	}
-	if got := slugify(long); len(got) > maxSlugLength {
+	if got := Slugify(long); len(got) > maxSlugLength {
 		t.Errorf("slug length = %d, want at most %d", len(got), maxSlugLength)
 	}
 }

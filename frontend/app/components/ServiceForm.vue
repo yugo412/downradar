@@ -21,6 +21,8 @@ const props = withDefaults(
     // Only staff pick the adapter. A subscriber's page is offered to the
     // detection queue instead, which is what the API does with the empty field.
     canChooseProfile?: boolean
+    // The address is corrected rather than kept, and it is staff's to correct.
+    showSlug?: boolean
   }>(),
   {
     initial: null,
@@ -31,6 +33,7 @@ const props = withDefaults(
     showStatus: false,
     showVisibility: false,
     canChooseProfile: true,
+    showSlug: false,
   },
 )
 
@@ -44,6 +47,7 @@ const emit = defineEmits<{
 const categoryListId = useId()
 
 const name = ref(props.initial?.name ?? '')
+const slug = ref(props.initial?.slug ?? '')
 const url = ref(props.initial?.url ?? '')
 const profile = ref(props.initial?.profile ?? '')
 const category = ref(props.initial?.category ?? '')
@@ -109,6 +113,7 @@ async function detect() {
 function onSubmit() {
   emit('submit', {
     name: name.value,
+    ...(props.showSlug ? { slug: slug.value.trim() } : {}),
     url: url.value,
     profile: props.canChooseProfile ? profile.value : '',
     category: category.value,
@@ -137,6 +142,22 @@ function onSubmit() {
         maxlength="80"
         required
       />
+    </label>
+
+    <label v-if="showSlug" class="form-control w-full">
+      <span class="label-text mb-1 text-sm font-medium">Address</span>
+      <input
+        v-model="slug"
+        type="text"
+        class="input input-bordered w-full font-mono"
+        maxlength="60"
+        required
+        @blur="slug = slugify(slug)"
+      />
+      <span class="label-text-alt mt-1 opacity-60">
+        The last part of this service's page address. Changing it keeps no redirect, so the old
+        address stops working.
+      </span>
     </label>
 
     <label class="form-control w-full">

@@ -410,3 +410,49 @@ func TestAdminListServicesSearch(t *testing.T) {
 		}
 	})
 }
+
+// A slug someone typed replaces the old one outright, and a slug another row
+// already answers to is refused without changing anything else on the row.
+func TestUpdateServiceRenamesToAFreeSlugOnly(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	slug, err := st.CreateService(ctx, NewService{
+		Name: uniqueName("rename"), URL: "https://status.example.com",
+		Profile: "statuspage-v2", PollIntervalSeconds: 300, ActiveIntervalSeconds: 60,
+	})
+	if err != nil {
+		t.Fatalf("CreateService: %v", err)
+	}
+	other, err := st.CreateService(ctx, NewService{
+		Name: uniqueName("taken"), URL: "https://status.example.com",
+		Profile: "statuspage-v2", PollIntervalSeconds: 300, ActiveIntervalSeconds: 60,
+	})
+	if err != nil {
+		t.Fatalf("CreateService: %v", err)
+	}
+	t.Cleanup(func() { dropServices(context.Background(), st, slug, other) })
+
+	next := Slugify(uniqueName("corrected"))
+	if err := st.UpdateService(ctx, slug, ServicePatch{Slug: &next}); err != nil {
+		t.Fatalf("UpdateService: %v", err)
+	}
+	if _, err := st.AdminGetService(ctx, next); err != nil {
+		t.Fatalf("the row at its new address: %v", err)
+	}
+	if _, err := st.AdminGetService(ctx, slug); !errors.Is(err, ErrNotFound) {
+		t.Errorf("the old address = %v, want it gone with no redirect", err)
+	}
+
+	name := "moved anyway"
+	if err := st.UpdateService(ctx, next, ServicePatch{Slug: &other, Name: &name}); !errors.Is(err, ErrSlugTaken) {
+		t.Errorf("rename to a taken slug = %v, want ErrSlugTaken", err)
+	}
+	row, err := st.AdminGetService(ctx, next)
+	if err != nil {
+		t.Fatalf("AdminGetService after a refused rename: %v", err)
+	}
+	if row.Name == name {
+		t.Error("a refused rename still changed the rest of the row")
+	}
+}

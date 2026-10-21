@@ -35,8 +35,13 @@ useSeoMeta({
 
 const editing = ref(false)
 
-async function onSaved() {
+async function onSaved(service: AdminService) {
   editing.value = false
+  // A corrected address is where the row answers from now on.
+  if (service.slug !== slug.value) {
+    await navigateTo(`/services/${service.slug}`)
+    return
+  }
   await Promise.all([refreshMeta(), refreshDetail()])
 }
 </script>
