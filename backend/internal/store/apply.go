@@ -106,7 +106,8 @@ func (s *Store) ApplyReport(ctx context.Context, serviceID int64, rep adapters.R
 	}
 
 	if _, err := tx.Exec(ctx,
-		`update services set last_polled_at = now() where id = $1`, serviceID,
+		`update services set last_polled_at = now(), next_poll_at = null, poll_refusals = 0
+		 where id = $1`, serviceID,
 	); err != nil {
 		return false, fmt.Errorf("apply: update last_polled_at: %w", err)
 	}
@@ -281,7 +282,18 @@ func (s *Store) insertEvent(
 	return nil
 }
 
-func (s *Store) RecordFailure(ctx context.Context, serviceID int64, httpStatus int, msg string, durationMS int) error {
+// PollFailure is one failed fetch as the vendor's schedule sees it. NextPollAt
+// and Refusals are only set when the page refused to answer, so a plain failure
+// clears any wait that an earlier refusal left behind: the page did answer.
+type PollFailure struct {
+	HTTPStatus int
+	Error      string
+	DurationMS int
+	NextPollAt *time.Time
+	Refusals   int
+}
+
+func (s *Store) RecordFailure(ctx context.Context, serviceID int64, f PollFailure) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -291,12 +303,13 @@ func (s *Store) RecordFailure(ctx context.Context, serviceID int64, httpStatus i
 	if _, err := tx.Exec(ctx, `
 		insert into poll_runs (service_id, ok, http_status, error, duration_ms)
 		values ($1, false, $2, $3, $4)`,
-		serviceID, nullInt(httpStatus), msg, durationMS,
+		serviceID, nullInt(f.HTTPStatus), f.Error, f.DurationMS,
 	); err != nil {
 		return fmt.Errorf("apply: record failure: %w", err)
 	}
-	if _, err := tx.Exec(ctx,
-		`update services set last_polled_at = now() where id = $1`, serviceID,
+	if _, err := tx.Exec(ctx, `
+		update services set last_polled_at = now(), next_poll_at = $2, poll_refusals = $3
+		where id = $1`, serviceID, f.NextPollAt, f.Refusals,
 	); err != nil {
 		return fmt.Errorf("apply: update last_polled_at: %w", err)
 	}

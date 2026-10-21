@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"downradar.info/backend/internal/adapters"
 )
 
 func TestRecentPollRunsNewestFirst(t *testing.T) {
@@ -79,5 +81,83 @@ func TestRecentPollRunsNewestFirst(t *testing.T) {
 	}
 	if len(missing) != 0 {
 		t.Errorf("got %d poll runs for an unknown service, want 0", len(missing))
+	}
+}
+
+// scheduleOf reads what the poller will look at on its next cycle.
+func scheduleOf(t *testing.T, st *Store, id int64) (next *time.Time, refusals int, last *time.Time) {
+	t.Helper()
+
+	if err := st.pool.QueryRow(context.Background(),
+		`select next_poll_at, poll_refusals, last_polled_at from services where id = $1`, id,
+	).Scan(&next, &refusals, &last); err != nil {
+		t.Fatalf("read schedule: %v", err)
+	}
+	return next, refusals, last
+}
+
+func TestRecordFailureRemembersTheWait(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	id := testService(t, st, uniqueName("poll-backoff"))
+	until := time.Now().UTC().Add(5 * time.Minute).Truncate(time.Millisecond)
+
+	if err := st.RecordFailure(ctx, id, PollFailure{
+		HTTPStatus: 429,
+		Error:      "the page asked to be left alone",
+		DurationMS: 42,
+		NextPollAt: &until,
+		Refusals:   2,
+	}); err != nil {
+		t.Fatalf("RecordFailure: %v", err)
+	}
+
+	next, refusals, last := scheduleOf(t, st, id)
+	if next == nil || !next.UTC().Equal(until) {
+		t.Errorf("next poll at %v, want %v", next, until)
+	}
+	if refusals != 2 {
+		t.Errorf("refusals = %d, want 2", refusals)
+	}
+	if last == nil {
+		t.Error("a failed poll should still move last_polled_at")
+	}
+
+	// A page that answers, even badly, is not refusing: the wait is dropped and
+	// the next refusal starts the curve again.
+	if err := st.RecordFailure(ctx, id, PollFailure{HTTPStatus: 500, Error: "boom"}); err != nil {
+		t.Fatalf("RecordFailure: %v", err)
+	}
+	if next, refusals, _ := scheduleOf(t, st, id); next != nil || refusals != 0 {
+		t.Errorf("next poll = %v, refusals = %d, want no wait", next, refusals)
+	}
+}
+
+func TestApplyReportClearsTheWait(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	id := testService(t, st, uniqueName("poll-recovered"))
+	until := time.Now().UTC().Add(time.Hour)
+	if err := st.RecordFailure(ctx, id, PollFailure{
+		HTTPStatus: 403,
+		Error:      "the page turned the poller away",
+		NextPollAt: &until,
+		Refusals:   4,
+	}); err != nil {
+		t.Fatalf("RecordFailure: %v", err)
+	}
+
+	if _, err := st.ApplyReport(ctx, id, adapters.Report{
+		FetchedAt:  time.Now().UTC(),
+		HTTPStatus: 200,
+		Global:     adapters.HealthOK,
+	}); err != nil {
+		t.Fatalf("ApplyReport: %v", err)
+	}
+
+	if next, refusals, _ := scheduleOf(t, st, id); next != nil || refusals != 0 {
+		t.Errorf("next poll = %v, refusals = %d, want a clean schedule after a good poll", next, refusals)
 	}
 }
