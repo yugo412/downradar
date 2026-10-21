@@ -358,7 +358,11 @@ func (h *handlers) changePassword(w http.ResponseWriter, r *http.Request) {
 
 	current := h.user(r)
 
-	if !auth.CheckPassword(current.PasswordHash, body.CurrentPassword) {
+	// An account made through a provider has no password yet, so there is none to
+	// prove: the session is proof enough to set the first one. An account that
+	// has one still has to give it, or anybody with a borrowed browser could
+	// take the account over.
+	if current.PasswordHash != "" && !auth.CheckPassword(current.PasswordHash, body.CurrentPassword) {
 		h.log.Warn("password change refused", "user", current.Email, "ip", h.clientIP(r))
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "The current password is not correct"})
 		return

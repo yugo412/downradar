@@ -20,6 +20,7 @@ import (
 	"downradar.info/backend/internal/contact"
 	"downradar.info/backend/internal/detect"
 	"downradar.info/backend/internal/notify"
+	"downradar.info/backend/internal/oauth"
 	"downradar.info/backend/internal/store"
 )
 
@@ -31,6 +32,8 @@ type handlers struct {
 	accountMailer   *account.Mailer
 	contactMailer   *contact.Mailer
 	notifier        *notify.Notifier
+	providers       map[string]oauth.Provider
+	publicURL       string
 	readLimiter     *ipLimiter
 	suggestLimiter  *ipLimiter
 	alertLimiter    *ipLimiter
@@ -77,6 +80,12 @@ type Options struct {
 	SessionCookieSecure     bool
 	AlertsEnabled           bool
 	TelegramEnabled         bool
+	// Providers is every way to sign in that this deployment has credentials
+	// for, keyed by the name the routes use. An empty map is a site with no
+	// provider sign in, which is the default. PublicURL is the site's own
+	// address, which is what the provider sends the browser back to.
+	Providers map[string]oauth.Provider
+	PublicURL string
 }
 
 func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
@@ -137,6 +146,14 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 		alertLimit = 10
 	}
 
+	// A provider sends the browser back to an address that is registered with
+	// it, so the site's own public address has to be known here and not only by
+	// the mailer. The default is the dev site.
+	publicURL := opts.PublicURL
+	if publicURL == "" {
+		publicURL = "http://localhost:3000"
+	}
+
 	h := &handlers{
 		store:           st,
 		log:             log,
@@ -145,6 +162,8 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 		accountMailer:   opts.AccountMailer,
 		contactMailer:   opts.ContactMailer,
 		notifier:        opts.Notifier,
+		providers:       opts.Providers,
+		publicURL:       publicURL,
 		readLimiter:     newIPLimiter(readInterval, opts.RateLimitBurst),
 		suggestLimiter:  newIPLimiter(suggestInterval, opts.SuggestBurst),
 		alertLimiter:    newIPLimiter(alertInterval, opts.AlertBurst),
@@ -224,6 +243,23 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	mux.HandleFunc("POST /api/v1/auth/login",
 		h.authEndpoint(h.limited(h.loginLimiter, false,
 			"Too many sign in attempts, please try again later", h.login)))
+
+	// Signing in through a provider that already knows the visitor. The start is
+	// a redirect to the provider; the callback finishes in the same session
+	// cookie the password form issues. Both are counted with registering and the
+	// other account flows, because a flow somebody starts over and over is the
+	// same kind of noise. The providers list is what the screens read to decide
+	// whether to offer the buttons at all, so it is never cached: a stale copy
+	// would keep offering a provider that was just turned off.
+	mux.HandleFunc("GET /api/v1/auth/providers",
+		h.authEndpoint(h.limited(h.readLimiter, true,
+			"Rate limit exceeded, please try again in a moment", h.authProviders)))
+	mux.HandleFunc("GET /api/v1/auth/{provider}",
+		h.authEndpoint(h.limited(h.accountLimiter, false,
+			"Too many sign in attempts, please try again later", h.startOAuth)))
+	mux.HandleFunc("GET /api/v1/auth/{provider}/callback",
+		h.authEndpoint(h.limited(h.accountLimiter, false,
+			"Too many sign in attempts, please try again later", h.oauthCallback)))
 
 	// Accounts made from the site. These send email to an address somebody typed,
 	// so they get their own budget rather than sharing the sign in one.

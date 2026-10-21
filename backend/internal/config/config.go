@@ -35,6 +35,8 @@ type Config struct {
 	MailFrom                string
 	TelegramAPIBase         string
 	PublicURL               string
+	GitHubClientID          string
+	GitHubClientSecret      string
 	ContactEmail            string
 	AlertPerHour            int
 	AlertBurst              int
@@ -77,6 +79,8 @@ func Load() Config {
 		MailFrom:                env("MAIL_FROM", "DownRadar <alerts@downradar.info>"),
 		TelegramAPIBase:         env("TELEGRAM_API_BASE", "https://api.telegram.org"),
 		PublicURL:               env("PUBLIC_URL", "http://localhost:3000"),
+		GitHubClientID:          env("GITHUB_CLIENT_ID", ""),
+		GitHubClientSecret:      env("GITHUB_CLIENT_SECRET", ""),
 		ContactEmail:            env("CONTACT_EMAIL", "support@downradar.info"),
 		AlertPerHour:            envInt("ALERT_RATE_LIMIT_PER_HOUR", 6),
 		AlertBurst:              envInt("ALERT_RATE_LIMIT_BURST", 5),

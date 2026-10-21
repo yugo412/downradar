@@ -4,6 +4,9 @@ definePageMeta({ ssr: false })
 useSeoMeta({ title: 'Create an account', robots: 'noindex, nofollow' })
 
 const { register } = useAuth()
+const { providers, load: loadProviders, signInURL } = useAuthProviders()
+
+onMounted(loadProviders)
 
 const name = ref('')
 const email = ref('')
@@ -35,6 +38,21 @@ async function submit() {
     </p>
 
     <div class="mt-6 rounded-box border border-base-300 bg-base-100 p-5 shadow-sm">
+      <template v-if="providers.length">
+        <div class="flex flex-col gap-2">
+          <a
+            v-for="p in providers"
+            :key="p.name"
+            :href="signInURL(p.name)"
+            class="btn btn-outline w-full"
+          >
+            <GitHubIcon v-if="p.name === 'github'" class="size-4" />
+            Continue with {{ p.label }}
+          </a>
+        </div>
+        <div class="divider my-3 text-xs uppercase tracking-wide opacity-60">or</div>
+      </template>
+
       <form class="flex flex-col gap-4" @submit.prevent="submit">
         <label class="form-control w-full">
           <span class="label-text mb-1 text-sm font-medium">Name</span>

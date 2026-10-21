@@ -22,5 +22,10 @@ export default defineEventHandler((event) => {
       ...(host ? { 'x-forwarded-host': host } : {}),
       ...(forwardedFor ? { 'x-forwarded-for': forwardedFor } : {}),
     },
+    // A sign in through a provider answers with a redirect that the browser has
+    // to follow itself: it goes to the provider, and later back to the site with
+    // the session cookie. Following it here would fetch somebody else's page on
+    // the server and leave the address bar on the API's own path.
+    fetchOptions: { redirect: 'manual' },
   })
 })

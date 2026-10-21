@@ -19,6 +19,7 @@ import (
 	"downradar.info/backend/internal/httpapi"
 	"downradar.info/backend/internal/mail"
 	"downradar.info/backend/internal/notify"
+	"downradar.info/backend/internal/oauth"
 	"downradar.info/backend/internal/poller"
 	"downradar.info/backend/internal/store"
 )
@@ -86,6 +87,16 @@ func run() error {
 
 	go runAuthCleanup(ctx, st, log)
 
+	// Signing in with a provider is off until both halves of its credentials are
+	// set, the way mail is off without SMTP_ADDR: the screens do not offer the
+	// button and the routes say the provider is not configured.
+	providers := map[string]oauth.Provider{}
+	if cfg.GitHubClientID != "" && cfg.GitHubClientSecret != "" {
+		providers["github"] = oauth.NewGitHub(cfg.GitHubClientID, cfg.GitHubClientSecret)
+	} else {
+		log.Warn("sign in with github is off: GITHUB_CLIENT_ID or GITHUB_CLIENT_SECRET is not set")
+	}
+
 	if cfg.RawPayloadDays > 0 {
 		go runRawPayloadCleanup(ctx, st, time.Duration(cfg.RawPayloadDays)*24*time.Hour, log)
 	}
@@ -118,6 +129,8 @@ func run() error {
 			SessionCookie:           cfg.SessionCookie,
 			SessionTTL:              cfg.SessionTTL,
 			SessionCookieSecure:     cfg.SessionCookieSecure,
+			Providers:               providers,
+			PublicURL:               cfg.PublicURL,
 			AlertsEnabled:           cfg.SMTPAddr != "",
 			// Telegram is offered only while there is a sender loop to drain what
 			// it writes, which is the loop above: a chat that would be accepted
