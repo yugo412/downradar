@@ -860,28 +860,23 @@ func TestAWebhookIsPartOfTheSignedInUsersAlert(t *testing.T) {
 		state.Webhook.Method != "PUT" {
 		t.Errorf("webhook = %+v, want the call it was saved with", state.Webhook)
 	}
-	if len(state.Webhook.Headers) != 2 {
-		t.Fatalf("headers = %+v, want theirs and the bearer", state.Webhook.Headers)
+	if len(state.Webhook.Headers) != 1 {
+		t.Fatalf("headers = %+v, want only the one that was written", state.Webhook.Headers)
 	}
 	if got := state.Webhook.Headers[0]; got.Name != "X-Source" || got.Value != "downradar" {
 		t.Errorf("the subscriber's header = %+v, want it kept as it was written", got)
 	}
-	bearer := state.Webhook.Headers[1]
-	if bearer.Name != "Authorization" || !strings.HasPrefix(bearer.Value, "Bearer ") ||
-		len(bearer.Value) < len("Bearer ")+8 {
-		t.Errorf("default header = %+v, want a bearer token", bearer)
-	}
 
-	// Saving the same thing again changes nothing about the ways, so the token
-	// the far end already checks stays where it is.
+	// Saving the same thing again leaves the header list where it was rather
+	// than growing it with something the subscriber did not write.
 	rec = call(t, router, http.MethodPost, "/api/v1/vendors/"+slug+"/alerts", body, cookie)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("saving again = %d, want 201: %s", rec.Code, rec.Body.String())
 	}
 	again := readBell(t, router, slug, cookie)
-	if again.Webhook == nil || len(again.Webhook.Headers) != 2 ||
-		again.Webhook.Headers[1].Value != bearer.Value {
-		t.Errorf("the webhook token changed under a save that changed nothing")
+	if again.Webhook == nil || len(again.Webhook.Headers) != 1 ||
+		again.Webhook.Headers[0].Value != "downradar" {
+		t.Errorf("headers = %+v, want the one that was written and nothing more", again.Webhook.Headers)
 	}
 
 	// Clearing the URL stops the calls and leaves the emails alone.

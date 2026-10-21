@@ -312,11 +312,24 @@ site stores them rather than as the wording a page shows, so a receiver matches 
 a body, so a GET, which could not carry the news, is refused. A header value may
 carry placeholders such as `{{service}}`, `{{from}}`, `{{to}}` and `{{text}}`,
 which the server fills in before the call is made; a value cannot hold a line
-break. Every call carries an `Authorization: Bearer` header with the token of that
-channel unless the subscriber writes one of their own, so the receiving end can
-tell a call of ours from anyone else's. A name that is not one of the placeholders
+break. The header list is entirely the subscriber's: nothing is added to it, so a
+webhook that wants a static key writes one, and a signed call carries its
+signature beside whatever they wrote. A name that is not one of the placeholders
 is left exactly as it was written rather than refused, so a change to the set
 cannot break an alert that is already saved.
+
+A webhook also says how its calls are authenticated. The default is Standard
+Webhooks: the site makes a secret, signs every call with it over the message id,
+the timestamp and the body, and sends the result in the `webhook-id`,
+`webhook-timestamp` and `webhook-signature` headers, which the receiving end
+verifies with the same secret. The secret is shown once, in the dialog that makes
+it, and never again: the row keeps what it needs to sign with, and a page only
+ever learns that one is set. Generating another one is the only way back, and the
+secret it replaces keeps signing beside the new one for a day, so a receiver that
+has not been changed over yet still verifies during the switch. A webhook saved
+before the choice existed keeps its custom headers, which are still the way for a
+service that only takes a static header or a URL. The headers a subscriber writes
+are sent whichever way a call is authenticated.
 
 At the foot of the webhook way, just before Save, the alert page can make the
 call itself, with the URL, method and headers it is holding whether or not they

@@ -26,7 +26,7 @@ if (vendorError.value?.statusCode === 404) {
 type Way = 'email' | 'webhook' | 'telegram' | 'rss'
 
 function blankWebhook(): AlertWebhook {
-  return { url: '', method: 'POST', headers: [] }
+  return { url: '', method: 'POST', headers: [], auth: 'standard', signed: false }
 }
 
 const state = ref<AlertState | null>(null)
@@ -38,6 +38,14 @@ const error = ref('')
 // Trying a webhook, and what came back from the one that was tried.
 const testing = ref(false)
 const testResult = ref<{ status: number | null; response: string; error: string } | null>(null)
+
+// The signing secret dialog. The secret it shows is held here only until the
+// dialog closes: the site hands it out once, in the answer that made it.
+const secretOpen = ref(false)
+const secretBusy = ref(false)
+const secretError = ref('')
+const secretValue = ref('')
+const secretRotating = ref(false)
 
 // The sample body is long and is meant to be pasted somewhere else, so the page
 // hands it over as it is shown. The button says so for a moment, then goes back
@@ -227,33 +235,49 @@ async function load() {
   }
 }
 
+// What a save sends: the whole alert every time, so what is off stays off. An
+// empty URL is a webhook being stopped rather than one being left as it was, and
+// the same goes for the chat. generateSecret asks for a fresh signing secret in
+// the same save, which is the only way one is made.
+function alertBody(generateSecret = false) {
+  return {
+    email: email.value.trim(),
+    webhook: callsOn.value
+      ? {
+          url: hook.value.url.trim(),
+          method: hook.value.method,
+          headers: hook.value.headers,
+          auth: hook.value.auth,
+          generateSecret,
+        }
+      : { url: '' },
+    telegram: { chatId: chat.value.trim(), botToken: botToken.value.trim() },
+    wholeService: whole.value,
+    components: picked.value,
+  }
+}
+
+type SaveAnswer = { status: string; webhookSecret?: string }
+
 async function save() {
   if (hookProblem.value) return
+
+  // A signed webhook needs a secret before it can be saved. The dialog is opened
+  // instead of refusing at the banner: making the secret is the same save, and
+  // the page says so there.
+  if (callsOn.value && hook.value.auth === 'standard' && !hook.value.signed) {
+    openSecret()
+    return
+  }
 
   busy.value = true
   error.value = ''
   saved.value = false
 
   try {
-    await $fetch(`/api/v1/vendors/${slug.value}/alerts`, {
+    await $fetch<SaveAnswer>(`/api/v1/vendors/${slug.value}/alerts`, {
       method: 'POST',
-      body: {
-        email: email.value.trim(),
-        // Both ways are sent every time, so what is off stays off. An empty URL
-        // is a webhook being stopped rather than one being left as it was.
-        webhook: callsOn.value
-          ? {
-              url: hook.value.url.trim(),
-              method: hook.value.method,
-              headers: hook.value.headers,
-            }
-          : { url: '' },
-        // A chat is sent every time as well, so the panel says where the messages
-        // go: an empty one is the way being stopped rather than left as it was.
-        telegram: { chatId: chat.value.trim(), botToken: botToken.value.trim() },
-        wholeService: whole.value,
-        components: picked.value,
-      },
+      body: alertBody(),
     })
     await load()
     saved.value = true
@@ -261,6 +285,46 @@ async function save() {
     error.value = apiError(err)
   } finally {
     busy.value = false
+  }
+}
+
+function openSecret() {
+  secretRotating.value = hook.value.signed
+  secretValue.value = ''
+  secretError.value = ''
+  secretOpen.value = true
+}
+
+// Closing the dialog is the end of the secret: what it showed is dropped here
+// rather than kept for a second look. Making another one is the only way back.
+function closeSecret() {
+  secretOpen.value = false
+  secretValue.value = ''
+  secretError.value = ''
+}
+
+async function generateSecret() {
+  if (hookProblem.value || !callsOn.value) return
+
+  secretBusy.value = true
+  secretError.value = ''
+
+  try {
+    const res = await $fetch<SaveAnswer>(`/api/v1/vendors/${slug.value}/alerts`, {
+      method: 'POST',
+      body: alertBody(true),
+    })
+    if (!res.webhookSecret) {
+      secretError.value = 'The site made no secret. Try again.'
+      return
+    }
+    secretValue.value = res.webhookSecret
+    await load()
+    saved.value = true
+  } catch (err) {
+    secretError.value = apiError(err, 'Could not make a signing secret.')
+  } finally {
+    secretBusy.value = false
   }
 }
 
@@ -313,6 +377,7 @@ async function tryWebhook() {
           url: hook.value.url.trim(),
           method: hook.value.method,
           headers: hook.value.headers,
+          auth: hook.value.auth,
         },
       },
     )
@@ -620,55 +685,181 @@ async function refreshCalls() {
                 its own status and every component it reports.
               </p>
 
-              <div class="mt-3 flex flex-col gap-2 sm:flex-row">
-                <input
-                  v-model="hook.url"
-                  type="url"
-                  placeholder="https://example.com/hooks/downradar"
-                  aria-label="Webhook URL"
-                  class="input input-bordered w-full"
-                >
-                <select v-model="hook.method" aria-label="Method" class="select select-bordered sm:w-28">
-                  <option>POST</option>
-                  <option>PUT</option>
-                  <option>PATCH</option>
-                </select>
-              </div>
-              <p v-if="hookProblem" class="mt-2 text-sm text-error">
-                {{ hookProblem }}
-              </p>
-              <p class="mt-2 text-sm opacity-70">
-                Leave the URL empty to stop the calls for good.
-              </p>
+              <!-- The part that has to be right for a call to arrive at all:
+                   where it goes, how it is proved to be ours, and the secret that
+                   proves it. What an arriving call looks like is below. -->
+              <fieldset class="mt-3 min-w-0 rounded-box border border-base-300 p-4">
+                <legend class="px-1 text-sm font-semibold">Where and how it calls</legend>
 
-              <p class="mt-3 text-sm opacity-70">
-                Every call carries an <code class="text-xs">Authorization</code> header
-                with this alert's own token, unless you write one of your own below.
-                Check it at your end to know a call is ours.
-              </p>
-
-              <div class="mt-4">
-                <AlertFieldList
-                  v-model="hook.headers"
-                  label="Headers"
-                  name-placeholder="X-Name"
-                  value-placeholder="value"
-                  add-label="Add header"
-                />
-              </div>
-
-              <div class="mt-4 rounded-box bg-base-200 p-3">
-                <p class="text-xs opacity-70">
-                  A header value can carry these, which are filled in with what
-                  changed before the call is sent.
+                <div class="join w-full">
+                  <input
+                    v-model="hook.url"
+                    type="url"
+                    placeholder="https://example.com/hooks/downradar"
+                    aria-label="Webhook URL"
+                    class="input input-bordered join-item min-w-0 flex-1"
+                  >
+                  <select
+                    v-model="hook.method"
+                    aria-label="Method"
+                    class="select select-bordered join-item w-24 sm:w-28"
+                  >
+                    <option>POST</option>
+                    <option>PUT</option>
+                    <option>PATCH</option>
+                  </select>
+                </div>
+                <p v-if="hookProblem" class="mt-2 text-sm text-error">
+                  {{ hookProblem }}
                 </p>
-                <ul class="mt-2 space-y-1 text-xs opacity-80">
-                  <li v-for="hint in placeholderHint" :key="hint.token">
-                    <code class="rounded bg-base-300 px-1">{{ hint.token }}</code>
-                    {{ hint.says }}
-                  </li>
-                </ul>
-              </div>
+                <p class="mt-2 text-sm opacity-70">
+                  Leave the URL empty to stop the calls for good.
+                </p>
+
+                <!-- How a call says it is ours. Standard is the one to pick: it
+                     puts a signature on every call. Custom stays for a service
+                     that only takes a static header or a URL. -->
+                <div class="mt-4">
+                  <p class="text-sm font-medium">Authentication</p>
+                  <div class="mt-2 flex flex-col gap-2">
+                    <label
+                      class="flex cursor-pointer items-start gap-3 rounded-box border p-3"
+                      :class="hook.auth === 'standard' ? 'border-primary bg-base-200' : 'border-base-300'"
+                    >
+                      <input v-model="hook.auth" type="radio" value="standard" class="radio radio-sm mt-0.5">
+                      <span class="text-sm">
+                        <span class="font-medium">Standard (Recommended)</span>
+                        <span class="mt-0.5 block opacity-70">
+                          Every call carries a signature made with a secret only you and this site
+                          know, so your end can tell a real call from anything else that finds its
+                          way there. Read the
+                          <a
+                            class="link"
+                            href="https://github.com/standard-webhooks/standard-webhooks/blob/main/spec/standard-webhooks.md"
+                            target="_blank"
+                            rel="noreferrer"
+                            >specification</a
+                          >.
+                        </span>
+                      </span>
+                    </label>
+                    <label
+                      class="flex cursor-pointer items-start gap-3 rounded-box border p-3"
+                      :class="hook.auth === 'custom' ? 'border-primary bg-base-200' : 'border-base-300'"
+                    >
+                      <input v-model="hook.auth" type="radio" value="custom" class="radio radio-sm mt-0.5">
+                      <span class="text-sm">
+                        <span class="font-medium">Custom headers</span>
+                        <span class="mt-0.5 block opacity-70">
+                          Only the headers below are sent, for a service that takes a static header or
+                          a URL and cannot be changed to check a signature.
+                        </span>
+                      </span>
+                    </label>
+                  </div>
+                </div>
+
+                <!-- The secret a signed call is made with. The page only ever
+                     knows whether one is set: it is shown once, in the dialog
+                     that makes it, and the site never hands it out again. -->
+                <div v-if="hook.auth === 'standard'" class="mt-3 rounded-box border border-base-300 p-3">
+                  <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div class="min-w-0">
+                      <p class="text-sm font-medium">Signing secret</p>
+                      <p class="text-sm opacity-70">
+                        <template v-if="hook.signed">
+                          A secret is set. Every call is signed with it.
+                        </template>
+                        <template v-else>
+                          No secret yet. One is needed before a signed call can go out.
+                        </template>
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      class="btn btn-outline btn-sm"
+                      :disabled="!callsOn || !!hookProblem"
+                      @click="openSecret"
+                    >
+                      {{ hook.signed ? 'Regenerate secret' : 'Generate secret' }}
+                    </button>
+                  </div>
+                  <p v-if="!callsOn" class="mt-2 text-xs opacity-70">
+                    Fill in the URL first: the secret is saved with the webhook.
+                  </p>
+                </div>
+
+                <!-- What a signed call carries beyond the body, so the headers a
+                     receiver has to look at are on the page that sets them up. -->
+                <details
+                  v-if="hook.auth === 'standard'"
+                  class="mt-3 min-w-0 rounded-box border border-base-300"
+                >
+                  <summary class="cursor-pointer px-4 py-3 text-sm font-medium">
+                    What a signed call adds
+                  </summary>
+                  <div class="min-w-0 border-t border-base-300 px-4 py-3">
+                    <p class="text-xs opacity-70">
+                      Three headers beside your own. The signature is HMAC-SHA256 over the
+                      id, the timestamp and the body, keyed with the signing secret.
+                    </p>
+                    <pre
+                      class="mt-2 overflow-x-auto rounded-box bg-base-200 p-3 text-xs"
+                    >webhook-id: msg_2KWPBgLlAfxdpx2AI54pPJ85f4W
+webhook-timestamp: 1674087231
+webhook-signature: v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=</pre>
+                  </div>
+                </details>
+              </fieldset>
+
+              <!-- What the call carries beside its body. The headers are the
+                   subscriber's in both modes, and one of them is always ours. -->
+              <fieldset class="mt-4 min-w-0 rounded-box border border-base-300 p-4">
+                <legend class="px-1 text-sm font-semibold">Headers</legend>
+
+                <p class="text-sm opacity-70">
+                  <template v-if="hook.auth === 'standard'">
+                    The signature is what proves a call is ours, so nothing is added here. Write
+                    whatever the service asks for, such as a key of its own.
+                  </template>
+                  <template v-else>
+                    Nothing signs a call in this mode, so these are what your end can check.
+                    Write a key of your own if the service needs one.
+                  </template>
+                </p>
+
+                <div class="mt-3">
+                  <AlertFieldList
+                    v-model="hook.headers"
+                    label="Headers"
+                    name-placeholder="X-Name"
+                    value-placeholder="value"
+                    add-label="Add header"
+                    :show-label="false"
+                  />
+                  <p class="mt-2 text-xs opacity-70">
+                    Sent with every call, whichever way it is authenticated.
+                  </p>
+                </div>
+
+                <details class="mt-3 min-w-0 rounded-box border border-base-300">
+                  <summary class="cursor-pointer px-4 py-3 text-sm font-medium">
+                    Header placeholders
+                  </summary>
+                  <div class="border-t border-base-300 px-4 py-3">
+                    <p class="text-xs opacity-70">
+                      A header value can carry these, which are filled in with what
+                      changed before the call is sent.
+                    </p>
+                    <ul class="mt-2 space-y-1 text-xs opacity-80">
+                      <li v-for="hint in placeholderHint" :key="hint.token">
+                        <code class="rounded bg-base-300 px-1">{{ hint.token }}</code>
+                        {{ hint.says }}
+                      </li>
+                    </ul>
+                  </div>
+                </details>
+              </fieldset>
 
               <details class="mt-4 min-w-0 rounded-box border border-base-300">
                 <summary class="cursor-pointer px-4 py-3 text-sm font-medium">
@@ -956,5 +1147,15 @@ async function refreshCalls() {
     </template>
 
     <p v-else-if="loading" class="mt-6 text-sm opacity-70">Loading…</p>
+
+    <WebhookSecretDialog
+      v-if="secretOpen"
+      :secret="secretValue"
+      :busy="secretBusy"
+      :error="secretError"
+      :rotating="secretRotating"
+      @generate="generateSecret"
+      @close="closeSecret"
+    />
   </div>
 </template>

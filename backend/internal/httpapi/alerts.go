@@ -26,6 +26,17 @@ type webhookRequest struct {
 	URL     string             `json:"url"`
 	Method  string             `json:"method"`
 	Headers []store.AlertField `json:"headers"`
+
+	// Auth says how a call is proved to be ours: standard signs it with a secret
+	// both ends know, and custom sends only the headers above. Left out keeps
+	// what the channel already does, which is how a page that predates the choice
+	// saves without changing it.
+	Auth string `json:"auth"`
+
+	// GenerateSecret asks for a fresh signing secret in the same save, which is
+	// the only way one is made. The answer it comes back in is the only time it
+	// can be read.
+	GenerateSecret bool `json:"generateSecret"`
 }
 
 // telegramRequest is one chat and the bot that speaks to it. The bot belongs to
@@ -108,13 +119,14 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var hook *store.AlertWebhook
+	newSecret := false
 	if body.Webhook != nil {
 		parsed, problem := parseWebhook(*body.Webhook)
 		if problem != "" {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": problem})
 			return
 		}
-		hook = parsed
+		hook, newSecret = parsed, body.Webhook.GenerateSecret
 	}
 
 	// A chat is named rather than typed freely: the message goes wherever this
@@ -351,24 +363,47 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		change.Telegram, change.TelegramToken = telegram, token
 	}
 
-	if err := h.store.SubscribeAlert(r.Context(), serviceID, userID, change); err != nil {
-		if errors.Is(err, store.ErrNoBotToken) {
+	secret := ""
+	var saveErr error
+	if newSecret {
+		secret, saveErr = h.store.SubscribeAlertWithSecret(r.Context(), serviceID, userID, change)
+	} else {
+		saveErr = h.store.SubscribeAlert(r.Context(), serviceID, userID, change)
+	}
+	if saveErr != nil {
+		switch {
+		case errors.Is(saveErr, store.ErrNoBotToken):
 			writeJSON(w, http.StatusBadRequest, map[string]string{
 				"error": "A bot token is required for a chat",
 			})
 			return
+		case errors.Is(saveErr, store.ErrWebhookSecretMissing):
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "Generate a signing secret for this webhook first",
+			})
+			return
+		case errors.Is(saveErr, store.ErrWebhookSecretUnused):
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "A signing secret is only for signed calls",
+			})
+			return
 		}
-		h.fail(w, r, err)
+		h.fail(w, r, saveErr)
 		return
 	}
 
 	// The answer says nothing about whether the address was already subscribed,
-	// so this cannot be used to ask whether somebody else's is.
+	// so this cannot be used to ask whether somebody else's is. The secret is the
+	// exception: it is handed back once, and never again.
+	answer := map[string]any{"status": "subscribed"}
+	if secret != "" {
+		answer["webhookSecret"] = secret
+	}
 	h.log.Info("alert subscription saved", "vendor", name, "email", address != "" && saveEmail,
 		"webhook", calls, "telegram", telegram != nil && telegram.ChatID != "",
-		"signed_in", userID != nil,
+		"signed_in", userID != nil, "webhook_secret", secret != "",
 		"whole", whole, "components", len(componentIDs))
-	writeJSON(w, http.StatusCreated, map[string]any{"status": "subscribed"})
+	writeJSON(w, http.StatusCreated, answer)
 }
 
 // webhookMethods are the methods a webhook can be sent with. They are the ones
@@ -405,6 +440,16 @@ func parseWebhook(body webhookRequest) (*store.AlertWebhook, string) {
 		return nil, "The method must be POST, PUT or PATCH"
 	}
 
+	auth := strings.ToLower(strings.TrimSpace(body.Auth))
+	switch auth {
+	case "", store.WebhookAuthStandard, store.WebhookAuthCustom:
+	default:
+		return nil, "The authentication must be standard or custom"
+	}
+	if body.GenerateSecret && auth != store.WebhookAuthStandard {
+		return nil, "A signing secret is only for signed calls"
+	}
+
 	headers, problem := parseFields(body.Headers, "header")
 	if problem != "" {
 		return nil, problem
@@ -415,7 +460,7 @@ func parseWebhook(body webhookRequest) (*store.AlertWebhook, string) {
 		}
 	}
 
-	return &store.AlertWebhook{URL: rawURL, Method: method, Headers: headers}, ""
+	return &store.AlertWebhook{URL: rawURL, Method: method, Headers: headers, Auth: auth}, ""
 }
 
 // parseFields reads a list of names and values, and drops the empty rows a screen
@@ -478,9 +523,28 @@ func (h *handlers) testWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, _ := h.notifier.TestWebhook(r.Context(), serviceID, *hook)
-
 	user := h.user(r)
+
+	// A signed try is signed with the secret the channel has, which the page is
+	// never handed. A webhook that has not been given one can only be tried once
+	// it has, because a call that says it is signed and is not would teach the
+	// subscriber the wrong thing about their own end.
+	if hook.Auth == store.WebhookAuthStandard {
+		saved, err := h.store.UserAlert(r.Context(), user.ID, serviceID)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			h.fail(w, r, err)
+			return
+		}
+		if saved == nil || saved.Webhook == nil || !saved.Webhook.Signed {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "Generate a signing secret before trying a signed call",
+			})
+			return
+		}
+		hook.Signing = saved.Webhook.Signing
+	}
+
+	result, _ := h.notifier.TestWebhook(r.Context(), serviceID, *hook)
 	if err := h.store.LogWebhookCall(r.Context(), &user.ID, serviceID, nil, store.WebhookCall{
 		Kind:     store.CallTest,
 		URL:      hook.URL,
