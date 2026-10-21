@@ -28,6 +28,8 @@ type ServiceRow struct {
 	ActiveIntervalSeconds int
 	Status                adapters.Health
 	LastPolledAt          *time.Time
+	NextPollAt            *time.Time
+	PollRefusals          int
 }
 
 // Services returns every published vendor. The poller calls this once per
@@ -39,7 +41,8 @@ func (s *Store) Services(ctx context.Context) ([]ServiceRow, error) {
 		       coalesce(s.category, ''), coalesce(s.logo_url, ''), coalesce(s.profile, ''),
 		       coalesce(s.endpoint, ''), s.include_components, s.aliases,
 		       s.allow_shared_page, s.poll_interval_seconds, s.active_interval_seconds,
-		       coalesce(ss.status, 'unknown'), s.last_polled_at
+		       coalesce(ss.status, 'unknown'), s.last_polled_at,
+		       s.next_poll_at, s.poll_refusals
 		from services s
 		left join service_state ss on ss.service_id = s.id
 		where s.active and s.status = $1
@@ -58,7 +61,7 @@ func (s *Store) Services(ctx context.Context) ([]ServiceRow, error) {
 			&r.Category, &r.LogoURL, &r.Profile,
 			&r.Endpoint, &r.Include, &r.Aliases,
 			&r.AllowSharedPage, &r.PollIntervalSeconds, &r.ActiveIntervalSeconds,
-			&status, &r.LastPolledAt,
+			&status, &r.LastPolledAt, &r.NextPollAt, &r.PollRefusals,
 		); err != nil {
 			return nil, fmt.Errorf("services: scan: %w", err)
 		}

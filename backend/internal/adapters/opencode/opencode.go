@@ -69,9 +69,9 @@ func (o *Opencode) Fetch(ctx context.Context, t adapters.Target) (adapters.Repor
 	}
 	url := strings.TrimRight(t.URL, "/") + "/" + strings.TrimLeft(endpoint, "/")
 
-	body, status, err := o.get(ctx, url)
+	body, status, retryAfter, err := o.get(ctx, url)
 	if err != nil {
-		return adapters.Report{HTTPStatus: status, Raw: body}, err
+		return adapters.Report{HTTPStatus: status, RetryAfter: retryAfter, Raw: body}, err
 	}
 
 	var payload opencodePayload
@@ -168,28 +168,28 @@ func opencodeTime(millis int64) time.Time {
 	return time.UnixMilli(millis).UTC()
 }
 
-func (o *Opencode) get(ctx context.Context, url string) ([]byte, int, error) {
+func (o *Opencode) get(ctx context.Context, url string) ([]byte, int, time.Duration, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, 0, fmt.Errorf("opencode: build request: %w", err)
+		return nil, 0, 0, fmt.Errorf("opencode: build request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", adapters.UserAgent)
 
 	resp, err := o.client.Do(req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("opencode: request %s: %w", url, err)
+		return nil, 0, 0, fmt.Errorf("opencode: request %s: %w", url, err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if err != nil {
-		return nil, resp.StatusCode, fmt.Errorf("opencode: read body: %w", err)
+		return nil, resp.StatusCode, 0, fmt.Errorf("opencode: read body: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return body, resp.StatusCode, fmt.Errorf("opencode: %s returned HTTP %d", url, resp.StatusCode)
+		return body, resp.StatusCode, adapters.RetryAfter(resp), fmt.Errorf("opencode: %s returned HTTP %d", url, resp.StatusCode)
 	}
-	return body, resp.StatusCode, nil
+	return body, resp.StatusCode, 0, nil
 }
 
 func init() {

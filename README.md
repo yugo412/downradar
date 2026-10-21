@@ -516,16 +516,25 @@ every call.
 - **History is stored as changes, not snapshots.** `status_events` only gets a
   row when a status actually changes. A per-minute snapshot would cost roughly
   1000x more storage for the same information.
-- **Polling is adaptive.** 300s while healthy, 60s while degraded.
+- **Polling is adaptive.** 300s while healthy, 60s while degraded, and never
+  more often than once a minute whatever the row asks for. A share of the
+  interval, taken from the slug, is added so vendors do not all fall due on the
+  same second.
+- **A page that refuses is left alone.** A 429 or 503 is remembered on the
+  vendor's row for as long as its `Retry-After` asks, or for a wait that doubles
+  with each refusal in a row up to six hours. A 403, which says the caller looks
+  like a datacenter, puts the vendor on an hourly schedule instead. The first
+  poll that works clears the wait.
 - **Empty responses never become "ok".** Unknown vocabulary maps to `unknown`
   and is recorded in `poll_runs.unknown_statuses` so drift is visible.
 - **The fetch log is staff and owner only.** A vendor's public page and its row
   at `/services/{slug}` both list the recent `poll_runs` rows for it: when the
   page was read, what came back and what did not parse, detection attempts
   included. A failed fetch changes no status, so this is the only place a page
-  that stopped answering shows up. The vendor itself is visible to every signed
-  in visitor, so the log carries a check of its own, and on the public page it is
-  rendered in the browser rather than into the cached HTML.
+  that stopped answering shows up. Staff also see when a refused page will be
+  tried again, which the owner is not shown. The vendor itself is visible to
+  every signed in visitor, so the log carries a check of its own, and on the
+  public page it is rendered in the browser rather than into the cached HTML.
 - **`/api/**` is proxied by Nuxt**, so the browser and SSR use the same relative
   path and no CORS is involved.
 

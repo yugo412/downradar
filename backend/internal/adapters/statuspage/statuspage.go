@@ -100,7 +100,7 @@ func (s *Statuspage) Fetch(ctx context.Context, t adapters.Target) (adapters.Rep
 		return adapters.Report{}, fmt.Errorf("statuspage: read body: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return adapters.Report{HTTPStatus: resp.StatusCode, Raw: body},
+		return adapters.Report{HTTPStatus: resp.StatusCode, RetryAfter: adapters.RetryAfter(resp), Raw: body},
 			fmt.Errorf("statuspage: %s returned HTTP %d", url, resp.StatusCode)
 	}
 

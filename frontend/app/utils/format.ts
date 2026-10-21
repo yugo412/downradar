@@ -20,6 +20,24 @@ export function timeAgo(iso?: string | null, now: number = Date.now()): string {
   return new Date(iso).toISOString().slice(0, 10)
 }
 
+// The same clock read forwards, for something that has not happened yet.
+export function timeUntil(iso?: string | null, now: number = Date.now()): string {
+  if (!iso) return '—'
+  const at = new Date(iso).getTime()
+  if (Number.isNaN(at)) return '—'
+
+  const seconds = Math.max(0, Math.floor((at - now) / 1000))
+  if (seconds < 60) return `in ${seconds}s`
+
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `in ${minutes}m`
+
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `in ${hours}h`
+
+  return `in ${Math.floor(hours / 24)}d`
+}
+
 export function formatDate(iso?: string | null): string {
   if (!iso) return '—'
   const d = new Date(iso)

@@ -97,9 +97,9 @@ func (p *Pagerduty) Fetch(ctx context.Context, t adapters.Target) (adapters.Repo
 	}
 	api := origin + "/" + strings.TrimLeft(endpoint, "/")
 
-	impactsBody, status, err := p.get(ctx, api+"impacted_services")
+	impactsBody, status, retryAfter, err := p.get(ctx, api+"impacted_services")
 	if err != nil {
-		return adapters.Report{HTTPStatus: status, Raw: impactsBody}, err
+		return adapters.Report{HTTPStatus: status, RetryAfter: retryAfter, Raw: impactsBody}, err
 	}
 	var impacts struct {
 		PageID   string     `json:"status_page_id"`
@@ -114,9 +114,9 @@ func (p *Pagerduty) Fetch(ctx context.Context, t adapters.Target) (adapters.Repo
 			fmt.Errorf("pagerduty: %s is not a PagerDuty status page", api+"impacted_services")
 	}
 
-	servicesBody, status, err := p.get(ctx, api+"services")
+	servicesBody, status, retryAfter, err := p.get(ctx, api+"services")
 	if err != nil {
-		return adapters.Report{HTTPStatus: status, Raw: servicesBody}, err
+		return adapters.Report{HTTPStatus: status, RetryAfter: retryAfter, Raw: servicesBody}, err
 	}
 	var services struct {
 		Services []pdService `json:"services"`
@@ -133,8 +133,10 @@ func (p *Pagerduty) Fetch(ctx context.Context, t adapters.Target) (adapters.Repo
 		PageID:     impacts.PageID,
 	}
 
-	enumsBody, _, err := p.get(ctx, api+"post_enums")
+	enumsBody, status, retryAfter, err := p.get(ctx, api+"post_enums")
 	if err != nil {
+		rep.HTTPStatus = status
+		rep.RetryAfter = retryAfter
 		return rep, err
 	}
 	var enums struct {
@@ -150,9 +152,11 @@ func (p *Pagerduty) Fetch(ctx context.Context, t adapters.Target) (adapters.Repo
 
 	since := rep.FetchedAt.Add(-pagerdutyWindow).UnixMilli()
 	until := rep.FetchedAt.UnixMilli()
-	postsBody, _, err := p.get(ctx, api+"posts?since="+strconv.FormatInt(since, 10)+
+	postsBody, status, retryAfter, err := p.get(ctx, api+"posts?since="+strconv.FormatInt(since, 10)+
 		"&until="+strconv.FormatInt(until, 10))
 	if err != nil {
+		rep.HTTPStatus = status
+		rep.RetryAfter = retryAfter
 		return rep, err
 	}
 	var posts struct {
@@ -254,28 +258,28 @@ func pageOrigin(raw string) (string, error) {
 	return u.Scheme + "://" + u.Host, nil
 }
 
-func (p *Pagerduty) get(ctx context.Context, url string) ([]byte, int, error) {
+func (p *Pagerduty) get(ctx context.Context, url string) ([]byte, int, time.Duration, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, 0, fmt.Errorf("pagerduty: build request: %w", err)
+		return nil, 0, 0, fmt.Errorf("pagerduty: build request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", adapters.UserAgent)
 
 	resp, err := p.client.Do(req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("pagerduty: request %s: %w", url, err)
+		return nil, 0, 0, fmt.Errorf("pagerduty: request %s: %w", url, err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if err != nil {
-		return nil, resp.StatusCode, fmt.Errorf("pagerduty: read body: %w", err)
+		return nil, resp.StatusCode, 0, fmt.Errorf("pagerduty: read body: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return body, resp.StatusCode, fmt.Errorf("pagerduty: %s returned HTTP %d", url, resp.StatusCode)
+		return body, resp.StatusCode, adapters.RetryAfter(resp), fmt.Errorf("pagerduty: %s returned HTTP %d", url, resp.StatusCode)
 	}
-	return body, resp.StatusCode, nil
+	return body, resp.StatusCode, 0, nil
 }
 
 func init() {

@@ -70,9 +70,9 @@ type statusioPayload struct {
 func (s *Statusio) Fetch(ctx context.Context, t adapters.Target) (adapters.Report, error) {
 	base := strings.TrimRight(t.URL, "/")
 
-	page, status, err := s.get(ctx, base+"/", "text/html")
+	page, status, retryAfter, err := s.get(ctx, base+"/", "text/html")
 	if err != nil {
-		return adapters.Report{HTTPStatus: status, Raw: page}, err
+		return adapters.Report{HTTPStatus: status, RetryAfter: retryAfter, Raw: page}, err
 	}
 
 	match := statusioPageID.FindSubmatch(page)
@@ -88,9 +88,9 @@ func (s *Statusio) Fetch(ctx context.Context, t adapters.Target) (adapters.Repor
 	}
 	url := base + "/" + strings.TrimLeft(endpoint, "/") + pageID
 
-	body, status, err := s.get(ctx, url, "application/json")
+	body, status, retryAfter, err := s.get(ctx, url, "application/json")
 	if err != nil {
-		return adapters.Report{HTTPStatus: status, Raw: body}, err
+		return adapters.Report{HTTPStatus: status, RetryAfter: retryAfter, Raw: body}, err
 	}
 
 	var payload statusioPayload
@@ -147,28 +147,28 @@ func statusioHealth(code int) adapters.Health {
 	return adapters.HealthUnknown
 }
 
-func (s *Statusio) get(ctx context.Context, url, accept string) ([]byte, int, error) {
+func (s *Statusio) get(ctx context.Context, url, accept string) ([]byte, int, time.Duration, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, 0, fmt.Errorf("statusio: build request: %w", err)
+		return nil, 0, 0, fmt.Errorf("statusio: build request: %w", err)
 	}
 	req.Header.Set("Accept", accept)
 	req.Header.Set("User-Agent", adapters.UserAgent)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("statusio: request %s: %w", url, err)
+		return nil, 0, 0, fmt.Errorf("statusio: request %s: %w", url, err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if err != nil {
-		return nil, resp.StatusCode, fmt.Errorf("statusio: read body: %w", err)
+		return nil, resp.StatusCode, 0, fmt.Errorf("statusio: read body: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return body, resp.StatusCode, fmt.Errorf("statusio: %s returned HTTP %d", url, resp.StatusCode)
+		return body, resp.StatusCode, adapters.RetryAfter(resp), fmt.Errorf("statusio: %s returned HTTP %d", url, resp.StatusCode)
 	}
-	return body, resp.StatusCode, nil
+	return body, resp.StatusCode, 0, nil
 }
 
 func init() {

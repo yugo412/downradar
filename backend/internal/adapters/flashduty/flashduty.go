@@ -111,7 +111,7 @@ func (f *FlashDuty) Fetch(ctx context.Context, t adapters.Target) (adapters.Repo
 		return adapters.Report{}, fmt.Errorf("flashduty: read body: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return adapters.Report{HTTPStatus: resp.StatusCode, Raw: body},
+		return adapters.Report{HTTPStatus: resp.StatusCode, RetryAfter: adapters.RetryAfter(resp), Raw: body},
 			fmt.Errorf("flashduty: %s returned HTTP %d", url, resp.StatusCode)
 	}
 
