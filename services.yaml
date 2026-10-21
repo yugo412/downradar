@@ -24,10 +24,12 @@
 # the queue again later, so the vendor starts working by itself once a profile
 # for its platform is listed here.
 #
-# Only platforms that can be recognised from a url alone belong here. A bespoke
-# page (opencode, flashduty, slack) would be probed on every unknown url and
-# never match, so it is left out, and ping is left out because it would match
-# every url there is. It is picked by hand for a service with no status page.
+# Only platform profiles belong here. A page that runs its own software (auth0,
+# paypal, railway, midtrans) is picked by hand from the profile list: a profile
+# for it can only ever match that one page, and every entry in the queue is a
+# fetch on every unknown url. A page with no marker to look for (opencode, slack)
+# is left out for the same reason, and ping is left out because it would match
+# every url there is. The order below keeps the cheap and common platforms first.
 detect:
   - statuspage-v2
   - statusio
@@ -37,6 +39,8 @@ detect:
   - solarwinds
   - flashduty
   - cronjob-statuspage
+  - uptimerobot
+  - statuscake
 
 profiles:
   # One profile serves dozens of vendors. Change the interval here and every
@@ -144,6 +148,60 @@ profiles:
   solarwinds:
     kind: solarwinds
     description: Pages hosted by SolarWinds (Squadcast), read from the data embedded in the page.
+    poll_interval_seconds: 300
+    active_interval_seconds: 60
+
+  # UptimeRobot hosts status pages as a product. A page carries the id of the
+  # public monitor list it is drawn from, and the adapter reads the list from
+  # that id, so nothing has to be configured per vendor.
+  uptimerobot:
+    kind: uptimerobot
+    description: Pages hosted by UptimeRobot, read from the monitor list the page names.
+    poll_interval_seconds: 300
+    active_interval_seconds: 60
+
+  # StatusCake hosts status pages too. The page is rendered on the server, so
+  # its status bar and its parent services are read from the html. The children
+  # under a parent are the same service split by region and are not repeated.
+  statuscake:
+    kind: statuscake
+    description: Pages hosted by StatusCake, read from the page itself.
+    poll_interval_seconds: 300
+    active_interval_seconds: 60
+
+  # Auth0 runs a Next.js status page. Its regions, their incidents and the
+  # planned maintenance sit in the page data. It is offered in the picker rather
+  # than the queue, because it can only ever be Auth0's page.
+  auth0:
+    kind: auth0
+    description: Auth0's own status page, read from the data embedded in the page.
+    poll_interval_seconds: 300
+    active_interval_seconds: 60
+
+  # PayPal publishes the components and the events behind its page as json at
+  # the top of the host, while the page a reader is sent to is a deep link.
+  paypal:
+    kind: paypal
+    description: PayPal's status page, read from its own JSON API.
+    endpoint: /api/v1/components
+    poll_interval_seconds: 300
+    active_interval_seconds: 60
+
+  # Railway's status page serves its own json: the component groups, the active
+  # incidents and the recent history. The uptime months in it are not a current
+  # answer, so the status comes from the incidents alone.
+  railway:
+    kind: railway
+    description: Railway's status page, read from its own JSON API.
+    endpoint: /api/status
+    poll_interval_seconds: 300
+    active_interval_seconds: 60
+
+  # Midtrans renders its status page into the page itself: an overall line and
+  # one row per service, with the data centre as the group.
+  midtrans:
+    kind: midtrans
+    description: Midtrans' status page, read from the page itself.
     poll_interval_seconds: 300
     active_interval_seconds: 60
 

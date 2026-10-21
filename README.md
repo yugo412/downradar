@@ -576,13 +576,15 @@ is a row rather than a commit.
 
 Everything is read from what the platform itself publishes, one adapter per
 platform: Atlassian Statuspage, Status.io, Sorry, cron-job.org, FlashDuty,
-PagerDuty, Slack, Better Stack and SolarWinds, with a bespoke adapter for
-OpenCode's own page, whose components are slugs and whose incidents have
-generated ids. The platforms that can be recognised from a url alone are also in
-the detect queue, so a vendor can be added before its platform is known. Ping is
-the profile to pick by hand for a service with no status page: it watches the
-target by asking for it, and a request that stops coming back is the outage.
-Further platforms (Instatus, RSS, HTML scraping) are additional adapters; the
+PagerDuty, Slack, Better Stack, SolarWinds, UptimeRobot and StatusCake, plus
+bespoke adapters for pages that are not a platform: OpenCode's own page, whose
+components are slugs and whose incidents have generated ids, and the pages of
+Auth0, PayPal, Railway and Midtrans. The platform profiles are also in the
+detect queue, so a vendor can be added before its platform is known; a page of a
+vendor's own kind is chosen by hand from the profile list, since its profile can
+only ever match that one page. Ping is the profile to pick by hand for a service
+with no status page: it watches the target by asking for it, and a request that
+stops coming back is the outage. Further platforms are additional adapters; the
 adapter interface already separates "how to fetch" from "how to interpret".
 
 Please respect each provider's `robots.txt` and terms. Attribution and a link
