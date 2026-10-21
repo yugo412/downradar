@@ -73,6 +73,19 @@ const pickableProfiles = computed(() =>
   props.profiles.filter((p) => p.visible || p.name === props.initial?.profile),
 )
 
+// The picker lists every profile a vendor can be put on, so it carries a search
+// of its own: the names are short, and the description is what tells two of
+// them apart.
+const profileSearch = ref('')
+const profileSearchInput = ref<HTMLInputElement | null>(null)
+const filteredProfiles = computed(() => {
+  const query = profileSearch.value.trim().toLowerCase()
+  if (!query) return pickableProfiles.value
+  return pickableProfiles.value.filter((p) =>
+    `${p.name} ${p.kind} ${p.description ?? ''}`.toLowerCase().includes(query),
+  )
+})
+
 // Detection runs on the page itself, so it is offered as a button rather than
 // being done quietly: a wrong url or a platform without an adapter is worth
 // seeing before anything is saved. Saving with the field empty does the same
@@ -84,7 +97,16 @@ const profileMenu = ref<HTMLDetailsElement | null>(null)
 
 function chooseProfile(name: string) {
   profile.value = name
+  profileSearch.value = ''
   profileMenu.value?.removeAttribute('open')
+}
+
+// A fresh search each time the menu opens, and the input in reach without a
+// second click.
+function onProfileToggle(event: Event) {
+  if (!(event.target as HTMLDetailsElement).open) return
+  profileSearch.value = ''
+  nextTick(() => profileSearchInput.value?.focus())
 }
 
 async function detect() {
@@ -141,59 +163,21 @@ function onSubmit() {
 
     <label class="form-control w-full">
       <span class="label-text mb-1 text-sm font-medium">Status page URL</span>
-      <input
-        v-model="url"
-        type="url"
-        class="input input-bordered w-full"
-        placeholder="https://status.example.com"
-        maxlength="300"
-        :required="publishing"
-      />
-      <span class="label-text-alt mt-1 opacity-60">
-        The official status page, not the vendor's home page.
-      </span>
-    </label>
-
-    <div v-if="canChooseProfile" class="form-control w-full">
-      <div class="flex items-end gap-2">
-        <div class="flex w-full flex-col">
-          <span class="label-text mb-1 text-sm font-medium">Adapter profile</span>
-
-          <!-- A native select cannot show what each profile reads, and that one
-               line is the whole difference between two of them. The list is a
-               dropdown of its own for that reason. -->
-          <details ref="profileMenu" class="dropdown w-full">
-            <summary
-              class="flex cursor-pointer flex-col gap-0.5 rounded-box border border-base-300 bg-base-100 px-3 py-2 text-sm"
-              :class="profile ? '' : 'opacity-70'"
-            >
-              <span class="font-mono text-xs">
-                {{ profile ? `${profile} (${selectedProfile?.kind ?? ''})` : 'Not chosen yet' }}
-              </span>
-              <span v-if="selectedProfile?.description" class="text-xs opacity-70">
-                {{ selectedProfile.description }}
-              </span>
-            </summary>
-            <ul
-              class="dropdown-content menu z-20 mt-1 max-h-80 w-full flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-2 shadow"
-            >
-              <li>
-                <button type="button" class="text-sm" @click="chooseProfile('')">
-                  Not chosen yet
-                </button>
-              </li>
-              <li v-for="p in pickableProfiles" :key="p.name">
-                <button type="button" class="flex flex-col items-start gap-0.5" @click="chooseProfile(p.name)">
-                  <span class="font-mono text-xs">{{ p.name }} ({{ p.kind }})</span>
-                  <span class="text-xs opacity-70">{{ p.description }}</span>
-                </button>
-              </li>
-            </ul>
-          </details>
-        </div>
+      <div class="join w-full">
+        <input
+          v-model="url"
+          type="url"
+          class="input input-bordered join-item w-full"
+          placeholder="https://status.example.com"
+          maxlength="300"
+          :required="publishing"
+        />
+        <!-- Detection reads this address, so its button belongs with the field
+             it reads rather than with the profile it fills in. -->
         <button
+          v-if="canChooseProfile"
           type="button"
-          class="btn btn-ghost btn-sm shrink-0"
+          class="btn join-item shrink-0"
           :disabled="detecting || busy || !url"
           :title="url ? 'Try every profile in the detect queue on this page' : 'Enter a status page url first'"
           @click="detect"
@@ -202,6 +186,63 @@ function onSubmit() {
           Detect
         </button>
       </div>
+      <span class="label-text-alt mt-1 opacity-60">
+        The official status page, not the vendor's home page.
+      </span>
+    </label>
+
+    <div v-if="canChooseProfile" class="form-control w-full">
+      <span class="label-text mb-1 text-sm font-medium">Adapter profile</span>
+
+      <!-- A native select cannot show what each profile reads, and that one
+           line is the whole difference between two of them. The list is a
+           dropdown of its own for that reason. -->
+      <details ref="profileMenu" class="dropdown w-full" @toggle="onProfileToggle">
+        <summary
+          class="flex cursor-pointer flex-col gap-0.5 rounded-box border border-base-300 bg-base-100 px-3 py-2 text-sm"
+          :class="profile ? '' : 'opacity-70'"
+        >
+          <span class="text-sm">
+            {{ profile ? `${profile} (${selectedProfile?.kind ?? ''})` : 'Not chosen yet' }}
+          </span>
+          <span v-if="selectedProfile?.description" class="text-xs opacity-70">
+            {{ selectedProfile.description }}
+          </span>
+        </summary>
+        <div
+          class="dropdown-content z-20 mt-1 w-full rounded-box border border-base-300 bg-base-100 p-2 shadow"
+        >
+          <input
+            ref="profileSearchInput"
+            v-model="profileSearch"
+            type="search"
+            class="input input-bordered mb-2 w-full"
+            placeholder="Search profiles"
+            aria-label="Search profiles"
+            @keydown.enter.prevent
+            @keydown.esc.prevent="profileMenu?.removeAttribute('open')"
+          />
+          <ul class="menu max-h-72 w-full flex-nowrap overflow-y-auto p-0">
+            <li v-if="!profileSearch.trim()">
+              <button type="button" class="text-sm" @click="chooseProfile('')">
+                Not chosen yet
+              </button>
+            </li>
+            <li v-for="p in filteredProfiles" :key="p.name">
+              <button type="button" class="flex flex-col items-start gap-0.5" @click="chooseProfile(p.name)">
+                <span class="font-mono text-xs">{{ p.name }} ({{ p.kind }})</span>
+                <span class="text-xs opacity-70">{{ p.description }}</span>
+              </button>
+            </li>
+          </ul>
+          <p
+            v-if="profileSearch.trim() && !filteredProfiles.length"
+            class="px-2 py-3 text-xs opacity-70"
+          >
+            No profile matches that search.
+          </p>
+        </div>
+      </details>
 
       <span class="label-text-alt mt-1 opacity-60">
         Says how the status page is read. Leave it empty and the page is offered to the detect
