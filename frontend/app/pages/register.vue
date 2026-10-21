@@ -46,7 +46,7 @@ async function submit() {
             :href="signInURL(p.name)"
             class="btn btn-outline w-full"
           >
-            <GitHubIcon v-if="p.name === 'github'" class="size-4" />
+            <ProviderIcon :name="p.name" />
             Continue with {{ p.label }}
           </a>
         </div>

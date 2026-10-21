@@ -455,30 +455,32 @@ tokens, so a copy of the table is not a set of working links, and asking for
 another one retires the one before it, and the kinds are kept apart so a link
 that confirms an address cannot be spent as a way in.
 
-## Signing in with GitHub
+## Signing in with a provider
 
-`/login` and `/register` offer a GitHub button beside the form, when the
-deployment has the credentials for it. The button is a link to
-`/api/v1/auth/github`, which sends the browser to GitHub with a state of our own
-in a short lived cookie. GitHub sends it back to
-`/api/v1/auth/github/callback` with a code, the API trades the code for the
+`/login` and `/register` offer GitHub and Google beside the form, each when the
+deployment has the credentials for it. A button is a link to
+`/api/v1/auth/{provider}`, which sends the browser to the provider with a state of
+our own in a short lived cookie. The provider sends it back to
+`/api/v1/auth/{provider}/callback` with a code, the API trades the code for the
 account behind it, and the browser ends up with the same session cookie the
 password form issues.
 
 The account is found by the provider's own id first, then by the verified address
-GitHub reports, and only made when neither exists. Signing in with an address that
-is already registered links the GitHub account to that account rather than making
+it reports, and only made when neither exists. Signing in with an address that is
+already registered links the provider account to that account rather than making
 a second. A new account is a subscriber with its limits row, confirmed without an
-email because GitHub is the one that proved the address. A disabled account is
-refused, and an address on the site's own domain is not turned into a new account.
+email because the provider is the one that proved the address. A disabled account
+is refused, and an address on the site's own domain is not turned into a new
+account.
 
-The credentials are `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`, and the
-authorization callback URL on the OAuth App is `PUBLIC_URL` plus
-`/api/v1/auth/github/callback`. With either value empty the button is not offered
-and the routes answer that the provider is not configured. The links between an
-account and a provider live in `user_providers`, one row per provider per
-account, so a second provider is another row: `internal/oauth` holds the
-interface, and GitHub is the only implementation so far.
+The credentials are `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` for GitHub, and
+`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` for Google. The callback URL
+registered with the provider is `PUBLIC_URL` plus
+`/api/v1/auth/github/callback` or `/api/v1/auth/google/callback`. With either
+value of a pair empty that button is not offered and its routes answer that the
+provider is not configured. The links between an account and a provider live in
+`user_providers`, one row per provider per account, so another provider is another
+implementation of the interface in `internal/oauth` and nothing else.
 
 ## Contact form
 

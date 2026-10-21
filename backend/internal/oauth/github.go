@@ -2,10 +2,8 @@ package oauth
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -83,7 +81,7 @@ func (g *GitHub) Exchange(ctx context.Context, code, redirectURI string) (Identi
 		Error            string `json:"error"`
 		ErrorDescription string `json:"error_description"`
 	}
-	if err := g.do(req, &token); err != nil {
+	if err := fetchJSON(g.httpClient, req, &token); err != nil {
 		return Identity{}, err
 	}
 	if token.Error != "" {
@@ -155,29 +153,5 @@ func (g *GitHub) get(ctx context.Context, token, path string, out any) error {
 	// GitHub answers 403 to a request without one.
 	req.Header.Set("User-Agent", "downradar.info")
 
-	return g.do(req, out)
-}
-
-// do reads one answer. The body is capped and an error carries what the provider
-// said, which is a short message rather than the token: the request's headers
-// are never part of it.
-func (g *GitHub) do(req *http.Request, out any) error {
-	res, err := g.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("github: %s: %w", req.URL.Path, err)
-	}
-	defer func() { _ = res.Body.Close() }()
-
-	body, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
-	if err != nil {
-		return fmt.Errorf("github: read the %s answer: %w", req.URL.Path, err)
-	}
-	if res.StatusCode < 200 || res.StatusCode > 299 {
-		return fmt.Errorf("github: %s answered %d: %s",
-			req.URL.Path, res.StatusCode, strings.TrimSpace(string(body)))
-	}
-	if err := json.Unmarshal(body, out); err != nil {
-		return fmt.Errorf("github: decode the %s answer: %w", req.URL.Path, err)
-	}
-	return nil
+	return fetchJSON(g.httpClient, req, out)
 }

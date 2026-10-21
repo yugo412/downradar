@@ -37,6 +37,8 @@ type Config struct {
 	PublicURL               string
 	GitHubClientID          string
 	GitHubClientSecret      string
+	GoogleClientID          string
+	GoogleClientSecret      string
 	ContactEmail            string
 	AlertPerHour            int
 	AlertBurst              int
@@ -81,6 +83,8 @@ func Load() Config {
 		PublicURL:               env("PUBLIC_URL", "http://localhost:3000"),
 		GitHubClientID:          env("GITHUB_CLIENT_ID", ""),
 		GitHubClientSecret:      env("GITHUB_CLIENT_SECRET", ""),
+		GoogleClientID:          env("GOOGLE_CLIENT_ID", ""),
+		GoogleClientSecret:      env("GOOGLE_CLIENT_SECRET", ""),
 		ContactEmail:            env("CONTACT_EMAIL", "support@downradar.info"),
 		AlertPerHour:            envInt("ALERT_RATE_LIMIT_PER_HOUR", 6),
 		AlertBurst:              envInt("ALERT_RATE_LIMIT_BURST", 5),
