@@ -2,11 +2,16 @@ package notify
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -122,7 +127,7 @@ func (n *Notifier) TestWebhook(ctx context.Context, serviceID int64, hook store.
 	if err != nil {
 		return WebhookResult{Error: err.Error()}, err
 	}
-	return n.webhookCall(ctx, hook, body, data)
+	return n.webhookCall(ctx, hook, body, data, webhookMessageID(alert))
 }
 
 // sendWebhook makes one call for a delivery.
@@ -143,7 +148,7 @@ func (n *Notifier) sendWebhook(ctx context.Context, alert store.PendingAlert) er
 		return err
 	}
 
-	result, err := n.webhookCall(ctx, hook, body, data)
+	result, err := n.webhookCall(ctx, hook, body, data, webhookMessageID(alert))
 	n.recordCall(ctx, alert.UserID, alert.ServiceID, &alert.ChannelID, store.CallDelivery, hook, result)
 	return err
 }
@@ -153,10 +158,21 @@ func (n *Notifier) sendWebhook(ctx context.Context, alert store.PendingAlert) er
 // from the page is there to show the subscriber exactly what their end said. A
 // receiver that answers anything but a 2xx has refused it, and one that cannot be
 // reached is a failure as well.
-func (n *Notifier) webhookCall(ctx context.Context, hook store.AlertWebhook, body string, data webhookData) (WebhookResult, error) {
+func (n *Notifier) webhookCall(ctx context.Context, hook store.AlertWebhook, body string, data webhookData, messageID string) (WebhookResult, error) {
 	headers, err := renderHeaders(hook.Headers, data)
 	if err != nil {
 		return WebhookResult{Error: err.Error()}, err
+	}
+
+	// A signed call carries the signature beside whatever the subscriber wrote.
+	// The three header names are the sender's, so one written by hand is
+	// replaced rather than sent twice.
+	if hook.Auth == store.WebhookAuthStandard && hook.Signing.Secret != "" {
+		signed, err := standardHeaders(hook, messageID, body, time.Now())
+		if err != nil {
+			return WebhookResult{Error: err.Error()}, err
+		}
+		headers = replaceHeaders(headers, signed)
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, webhookTimeout)
@@ -283,6 +299,74 @@ func webhookBody(alert store.PendingAlert, data webhookData, snapshot store.Serv
 		return "", fmt.Errorf("write the body: %w", err)
 	}
 	return string(encoded), nil
+}
+
+// webhookMessageID is the webhook-id a call carries. A delivery keeps the id of
+// its row across attempts, so a receiver that has seen one can ignore the repeat
+// rather than act twice; a try from the page has no row and gets a fresh one.
+func webhookMessageID(alert store.PendingAlert) string {
+	if alert.ID > 0 {
+		return "msg_" + strconv.FormatInt(alert.ID, 10)
+	}
+
+	buf := make([]byte, 12)
+	if _, err := rand.Read(buf); err != nil {
+		return "msg_" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	}
+	return "msg_" + base64.RawURLEncoding.EncodeToString(buf)
+}
+
+// standardHeaders are the three headers the Standard Webhooks specification puts
+// on a signed call: which message it is, when it was made, and the signature over
+// both and the body. A rotation still going out is a second signature in the
+// same header, so a receiver that has the old secret keeps verifying.
+func standardHeaders(hook store.AlertWebhook, id, body string, now time.Time) ([]store.AlertField, error) {
+	key, err := store.WebhookSigningKey(hook.Signing.Secret)
+	if err != nil {
+		return nil, err
+	}
+
+	timestamp := strconv.FormatInt(now.Unix(), 10)
+	signed := id + "." + timestamp + "." + body
+	signatures := []string{"v1," + signCall(key, signed)}
+
+	if hook.Signing.Previous != "" && now.Before(hook.Signing.PreviousUntil) {
+		if retired, err := store.WebhookSigningKey(hook.Signing.Previous); err == nil {
+			signatures = append(signatures, "v1,"+signCall(retired, signed))
+		}
+	}
+
+	return []store.AlertField{
+		{Name: "webhook-id", Value: id},
+		{Name: "webhook-timestamp", Value: timestamp},
+		{Name: "webhook-signature", Value: strings.Join(signatures, " ")},
+	}, nil
+}
+
+// signCall is one signature over what the specification says is signed.
+func signCall(key []byte, signed string) string {
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte(signed))
+	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
+}
+
+// replaceHeaders lays the sender's own headers over the subscriber's, dropping a
+// name that is written in both rather than sending it twice.
+func replaceHeaders(headers, replace []store.AlertField) []store.AlertField {
+	out := make([]store.AlertField, 0, len(headers)+len(replace))
+	for _, header := range headers {
+		taken := false
+		for _, other := range replace {
+			if strings.EqualFold(strings.TrimSpace(header.Name), other.Name) {
+				taken = true
+				break
+			}
+		}
+		if !taken {
+			out = append(out, header)
+		}
+	}
+	return append(out, replace...)
 }
 
 // renderHeaders fills the placeholders in the headers the subscriber wrote. A

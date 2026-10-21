@@ -17,11 +17,23 @@ const {
   error,
   pending,
   refresh,
-} = useFetch<{ polls: PollRun[] }>(() => `/api/v1/services/${props.slug}/polls`, {
-  immediate: false,
-})
+} = useFetch<{ polls: PollRun[]; nextPollAt?: string | null }>(
+  () => `/api/v1/services/${props.slug}/polls`,
+  { immediate: false },
+)
 
 const polls = computed(() => data.value?.polls ?? [])
+
+// When a refused page will be tried again is staff business: the API leaves the
+// value out for the owner. It counts down with the same clock the "ago" values
+// use, so it moves while the page is open.
+const now = useNow()
+const nextPollAt = computed(() => data.value?.nextPollAt ?? null)
+const wait = computed(() => {
+  if (!canManageServices.value || !nextPollAt.value) return ''
+  if (new Date(nextPollAt.value).getTime() <= now.value) return ''
+  return timeUntil(nextPollAt.value, now.value)
+})
 
 // Who is asking is not known when this mounts: staff learn it once the session
 // plugin has run, the owner once the page has the service. The slug is watched
@@ -37,7 +49,10 @@ watch(
 
 <template>
   <section v-if="allowed" class="mt-10">
-    <h2 class="mb-3 text-lg font-semibold">Fetch log</h2>
+    <h2 class="text-lg font-semibold" :class="wait ? 'mb-1' : 'mb-3'">Fetch log</h2>
+    <p v-if="wait" class="mb-3 text-sm opacity-70" :title="formatDate(nextPollAt)">
+      The page refused the last poll. Next attempt {{ wait }}.
+    </p>
     <div class="overflow-x-auto bg-base-100 border border-base-300 rounded-box shadow-sm">
       <table class="table table-sm">
         <thead>

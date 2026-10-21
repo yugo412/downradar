@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -70,6 +71,7 @@ type Report struct {
 	FetchedAt       time.Time
 	SourceUpdatedAt time.Time
 	HTTPStatus      int
+	RetryAfter      time.Duration
 	Raw             []byte
 }
 
@@ -121,6 +123,34 @@ func DefaultClient() *http.Client {
 			return nil
 		},
 	}
+}
+
+// RetryAfter reads how long a page asked to be left alone. The header carries
+// either a number of seconds or a date, and zero means it said nothing usable,
+// which leaves the wait to the poller.
+func RetryAfter(resp *http.Response) time.Duration {
+	if resp == nil {
+		return 0
+	}
+
+	value := strings.TrimSpace(resp.Header.Get("Retry-After"))
+	if value == "" {
+		return 0
+	}
+
+	if seconds, err := strconv.Atoi(value); err == nil {
+		if seconds <= 0 {
+			return 0
+		}
+		return time.Duration(seconds) * time.Second
+	}
+
+	if at, err := http.ParseTime(value); err == nil {
+		if wait := time.Until(at); wait > 0 {
+			return wait
+		}
+	}
+	return 0
 }
 
 // LowerSet turns the names a vendor includes into a lookup, so filtering a

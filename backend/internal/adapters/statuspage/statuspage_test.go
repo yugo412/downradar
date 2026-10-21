@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"downradar.info/backend/internal/adapters"
 )
@@ -121,6 +122,7 @@ func TestStatuspageRejectsNonStatuspage(t *testing.T) {
 
 func TestStatuspageHTTPError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "120")
 		w.WriteHeader(http.StatusTooManyRequests)
 	}))
 	defer srv.Close()
@@ -132,5 +134,8 @@ func TestStatuspageHTTPError(t *testing.T) {
 	}
 	if rep.HTTPStatus != http.StatusTooManyRequests {
 		t.Errorf("HTTPStatus = %d, want 429", rep.HTTPStatus)
+	}
+	if rep.RetryAfter != 2*time.Minute {
+		t.Errorf("RetryAfter = %v, want the 2m the page asked for", rep.RetryAfter)
 	}
 }

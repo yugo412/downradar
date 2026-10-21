@@ -144,7 +144,7 @@ func (s *Solarwinds) Fetch(ctx context.Context, t adapters.Target) (adapters.Rep
 		return adapters.Report{}, fmt.Errorf("solarwinds: read body: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return adapters.Report{HTTPStatus: resp.StatusCode, Raw: body},
+		return adapters.Report{HTTPStatus: resp.StatusCode, RetryAfter: adapters.RetryAfter(resp), Raw: body},
 			fmt.Errorf("solarwinds: %s returned HTTP %d", url, resp.StatusCode)
 	}
 

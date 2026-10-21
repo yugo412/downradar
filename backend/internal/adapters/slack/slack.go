@@ -58,9 +58,9 @@ type slackIncident struct {
 func (s *Slack) Fetch(ctx context.Context, t adapters.Target) (adapters.Report, error) {
 	base := strings.TrimRight(t.URL, "/")
 
-	currentBody, status, err := s.get(ctx, base+slackCurrentPath)
+	currentBody, status, retryAfter, err := s.get(ctx, base+slackCurrentPath)
 	if err != nil {
-		return adapters.Report{HTTPStatus: status, Raw: currentBody}, err
+		return adapters.Report{HTTPStatus: status, RetryAfter: retryAfter, Raw: currentBody}, err
 	}
 
 	var current slackCurrent
@@ -91,8 +91,10 @@ func (s *Slack) Fetch(ctx context.Context, t adapters.Target) (adapters.Report, 
 		}},
 	}
 
-	historyBody, _, err := s.get(ctx, base+slackHistoryPath)
+	historyBody, status, retryAfter, err := s.get(ctx, base+slackHistoryPath)
 	if err != nil {
+		rep.HTTPStatus = status
+		rep.RetryAfter = retryAfter
 		return rep, err
 	}
 	var incidents []slackIncident
@@ -127,28 +129,28 @@ func (s *Slack) Fetch(ctx context.Context, t adapters.Target) (adapters.Report, 
 	return rep, nil
 }
 
-func (s *Slack) get(ctx context.Context, url string) ([]byte, int, error) {
+func (s *Slack) get(ctx context.Context, url string) ([]byte, int, time.Duration, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, 0, fmt.Errorf("slack: build request: %w", err)
+		return nil, 0, 0, fmt.Errorf("slack: build request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", adapters.UserAgent)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("slack: request %s: %w", url, err)
+		return nil, 0, 0, fmt.Errorf("slack: request %s: %w", url, err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if err != nil {
-		return nil, resp.StatusCode, fmt.Errorf("slack: read body: %w", err)
+		return nil, resp.StatusCode, 0, fmt.Errorf("slack: read body: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return body, resp.StatusCode, fmt.Errorf("slack: %s returned HTTP %d", url, resp.StatusCode)
+		return body, resp.StatusCode, adapters.RetryAfter(resp), fmt.Errorf("slack: %s returned HTTP %d", url, resp.StatusCode)
 	}
-	return body, resp.StatusCode, nil
+	return body, resp.StatusCode, 0, nil
 }
 
 func init() {

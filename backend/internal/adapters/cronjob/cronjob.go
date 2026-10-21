@@ -103,7 +103,7 @@ func (c *CronJob) Fetch(ctx context.Context, t adapters.Target) (adapters.Report
 		return adapters.Report{}, fmt.Errorf("cronjob: read body: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return adapters.Report{HTTPStatus: resp.StatusCode, Raw: body},
+		return adapters.Report{HTTPStatus: resp.StatusCode, RetryAfter: adapters.RetryAfter(resp), Raw: body},
 			fmt.Errorf("cronjob: %s for domain %s returned HTTP %d", apiURL, domain, resp.StatusCode)
 	}
 

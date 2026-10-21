@@ -438,3 +438,60 @@ func TestOnlyStaffCorrectAServiceSlug(t *testing.T) {
 		t.Errorf("an empty slug = %d, want 400: %s", rec.Code, rec.Body.String())
 	}
 }
+
+// A page that refused its last poll is left alone, and when it will be tried
+// again belongs to the poller's schedule: staff see it beside the fetch log, and
+// the owner of the row reads the same log without it.
+func TestOnlyStaffSeeWhenARefusedPageIsTriedAgain(t *testing.T) {
+	st, router := testRouter(t)
+	ctx := context.Background()
+
+	owner := testUser(t, st, auth.RoleSubscriber)
+	ownerCookie := sessionFor(t, st, owner)
+	slug := suggestionSlug(t, st, router, ownerCookie)
+
+	row, err := st.AdminGetService(ctx, slug)
+	if err != nil {
+		t.Fatalf("AdminGetService: %v", err)
+	}
+	until := time.Now().UTC().Add(45 * time.Minute).Truncate(time.Millisecond)
+	if err := st.RecordFailure(ctx, row.ID, store.PollFailure{
+		HTTPStatus: 429,
+		Error:      "the page asked to be left alone",
+		NextPollAt: &until,
+		Refusals:   1,
+	}); err != nil {
+		t.Fatalf("RecordFailure: %v", err)
+	}
+
+	moderator := testUser(t, st, auth.RoleModerator)
+	rec := call(t, router, http.MethodGet, "/api/v1/services/"+slug+"/polls", "",
+		sessionFor(t, st, moderator))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("staff reading the fetch log = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var staff struct {
+		NextPollAt *time.Time `json:"nextPollAt"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &staff); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if staff.NextPollAt == nil || !staff.NextPollAt.UTC().Equal(until) {
+		t.Errorf("nextPollAt = %v, want %v", staff.NextPollAt, until)
+	}
+
+	rec = call(t, router, http.MethodGet, "/api/v1/services/"+slug+"/polls", "", ownerCookie)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the owner reading the fetch log = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if _, ok := raw["polls"]; !ok {
+		t.Error("the owner should still read the log")
+	}
+	if _, ok := raw["nextPollAt"]; ok {
+		t.Error("the owner should not be told when the page is tried again")
+	}
+}

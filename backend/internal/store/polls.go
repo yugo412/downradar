@@ -20,6 +20,19 @@ type PollRunView struct {
 	FetchedAt       time.Time `json:"fetchedAt"`
 }
 
+// NextPollAt is when a vendor that refused its last poll may be asked again.
+// Nothing else reads it: the wait is the poller's business, and staff are shown
+// it beside the fetch log so a vendor that has gone quiet has a reason.
+func (s *Store) NextPollAt(ctx context.Context, serviceID int64) (*time.Time, error) {
+	var next *time.Time
+	err := s.pool.QueryRow(ctx,
+		`select next_poll_at from services where id = $1`, serviceID).Scan(&next)
+	if err != nil {
+		return nil, fmt.Errorf("read: next poll of service %d: %w", serviceID, err)
+	}
+	return next, nil
+}
+
 // RecentPollRuns returns the newest fetches of one service. The caller decides
 // how far back to look, and the index on (service_id, created_at desc) keeps
 // that cheap.

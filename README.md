@@ -312,11 +312,24 @@ site stores them rather than as the wording a page shows, so a receiver matches 
 a body, so a GET, which could not carry the news, is refused. A header value may
 carry placeholders such as `{{service}}`, `{{from}}`, `{{to}}` and `{{text}}`,
 which the server fills in before the call is made; a value cannot hold a line
-break. Every call carries an `Authorization: Bearer` header with the token of that
-channel unless the subscriber writes one of their own, so the receiving end can
-tell a call of ours from anyone else's. A name that is not one of the placeholders
+break. The header list is entirely the subscriber's: nothing is added to it, so a
+webhook that wants a static key writes one, and a signed call carries its
+signature beside whatever they wrote. A name that is not one of the placeholders
 is left exactly as it was written rather than refused, so a change to the set
 cannot break an alert that is already saved.
+
+A webhook also says how its calls are authenticated. The default is Standard
+Webhooks: the site makes a secret, signs every call with it over the message id,
+the timestamp and the body, and sends the result in the `webhook-id`,
+`webhook-timestamp` and `webhook-signature` headers, which the receiving end
+verifies with the same secret. The secret is shown once, in the dialog that makes
+it, and never again: the row keeps what it needs to sign with, and a page only
+ever learns that one is set. Generating another one is the only way back, and the
+secret it replaces keeps signing beside the new one for a day, so a receiver that
+has not been changed over yet still verifies during the switch. A webhook saved
+before the choice existed keeps its custom headers, which are still the way for a
+service that only takes a static header or a URL. The headers a subscriber writes
+are sent whichever way a call is authenticated.
 
 At the foot of the webhook way, just before Save, the alert page can make the
 call itself, with the URL, method and headers it is holding whether or not they
@@ -503,16 +516,25 @@ every call.
 - **History is stored as changes, not snapshots.** `status_events` only gets a
   row when a status actually changes. A per-minute snapshot would cost roughly
   1000x more storage for the same information.
-- **Polling is adaptive.** 300s while healthy, 60s while degraded.
+- **Polling is adaptive.** 300s while healthy, 60s while degraded, and never
+  more often than once a minute whatever the row asks for. A share of the
+  interval, taken from the slug, is added so vendors do not all fall due on the
+  same second.
+- **A page that refuses is left alone.** A 429 or 503 is remembered on the
+  vendor's row for as long as its `Retry-After` asks, or for a wait that doubles
+  with each refusal in a row up to six hours. A 403, which says the caller looks
+  like a datacenter, puts the vendor on an hourly schedule instead. The first
+  poll that works clears the wait.
 - **Empty responses never become "ok".** Unknown vocabulary maps to `unknown`
   and is recorded in `poll_runs.unknown_statuses` so drift is visible.
 - **The fetch log is staff and owner only.** A vendor's public page and its row
   at `/services/{slug}` both list the recent `poll_runs` rows for it: when the
   page was read, what came back and what did not parse, detection attempts
   included. A failed fetch changes no status, so this is the only place a page
-  that stopped answering shows up. The vendor itself is visible to every signed
-  in visitor, so the log carries a check of its own, and on the public page it is
-  rendered in the browser rather than into the cached HTML.
+  that stopped answering shows up. Staff also see when a refused page will be
+  tried again, which the owner is not shown. The vendor itself is visible to
+  every signed in visitor, so the log carries a check of its own, and on the
+  public page it is rendered in the browser rather than into the cached HTML.
 - **`/api/**` is proxied by Nuxt**, so the browser and SSR use the same relative
   path and no CORS is involved.
 

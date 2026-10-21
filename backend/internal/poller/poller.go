@@ -3,6 +3,7 @@ package poller
 import (
 	"context"
 	"log/slog"
+	"math/rand/v2"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -209,15 +210,15 @@ func (p *Poller) resolve(rows []store.ServiceRow) []job {
 }
 
 // dueJobs picks the vendors that have passed their interval. Vendors that are
-// having problems are polled more often.
+// having problems are polled more often, unless a page refused the last poll, in
+// which case it is left alone until its wait is over.
 func dueJobs(jobs []job, now time.Time) []job {
 	var due []job
 	for _, j := range jobs {
-		interval := time.Duration(j.target.PollIntervalSeconds) * time.Second
-		if !j.row.Status.Healthy() {
-			interval = time.Duration(j.target.ActiveIntervalSeconds) * time.Second
+		if j.row.NextPollAt != nil && now.Before(*j.row.NextPollAt) {
+			continue
 		}
-		if j.row.LastPolledAt == nil || now.Sub(*j.row.LastPolledAt) >= interval {
+		if j.row.LastPolledAt == nil || now.Sub(*j.row.LastPolledAt) >= pollInterval(j.row.Slug, baseInterval(j)) {
 			due = append(due, j)
 		}
 	}
@@ -239,8 +240,32 @@ func (p *Poller) pollOne(ctx context.Context, j job) {
 		if ctx.Err() != nil {
 			return
 		}
-		p.log.Warn("poll failed", "vendor", j.target.Slug, "duration", elapsed.Round(time.Millisecond), "error", err)
-		if recErr := p.store.RecordFailure(ctx, j.row.ID, rep.HTTPStatus, err.Error(), int(elapsed.Milliseconds())); recErr != nil {
+
+		failure := store.PollFailure{
+			HTTPStatus: rep.HTTPStatus,
+			Error:      err.Error(),
+			DurationMS: int(elapsed.Milliseconds()),
+		}
+		wait, refusal := refusalWait(rep.HTTPStatus, j.row.PollRefusals+1,
+			baseInterval(j), rep.RetryAfter, rand.Float64())
+		if refusal {
+			until := time.Now().UTC().Add(wait)
+			failure.NextPollAt = &until
+			failure.Refusals = j.row.PollRefusals + 1
+		}
+
+		attrs := []any{
+			"vendor", j.target.Slug,
+			"status", rep.HTTPStatus,
+			"duration", elapsed.Round(time.Millisecond),
+			"error", err,
+		}
+		if refusal {
+			attrs = append(attrs, "wait", wait.Round(time.Second), "refusals", failure.Refusals)
+		}
+		p.log.Warn("poll failed", attrs...)
+
+		if recErr := p.store.RecordFailure(ctx, j.row.ID, failure); recErr != nil {
 			p.log.Error("failed to record poll failure", "vendor", j.target.Slug, "error", recErr)
 		}
 		return
@@ -249,7 +274,11 @@ func (p *Poller) pollOne(ctx context.Context, j job) {
 	changed, err := p.store.ApplyReport(ctx, j.row.ID, rep)
 	if err != nil {
 		p.log.Error("failed to store poll result", "vendor", j.target.Slug, "error", err)
-		if recErr := p.store.RecordFailure(ctx, j.row.ID, rep.HTTPStatus, err.Error(), int(elapsed.Milliseconds())); recErr != nil {
+		if recErr := p.store.RecordFailure(ctx, j.row.ID, store.PollFailure{
+			HTTPStatus: rep.HTTPStatus,
+			Error:      err.Error(),
+			DurationMS: int(elapsed.Milliseconds()),
+		}); recErr != nil {
 			p.log.Error("failed to record the rejected poll", "vendor", j.target.Slug, "error", recErr)
 		}
 		return

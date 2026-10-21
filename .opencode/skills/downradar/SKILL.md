@@ -72,6 +72,10 @@ app itself, not from fixtures.
   signed out visitor is only ever offered the whole vendor. They fire on the
   transition of whatever is watched, and delivery is an outbox row written in the
   same transaction as the change and drained by `internal/notify`.
+- A webhook chooses how its calls are authenticated: Standard Webhooks, which is
+  the default and signs every call with a secret the site makes, or the custom
+  headers that were the only way before. A signed webhook cannot be saved without
+  a secret, and the secret is readable once, in the answer that made it.
 - With no SMTP configured, register, forgot-password, sign in link, contact and
   vendor-alert posts answer 503 instead of accepting something they cannot send.
 - Signing in is by a link mailed to the address, which works once, expires in
@@ -83,6 +87,10 @@ app itself, not from fixtures.
   one shell that carries the brand and the site's colours. The wording of a
   message belongs in its template, not in the package that sends it.
 - Error messages that reach a user start lower case.
+- A page that refuses a poll is not asked again until its wait is over. A 429 or
+  503 is honoured through `Retry-After` when it carries one, otherwise the wait
+  doubles with each refusal in a row; a 403 goes on a slow schedule. No vendor is
+  polled more often than once a minute, and vendors do not share a due second.
 - Both themes are custom daisyUI theme blocks in `frontend/app/assets/css/main.css`
   with the built-ins switched off. They share one palette, and the state colours
   carry white text. `.badge-picked` is a hand written rule because daisyUI's badge

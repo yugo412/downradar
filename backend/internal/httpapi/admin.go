@@ -300,7 +300,21 @@ func (h *handlers) pollLog(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"polls": runs})
+
+	payload := map[string]any{"polls": runs}
+
+	// When a refused page will be tried again is the poller's schedule, which is
+	// staff business: the owner still reads the log, without it.
+	if h.viewer(r).IsStaff {
+		next, err := h.store.NextPollAt(r.Context(), current.ID)
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		payload["nextPollAt"] = next
+	}
+
+	writeJSON(w, http.StatusOK, payload)
 }
 
 // detectPage offers one page to the queue. The budget is what keeps a request

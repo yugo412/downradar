@@ -112,6 +112,28 @@ func TestDueJobsPollsVendorsThatNeverRan(t *testing.T) {
 	}
 }
 
+func TestDueJobsLeavesARefusingVendorAlone(t *testing.T) {
+	now := time.Now().UTC()
+	longAgo := now.Add(-time.Hour)
+	soon := now.Add(5 * time.Minute)
+	past := now.Add(-time.Minute)
+
+	waiting := row("waiting", "statuspage-v2")
+	waiting.LastPolledAt = &longAgo
+	waiting.NextPollAt = &soon
+
+	released := row("released", "statuspage-v2")
+	released.LastPolledAt = &longAgo
+	released.NextPollAt = &past
+
+	p := &Poller{profiles: testProfiles(), log: quietLogger()}
+	due := dueJobs(p.resolve([]store.ServiceRow{waiting, released}), now)
+
+	if len(due) != 1 || due[0].row.Slug != "released" {
+		t.Fatalf("only the vendor whose wait is over should be due, got %+v", due)
+	}
+}
+
 func TestDueDetectionsWaitsBetweenAttempts(t *testing.T) {
 	now := time.Now().UTC()
 	justNow := now.Add(-time.Minute)
