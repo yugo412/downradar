@@ -1274,7 +1274,7 @@ webhook-signature: v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=</pre>
                     class="link float-right text-xs font-normal"
                     @click.stop.prevent="copySample"
                   >
-                    {{ copied ? 'Copied.' : 'Copy body' }}
+                    {{ copied ? 'Copied' : 'Copy body' }}
                   </button>
                 </summary>
                 <div class="min-w-0 border-t border-base-300 px-4 py-3">
@@ -1892,7 +1892,7 @@ webhook-signature: v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=</pre>
                nothing to write, so the row is not there while it is open. -->
           <div v-if="way !== 'rss'" class="md:col-start-2">
             <div class="flex flex-wrap items-center justify-end gap-3">
-              <span v-if="saved" class="text-sm text-success">Saved.</span>
+              <span v-if="saved" class="text-sm text-success">Saved</span>
               <button
                 type="button"
                 class="btn btn-primary btn-sm"

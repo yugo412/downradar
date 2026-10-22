@@ -73,7 +73,7 @@ onBeforeUnmount(() => clearTimeout(copiedTimer))
         class="btn btn-outline join-item shrink-0 !border-base-content/20"
         @click="copyUrl"
       >
-        {{ copied ? 'Copied.' : 'Copy URL' }}
+        {{ copied ? 'Copied' : 'Copy URL' }}
       </button>
     </div>
 
