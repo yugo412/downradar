@@ -241,6 +241,12 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 			"You have tried that Slack channel several times already, please try again later",
 			h.testSlack)))
 
+	// A message to a Discord channel is tried and counted the same way.
+	mux.HandleFunc("POST /api/v1/vendors/{slug}/alerts/discord/test",
+		h.requireAuth(h.limited(h.alertLimiter, false,
+			"You have tried that Discord channel several times already, please try again later",
+			h.testDiscord)))
+
 	// Installing the site's Slack app is a navigation rather than a call: the
 	// browser leaves for Slack and comes back to one fixed address, which is
 	// what the app has registered. The alert it belongs to travels in a cookie
