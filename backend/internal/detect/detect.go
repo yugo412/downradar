@@ -13,11 +13,9 @@ import (
 	"downradar.info/backend/internal/catalog"
 )
 
-// attemptTimeout bounds a single profile. One attempt is the adapter's whole
-// fetch, and the queue tries every profile in turn, so the worst case is this
-// multiplied by the queue length. A status page that needs longer than this is
-// not answering, and giving up on it is what keeps one dead profile from
-// spending the whole request.
+// attemptTimeout bounds one profile's fetch. The queue tries every profile in
+// turn, so the worst case is this times its length; a page that needs longer is
+// not answering, and giving up keeps one dead profile from spending the request.
 const attemptTimeout = 6 * time.Second
 
 // Detector probes the profiles in the order services.yaml declares.

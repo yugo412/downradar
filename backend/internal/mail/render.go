@@ -8,10 +8,9 @@ import (
 	"strings"
 )
 
-// The emails the site sends are HTML files rather than strings in the code that
-// decides to send them, so the wording of each one is a file of its own and all
-// of them are set in the same shell. A message template is only what that
-// message says; the shell carries the brand and the surface around it.
+// The emails the site sends are HTML files rather than strings in the code, so the
+// wording of each is a file of its own and all of them are set in one shell that
+// carries the brand. A message template is only what that message says.
 //
 //go:embed templates/*.html
 var files embed.FS

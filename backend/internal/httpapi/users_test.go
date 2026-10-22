@@ -65,7 +65,6 @@ func (m *mailSpy) sent() []sentMail {
 	return append([]sentMail(nil), m.messages...)
 }
 
-// tokenFrom pulls the token out of the link in a message body.
 // tokenFrom reads the token out of a link in a message. The link is written in
 // HTML, so the token ends where the markup around it starts rather than at the
 // next space.

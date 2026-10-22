@@ -13,13 +13,9 @@ import (
 	"downradar.info/backend/db"
 )
 
-// TestMigrateIsSafeToRunAtTheSameTime reproduces what the pipeline does: a
-// database with nothing applied yet, and several migrators starting at once
-// because `go test ./...` runs its packages in parallel. Without the lock they
-// all decide a migration is missing and race to record it.
-//
-// The race needs an empty database, so this works in a schema of its own rather
-// than the one the rest of the tests share.
+// TestMigrateIsSafeToRunAtTheSameTime starts several migrators at once on an
+// empty database, as parallel `go test` packages do. Without the lock they would
+// race to record the same migration, so this uses its own schema.
 func TestMigrateIsSafeToRunAtTheSameTime(t *testing.T) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {

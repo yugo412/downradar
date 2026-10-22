@@ -62,12 +62,9 @@ func (s *Store) SetDetectedProfile(ctx context.Context, id int64, profile string
 	return nil
 }
 
-// ParkDetection records that the queue ran out of profiles on this vendor: the
-// row is marked no_match so the poll pass leaves it alone, the retry clock
-// moves, and the attempt is written to poll_runs so the fetch log shows the page
-// was read and came back with nothing. Both halves are one transaction: a vendor
-// that was read for nothing must not look like one that was never read, nor the
-// other way round.
+// ParkDetection records that the queue ran out of profiles: the row becomes
+// no_match so polling leaves it alone and the attempt goes to poll_runs. Both
+// halves share a transaction, so a read that found nothing is still recorded.
 func (s *Store) ParkDetection(ctx context.Context, id int64, reason string) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {

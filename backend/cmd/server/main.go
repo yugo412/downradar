@@ -161,10 +161,9 @@ func run() error {
 			Slack:                   slackApp,
 			PublicURL:               cfg.PublicURL,
 			AlertsEnabled:           cfg.SMTPAddr != "",
-			// Telegram is offered only while there is a sender loop to drain what
-			// it writes, which is the loop above: a chat that would be accepted
-			// and never sent is what the site refuses to do. The bot itself is the
-			// subscriber's, so nothing about it is configured here.
+			// Telegram is offered only while the sender loop above can drain what
+			// it writes: a chat accepted but never sent is what the site refuses.
+			// The bot is the subscriber's, so nothing about it is configured here.
 			TelegramEnabled: cfg.SMTPAddr != "",
 		}),
 		ReadHeaderTimeout: 10 * time.Second,

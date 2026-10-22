@@ -50,10 +50,9 @@ func (h *handlers) authenticate(r *http.Request) (*store.User, error) {
 	return h.store.SessionUser(r.Context(), auth.HashToken(token))
 }
 
-// setSessionCookie hands the browser its session. Without a remember me the
-// cookie is one the browser keeps only while it is open: the row behind it still
-// expires on its own schedule, but closing the window ends this machine's copy,
-// which is what somebody who was borrowed a computer expects.
+// setSessionCookie hands the browser its session. Without remember me the cookie
+// lasts only while the browser is open, though the row behind it still expires on
+// its own schedule; closing the window ends this machine's copy.
 func (h *handlers) setSessionCookie(w http.ResponseWriter, token string, expires time.Time, remember bool) {
 	cookie := &http.Cookie{
 		Name:     h.sessionCookie,
@@ -107,8 +106,7 @@ func (h *handlers) checkOrigin(w http.ResponseWriter, r *http.Request) bool {
 
 // originHost is the host the browser used. Requests arrive through the Nitro
 // proxy, so r.Host is the API's own address; the visitor's host travels in
-// X-Forwarded-Host, which is trusted only from the proxy, the same way the
-// client IP is.
+// X-Forwarded-Host, trusted only from the proxy like the client IP.
 func (h *handlers) originHost(r *http.Request) string {
 	if h.isInternal(r) {
 		if forwarded := r.Header.Get("X-Forwarded-Host"); forwarded != "" {
@@ -181,10 +179,9 @@ func (h *handlers) requireRole(roles []string, next http.HandlerFunc) http.Handl
 	})
 }
 
-// requireStaff asks for a session whose role may look after the service
-// catalogue. Subscribers are kept out of every one of those routes: their
-// surface is the alerts they manage, and a service they want monitored goes
-// through the suggestion queue instead.
+// requireStaff asks for a session whose role may look after the catalogue. A
+// subscriber may add and edit their own service, but staff-only actions such as
+// detection stay here.
 func (h *handlers) requireStaff(next http.HandlerFunc) http.HandlerFunc {
 	return h.requireAuth(func(w http.ResponseWriter, r *http.Request) {
 		user := h.user(r)
@@ -358,10 +355,9 @@ func (h *handlers) changePassword(w http.ResponseWriter, r *http.Request) {
 
 	current := h.user(r)
 
-	// An account made through a provider has no password yet, so there is none to
-	// prove: the session is proof enough to set the first one. An account that
-	// has one still has to give it, or anybody with a borrowed browser could
-	// take the account over.
+	// A provider account has no password yet, so the session is proof enough to set
+	// the first one. An account that has one must give it, or a borrowed browser
+	// could take it over.
 	if current.PasswordHash != "" && !auth.CheckPassword(current.PasswordHash, body.CurrentPassword) {
 		h.log.Warn("password change refused", "user", current.Email, "ip", h.clientIP(r))
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "The current password is not correct"})

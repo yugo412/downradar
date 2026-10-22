@@ -1,7 +1,6 @@
 // Package contact sends what a visitor typed on the contact form to the address
-// the site is run from. The reply address is set to the sender, so answering is a
-// reply rather than a copy and paste. It is separate from the alert and account
-// mailers because it is about people writing in, not about vendors or accounts.
+// the site is run from. The reply address is the sender, so answering is a reply
+// rather than a copy and paste. It is about people writing in, not vendors.
 package contact
 
 import (

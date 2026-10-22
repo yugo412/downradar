@@ -15,22 +15,17 @@ import (
 	"downradar.info/backend/internal/store"
 )
 
-// webhookRequest is what a request says about the second way an alert can
-// arrive: the URL to call, the method, and the headers to send with it. An empty
-// URL is how a request stops the calls; leaving the whole thing out is how the
-// bell, which knows nothing about webhooks, leaves one alone.
-//
-// There is nothing here about a body. What a call carries is written by the
-// sender from what it finds, so a receiver reads the same fields every time.
+// webhookRequest is the second way an alert can arrive: the URL to call, the
+// method and the headers. An empty URL stops the calls; leaving it out leaves the
+// way alone, because a body is written by the sender from what it finds.
 type webhookRequest struct {
 	URL     string             `json:"url"`
 	Method  string             `json:"method"`
 	Headers []store.AlertField `json:"headers"`
 
-	// Auth says how a call is proved to be ours: standard signs it with a secret
-	// both ends know, and custom sends only the headers above. Left out keeps
-	// what the channel already does, which is how a page that predates the choice
-	// saves without changing it.
+	// Auth says how a call is proved ours: standard signs it with a secret both
+	// ends know, custom sends only the headers above. Left out keeps the existing
+	// choice, so a page that predates the choice saves without changing it.
 	Auth string `json:"auth"`
 
 	// GenerateSecret asks for a fresh signing secret in the same save, which is
@@ -40,16 +35,15 @@ type webhookRequest struct {
 }
 
 // telegramRequest is one chat and the bot that speaks to it. The bot belongs to
-// the subscriber, so the token is what a save brings; a save without one is
-// changing the chat rather than the bot, and an empty chat stops the messages.
+// the subscriber, so a save brings the token; a save without one changes the chat,
+// and an empty chat stops the messages.
 type telegramRequest struct {
 	ChatID   string `json:"chatId"`
 	BotToken string `json:"botToken"`
 }
 
-// slackRequest is the incoming webhook URL of a Slack channel. The URL names the
-// workspace and the channel it posts to, so it is the whole of what this way is
-// set up with. An empty one stops the messages.
+// slackRequest is the incoming webhook URL of a Slack channel, which names both
+// the workspace and the channel. An empty URL stops the messages.
 type slackRequest struct {
 	URL string `json:"url"`
 }
@@ -71,10 +65,8 @@ type alertRequest struct {
 	Webhook *webhookRequest `json:"webhook"`
 
 	// Telegram is the chat a message should go to, and the bot that speaks to it.
-	// It is the only way that belongs to an account alone: a visitor without one
-	// has no chat to name. An empty chat stops the messages, a save without a bot
-	// keeps the one already there, and a request that says nothing about it leaves
-	// the way as it is.
+	// It belongs to an account alone; an empty chat stops the messages, a save
+	// without a bot keeps the one there, and leaving it out changes nothing.
 	Telegram *telegramRequest `json:"telegram"`
 
 	// Slack is the fourth way: the incoming webhook URL of a Slack channel. A
@@ -85,31 +77,16 @@ type alertRequest struct {
 	// Discord is the fifth way: a Discord channel's incoming webhook URL.
 	Discord *discordRequest `json:"discord"`
 
-	// What the email reports on. WholeService is the vendor's own status;
-	// Components names components by the identifiers the vendor page shows,
-	// which is what the person ticking the boxes has to hand. A request that
-	// names neither is the alert as it used to be, the vendor's overall status:
-	// the bell only ever sent that, and a page left open from before this sends
-	// it still. A webhook ignores both, which is why a request with a webhook
-	// alone needs no pick.
+	// What the email reports on: WholeService is the vendor's own status, Components
+	// names the ones the vendor page shows. Naming neither is the old shape and means
+	// the whole vendor; a webhook ignores both, so it needs no pick.
 	WholeService *bool    `json:"wholeService"`
 	Components   []string `json:"components"`
 }
 
-// subscribeAlert takes what somebody wants to hear about one vendor. No account
-// is needed for an address, which is the point: an alert by email is the address.
-// When the visitor happens to be signed in their id is recorded with it, so the
-// row can be tied to them later without asking again, and they are free to give
-// any address they like.
-//
-// A webhook is different: it hangs off an account rather than off an address, so
-// it takes a subscriber, and it hears about every change of the vendor rather
-// than about a pick of its components, because the body of a call says what the
-// vendor looks like now. Everything from a vendor page is one alert per vendor,
-// which is why a save writes the ways it names and leaves the rest alone.
-//
-// Asking again is changing their mind: what the subscription watches becomes what
-// this request names, so a page can save the whole selection.
+// subscribeAlert takes what somebody wants to hear about one vendor. An address
+// needs no account, while a webhook hangs off an account; a signed in visitor's id
+// is recorded too. Asking again replaces what is watched with what was chosen.
 func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 	if !h.alertsEnabled {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
@@ -150,11 +127,9 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		hook, newSecret = parsed, body.Webhook.GenerateSecret
 	}
 
-	// A chat is named rather than typed freely: the message goes wherever this
-	// says, and Telegram is what decides whether it can be reached. An empty chat
-	// is somebody stopping the messages, which is the same bargain an address has.
-	// The bot is the subscriber's own, and one that is not named on a save is the
-	// one already saved.
+	// A chat is named rather than typed freely: the message goes wherever this says,
+	// and Telegram decides whether it can be reached. An empty chat stops the messages.
+	// The bot is the subscriber's own; one not named on a save is the one already saved.
 	var telegram *store.AlertTelegram
 	saveTelegram := body.Telegram != nil
 	if body.Telegram != nil {
@@ -181,9 +156,8 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		telegram = &store.AlertTelegram{ChatID: chatID, BotToken: botToken}
 	}
 
-	// A Slack channel is named by the incoming webhook URL Slack gives for it.
-	// An empty URL is somebody stopping the messages, which is the same bargain
-	// an address has.
+	// A Slack channel is named by the incoming webhook URL Slack gives for it. An
+	// empty URL stops the messages, the same bargain an address has.
 	var slack *store.AlertSlack
 	saveSlack := body.Slack != nil
 	if body.Slack != nil {
@@ -195,8 +169,8 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		slack = &store.AlertSlack{URL: webhookURL}
 	}
 
-	// A Discord channel is named by the incoming webhook URL Discord gives for it,
-	// with the same bargain: an empty URL stops the messages.
+	// A Discord channel is named by the incoming webhook URL Discord gives for it;
+	// an empty URL stops the messages.
 	var discord *store.AlertDiscord
 	saveDiscord := body.Discord != nil
 	if body.Discord != nil {
@@ -219,10 +193,9 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The chat is set only where the bot is: a save that names one while the bot
-	// is not configured would be taken and never sent, which is exactly what the
-	// site refuses to do with an address it cannot reach. Stopping a way is always
-	// allowed, because what is already there should be able to be taken away.
+	// The chat is set only where the bot is: a save naming one while Telegram is not
+	// configured would be taken and never sent. Stopping a way is always allowed,
+	// because what is already there should be able to be taken away.
 	if telegram != nil && telegram.ChatID != "" && !h.telegramEnabled {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
 			"error": "Telegram is not available right now",
@@ -240,11 +213,9 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A request that names neither is the older shape of this request, and it
-	// meant the vendor's own status: the bell only ever sent that, and a page
-	// left open from before this sends it still. Naming an empty list is naming
-	// nothing, which an address is told about below rather than read as the whole
-	// vendor.
+	// A request that names neither is the older shape and meant the vendor's own
+	// status; the bell only sent that, and an old page sends it still. An empty list
+	// names nothing, refused below rather than read as the whole vendor.
 	whole := body.WholeService == nil && body.Components == nil
 	if body.WholeService != nil {
 		whole = *body.WholeService
@@ -343,11 +314,9 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case role == auth.RoleSubscriber:
-		// The cap counts vendors rather than the things watched inside one, so
-		// this request is asking for a single place in it, unless the alert it
-		// writes is already there: changing an address, adding a webhook beside
-		// one or stopping a way is being replaced rather than added, and no place
-		// is taken.
+		// The cap counts vendors rather than the things watched inside one, so this
+		// asks for a single place in it unless the alert is already there: replacing
+		// one or stopping a way takes no new place.
 		watched, err := h.store.WatchedServiceCount(r.Context(), *userID)
 		if err != nil {
 			h.fail(w, r, err)
@@ -539,9 +508,8 @@ func parseWebhook(body webhookRequest) (*store.AlertWebhook, string) {
 }
 
 // parseSlack reads the incoming webhook URL of a Slack channel and refuses
-// anything the sender could not call. The page is where the URL has to look like
-// Slack's own, because a channel is named by that URL and nothing else; here it
-// only has to be an address, the same bargain a webhook gets.
+// anything the sender could not call. Here it only has to be an address, the same
+// bargain a webhook gets; the page checks that it looks like Slack's own.
 func parseSlack(raw string) (string, string) {
 	rawURL := strings.TrimSpace(raw)
 	if rawURL == "" {
@@ -595,13 +563,8 @@ func parseFields(in []store.AlertField, what string) ([]store.AlertField, string
 }
 
 // testWebhook makes one call with what the page is holding, saved or not, and
-// answers with what came back, so a subscriber can watch their own end work
-// before they lean on it. A far end that refuses is an answer rather than a
-// failure of this endpoint: the status and the body are handed back as they came,
-// and a call that never got there says so in error.
-//
-// The call is recorded like a delivery, so the page can show it beside the ones
-// that went out on their own.
+// answers with what came back so a subscriber can watch their own end work. A
+// refusing far end is an answer, not a failure here, and the call is recorded like a delivery.
 func (h *handlers) testWebhook(w http.ResponseWriter, r *http.Request) {
 	if !h.alertsEnabled || h.notifier == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
@@ -638,10 +601,9 @@ func (h *handlers) testWebhook(w http.ResponseWriter, r *http.Request) {
 
 	user := h.user(r)
 
-	// A signed try is signed with the secret the channel has, which the page is
-	// never handed. A webhook that has not been given one can only be tried once
-	// it has, because a call that says it is signed and is not would teach the
-	// subscriber the wrong thing about their own end.
+	// A signed try uses the saved secret, which the page is never handed, so a
+	// webhook without one can only be tried after it has one; pretending to sign
+	// would teach the subscriber the wrong thing about their own end.
 	if hook.Auth == store.WebhookAuthStandard {
 		saved, err := h.store.UserAlert(r.Context(), user.ID, serviceID)
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
@@ -678,10 +640,9 @@ func (h *handlers) testWebhook(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// testTelegram sends the message a delivery would, through the bot the page is
-// holding or the one the chat is already saved with, so a chat can be checked
-// before it is relied on. Telegram is what says whether the chat can be reached,
-// and what it says is handed back as it is.
+// testTelegram sends the message a delivery would, through the bot the page holds
+// or the one the chat is saved with, so a chat can be checked first. Telegram's
+// answer is handed back as it is.
 func (h *handlers) testTelegram(w http.ResponseWriter, r *http.Request) {
 	if !h.telegramEnabled || h.notifier == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
@@ -749,10 +710,9 @@ func (h *handlers) testTelegram(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": result.OK, "error": result.Error})
 }
 
-// testSlack posts the message a delivery would, through the webhook the page is
-// holding or the one the channel is already saved with, so a Slack channel can be
-// checked before it is relied on. Slack is what says whether the message arrived,
-// and what it says is handed back as it is.
+// testSlack posts the message a delivery would, through the webhook the page holds
+// or the one the channel is saved with, so a channel can be checked first. Slack's
+// answer is handed back as it is.
 func (h *handlers) testSlack(w http.ResponseWriter, r *http.Request) {
 	if !h.alertsEnabled || h.notifier == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
@@ -953,10 +913,8 @@ func (h *handlers) getAlert(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// pauseAlert is the other thing the link in a message can do: stop that one way
-// for a while without taking it away, which is the switch the page offers for a
-// way, reached without signing in. The token is the whole of what proves it is
-// the owner's, and it is safe to press twice.
+// pauseAlert is the other thing the link in a message can do: stop that way for a
+// while without taking it away. The token proves ownership, and pressing twice is safe.
 func (h *handlers) pauseAlert(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 
@@ -982,10 +940,9 @@ func (h *handlers) pauseAlert(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// listUserAlerts is the account screen: everything this person has asked to be
-// told about, including the ones they paused or ended, so they can start them
-// again. The address is shown in full because it is their own screen and knowing
-// which inbox is the point.
+// listUserAlerts is the account screen: everything this person asked to be told
+// about, including paused and ended ones so they can start again. The address is
+// shown in full because it is their own screen and knowing which inbox is the point.
 func (h *handlers) listUserAlerts(w http.ResponseWriter, r *http.Request) {
 	user := h.user(r)
 
@@ -1109,16 +1066,9 @@ func (h *handlers) deleteUserAlertRow(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// getUserAlert is what the alert page reads before it draws: whether this person
-// already has an alert here, the way each of its channels goes, whether it is
-// paused, and what it watches, so the page opens with what they left. The address
-// is shown in full because it is their own screen and the page edits it; only the
-// account link is asked about, because an alert made while signed out belongs to
-// the address and the person at the keyboard may not be the one who made it.
-//
-// Each way says whether it is quiet on its own, since one of them can be paused
-// without the other, and the last calls of the webhook come with it so the page
-// can show what it did rather than only what it is set to.
+// getUserAlert is what the alert page reads before it draws: the ways this person
+// has here, whether it is paused, what it watches and the last calls. The address is
+// shown in full because it is their own screen; a signed out alert belongs to the address.
 func (h *handlers) getUserAlert(w http.ResponseWriter, r *http.Request) {
 	serviceID, _, err := h.store.PublicService(r.Context(), r.PathValue("slug"))
 	if errors.Is(err, store.ErrNotFound) {
@@ -1203,10 +1153,9 @@ func (h *handlers) deleteUserAlert(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// maskDestination names where the messages go without repeating it. The page is
-// reached through a link that can be forwarded, so the whole address is not handed
-// back to whoever holds it. A chat is named rather than spelled out: there is
-// nothing in it a person does not already know, and a number is no help to read.
+// maskDestination names where messages go without repeating it, because the page
+// is reached through a link that can be forwarded. A chat or channel is named, not
+// spelled out: there is nothing in it the person does not already know.
 func maskDestination(kind, address string) string {
 	if kind == store.ChannelTelegram {
 		return "your chat"
@@ -1245,10 +1194,9 @@ func (h *handlers) unsubscribeAlert(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// parseEmail normalises an address and refuses anything that is not one. The
-// same normalisation is used for accounts, so one address cannot subscribe twice
-// by changing its case. It is shared by the alert and contact forms, which both
-// take an address from a visitor.
+// parseEmail normalises an address and refuses anything that is not one. The same
+// normalisation is used for accounts, so case cannot subscribe twice; the alert
+// and contact forms both take an address from a visitor.
 func parseEmail(raw string) (string, string) {
 	email := auth.NormalizeEmail(raw)
 	if email == "" {
@@ -1265,11 +1213,9 @@ func parseEmail(raw string) (string, string) {
 	return email, ""
 }
 
-// parseChatID reads the chat a Telegram message should go to. The Bot API takes
-// either the number of a chat or the @name of a public channel, and which chats
-// exist is Telegram's to say: the page offers a test message before anything is
-// saved for exactly that reason. What is checked here is that it looks like one
-// of the two rather than like a sentence.
+// parseChatID reads the chat a Telegram message should go to: a number or the @name
+// of a public channel. Which chats exist is Telegram's to say, so the test message
+// is the real check; here it only has to look like one of the two.
 func parseChatID(raw string) (string, string) {
 	chat := strings.TrimSpace(raw)
 	if chat == "" {
@@ -1294,10 +1240,9 @@ func parseChatID(raw string) (string, string) {
 	return chat, ""
 }
 
-// parseBotToken reads the token of the bot that speaks to a chat. Telegram is
-// the one that can say whether a token is good, and the test message is there for
-// exactly that; what is checked here is that it looks like a token rather than
-// like a sentence, which a stray paste is.
+// parseBotToken reads the token of the bot that speaks to a chat. Telegram is what
+// can say whether it is good, so the test message is the real check; here it only
+// has to look like a token rather than a stray paste.
 func parseBotToken(raw string) (string, string) {
 	token := strings.TrimSpace(raw)
 	if token == "" {

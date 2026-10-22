@@ -72,13 +72,9 @@ func scanAdminService(row rowScanner) (*AdminService, error) {
 	return &a, nil
 }
 
-// AdminListServices returns rows for the management list. filter is one of
-// all, proposed, published, rejected, no_match or removed; removed means the
-// soft deleted ones, which are kept so their history survives. search matches
-// the name, the slug and the url, which are the columns the list shows.
-//
-// Staff see every row, private ones included, so they can help when something
-// is wrong. Everybody else sees only what they own.
+// AdminListServices returns rows for the management list. filter is all, proposed,
+// published, rejected, no_match or removed (soft deleted, kept for history), and
+// search matches name, slug and url. Staff see every row, others only their own.
 func (s *Store) AdminListServices(ctx context.Context, filter, search string, viewer Viewer) ([]AdminService, error) {
 	if filter == "" {
 		filter = "all"
@@ -349,13 +345,9 @@ func (s *Store) DeleteService(ctx context.Context, slug string) (string, error) 
 	return DeleteDeactivated, nil
 }
 
-// deleteServiceRows takes a service away for good. Everything that was only ever
-// about it goes with it through the foreign keys: the components, the status
-// events, the poll runs, the raw payloads, and the alerts on it, which lost their
-// address and token with the vendor they were for.
-//
-// It returns how many services it removed, so a caller can tell a slug that was
-// there from one that was not.
+// deleteServiceRows takes a service away for good, and everything only ever about
+// it goes through the foreign keys: components, events, poll runs, raw payloads
+// and alerts. It returns how many rows went, so a missing slug is distinguishable.
 func deleteServiceRows(ctx context.Context, tx pgx.Tx, slug string) (int64, error) {
 	tag, err := tx.Exec(ctx, `delete from services where slug = $1`, slug)
 	if err != nil {
@@ -364,10 +356,9 @@ func deleteServiceRows(ctx context.Context, tx pgx.Tx, slug string) (int64, erro
 	return tag.RowsAffected(), nil
 }
 
-// PurgeService takes a row away for good. Everything that hangs off it goes with
-// it through the foreign keys: the components, the status events, the poll runs,
-// the raw payloads and the targets. A subscription that was only watching this
-// vendor goes with it too, including the ones that belong to somebody else.
+// PurgeService takes a row away for good. Everything hanging off it goes through
+// the foreign keys: components, status events, poll runs, raw payloads and targets.
+// A subscription only watching this vendor goes too, even somebody else's.
 func (s *Store) PurgeService(ctx context.Context, slug string) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {

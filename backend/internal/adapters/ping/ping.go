@@ -12,10 +12,9 @@ import (
 
 const KindPing = "ping"
 
-// Ping watches a web address by asking for it. There is no status page behind
-// it: the answer, or the lack of one, is the whole report. It is chosen by hand
-// for a service that has no status page at all, rather than detected, because it
-// would answer for any url that is up.
+// Ping watches a web address by asking for it; the answer, or its absence, is
+// the whole report. It is chosen by hand for a service with no status page,
+// never detected, because it would answer for any url that is up.
 type Ping struct {
 	client *http.Client
 }
@@ -47,10 +46,9 @@ func parsePingTarget(raw string) (pingTarget, error) {
 	return pingTarget{url: u.String(), name: u.Host}, nil
 }
 
-// Fetch watches the target. A request that does not come back is the finding
-// rather than a failure: reachability is the whole of what this profile reports,
-// so a poll that finds nothing answering is an outage, not a reason to give up
-// on the vendor.
+// Fetch watches the target. A request that does not come back is the finding,
+// not a failure: reachability is all this profile reports, so no answer is an
+// outage rather than a reason to give up on the vendor.
 func (p *Ping) Fetch(ctx context.Context, t adapters.Target) (adapters.Report, error) {
 	target, err := parsePingTarget(t.URL)
 	if err != nil {
@@ -98,12 +96,9 @@ func pingReport(target pingTarget, health adapters.Health, status int) adapters.
 	return rep
 }
 
-// pingHealth maps the answer onto the states the rest of the system speaks. A
-// server that answers at all is a working service, and a request that never
-// arrives is what an outage looks like from here. A server error is the page
-// answering broken. A refusal or a page that is not there says nothing about the
-// service itself, so it is left unknown rather than guessed at, and the fetch
-// log is where the status code is read.
+// pingHealth maps the answer onto the states the system speaks. Anything that
+// answers is working, and a 5xx is broken. A refusal or a missing page says
+// nothing about the service, so it stays unknown; the fetch log has the code.
 func pingHealth(code int) adapters.Health {
 	switch {
 	case code >= 200 && code < 400:

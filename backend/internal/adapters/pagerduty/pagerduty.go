@@ -33,12 +33,9 @@ var pagerdutyImpact = map[string]adapters.Health{
 	"maintenance":    adapters.HealthMaintenance,
 }
 
-// Pagerduty reads the JSON API a PagerDuty status page publishes at its origin:
-// the component list, the services currently in trouble, the vocabulary the page
-// names its states with, and the post history. The paths the page's own front end
-// uses, such as /posts/dashboard, are not part of it, so every call goes to the
-// origin of the url rather than to the url itself, and a vendor pinned to a page
-// the reader was looking at still polls.
+// Pagerduty reads the JSON API at the page's origin: components, trouble
+// services, state vocabulary and post history. Front-end paths like
+// /posts/dashboard are not part of it, so calls use the origin and a pinned page polls.
 type Pagerduty struct {
 	client *http.Client
 }

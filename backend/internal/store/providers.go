@@ -41,9 +41,8 @@ func (s *Store) UserByProvider(ctx context.Context, provider, subject string) (*
 }
 
 // LinkProvider records a provider identity against an account that already
-// existed, which is what happens when somebody signs in with the provider using
-// an address the site already knows. An identity that is already linked
-// somewhere else is refused rather than moved.
+// existed, which is what happens when somebody signs in using an address the site
+// knows. An identity linked elsewhere is refused rather than moved.
 func (s *Store) LinkProvider(ctx context.Context, userID int64, provider, subject, email, username string) error {
 	tag, err := s.pool.Exec(ctx, `
 		insert into user_providers (user_id, provider, subject, email, username, last_login_at)
@@ -81,9 +80,8 @@ func (s *Store) TouchProvider(ctx context.Context, provider, subject string) err
 }
 
 // CreateProviderUser makes an account from what a provider vouches for: the
-// account, the limits it starts with and the link to the identity, all in one
-// transaction. It is always a subscriber, like an account from the registration
-// form, and its address counts as confirmed because the provider verified it.
+// account, its starting limits and the identity link in one transaction. It is
+// always a subscriber, and its address counts as confirmed by the provider.
 func (s *Store) CreateProviderUser(ctx context.Context, provider, subject, email, name, providerEmail, username string) (*User, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {

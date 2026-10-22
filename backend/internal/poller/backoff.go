@@ -54,12 +54,9 @@ func pollInterval(slug string, interval time.Duration) time.Duration {
 	return interval + time.Duration(float64(interval)*share)
 }
 
-// refusalWait is how long a vendor that refused a poll is left alone, and
-// whether the answer was a refusal at all. Retry-After wins when the page sent
-// one, because it knows better than a curve here. Without it the wait starts at
-// the vendor's own interval and doubles with each refusal in a row. A 403 is
-// put on the slow schedule instead. jitter is a value in [0, 1), which spreads
-// vendors that were refused together.
+// refusalWait is how long a refused vendor is left alone, and whether that is
+// what happened. Retry-After wins; otherwise the wait starts at the interval and
+// doubles per refusal, with a 403 on the slow schedule. jitter spreads them.
 func refusalWait(status, refusals int, interval, retryAfter time.Duration, jitter float64) (time.Duration, bool) {
 	switch status {
 	case http.StatusForbidden:

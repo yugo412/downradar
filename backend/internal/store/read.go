@@ -113,9 +113,9 @@ func scanVendorSummaries(rows pgx.Rows) ([]VendorSummary, error) {
 	return out, rows.Err()
 }
 
-// OwnedVendors is the public list shape, scoped to the private services of one
-// person. The dashboard adds these to the catalogue for a signed in visitor, in
-// the browser, so the cached page stays public.
+// OwnedVendors is the public list shape, scoped to the published services of one
+// person. The dashboard adds them for a signed in visitor in the browser, so the
+// cached page stays public.
 func (s *Store) OwnedVendors(ctx context.Context, userID int64) ([]VendorSummary, error) {
 	rows, err := s.pool.Query(ctx, `
 		select s.slug,
@@ -274,10 +274,9 @@ type Stats struct {
 	Unknown  int `json:"unknown"`
 }
 
-// ChangeView is one status change anywhere in the catalogue: what moved, where it
-// moved from and to, and when. The id is the event's own, which is what a feed
-// item is identified by, and the vendor is carried with it because a feed across
-// the whole site has no other way of saying whose change it was.
+// ChangeView is one status change anywhere in the catalogue: what moved, from
+// where to where, and when. Its id is the event's own, which identifies a feed
+// item, and the vendor travels with it since a site-wide feed needs its name.
 type ChangeView struct {
 	ID         int64     `json:"id"`
 	VendorSlug string    `json:"vendorSlug"`
@@ -288,11 +287,9 @@ type ChangeView struct {
 	ChangedAt  time.Time `json:"changedAt"`
 }
 
-// RecentChanges is the newest changes across the catalogue, newest first, which is
-// what a feed for the whole site carries. Only vendors the public can see are
-// counted, so a feed never names one that is still being set up or was rejected,
-// and only real changes are carried: an event with nothing before it is the state
-// a target was first seen in, which is not a change anybody was told about.
+// RecentChanges is the newest changes across the catalogue, newest first, for the
+// site-wide feed. Only public, unowned vendors count, and only real changes: a
+// first sighting has nothing before it, so it is not news anybody was told.
 func (s *Store) RecentChanges(ctx context.Context, limit int) ([]ChangeView, error) {
 	rows, err := s.pool.Query(ctx, `
 		select e.id, v.slug, v.name, coalesce(c.name, ''),

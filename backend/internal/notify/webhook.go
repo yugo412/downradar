@@ -36,11 +36,9 @@ type webhookData struct {
 	Text      string
 }
 
-// webhookPayload is what every call carries in its body. It is not written by
-// the subscriber: the fields are the same for every alert, so a receiver can
-// read one call and know how to read the next. The service is the vendor as it
-// stands now, which is why a receiver can act on the state rather than only on
-// the news, and the change that earned the call sits beside it.
+// webhookPayload is what every call carries in its body. The fields are not the
+// subscriber's, so a receiver can read one call and know the next; the service is
+// the vendor as it stands now, and the change that earned the call sits beside it.
 type webhookPayload struct {
 	Service    webhookService     `json:"service"`
 	Changed    webhookChange      `json:"changed"`
@@ -56,10 +54,9 @@ type webhookService struct {
 	Status string `json:"status"`
 }
 
-// webhookChange is what happened. Component is empty when the vendor's own
-// status is what moved, and the two statuses are the stored names rather than
-// the wording. Text is the sentence the email is headed with, for a receiver
-// that would rather log a line a person can read.
+// webhookChange is what happened. Component is empty when the vendor's own status
+// moved, and the statuses are the stored names. Text is the readable sentence a
+// receiver can log instead.
 type webhookChange struct {
 	Component string `json:"component"`
 	From      string `json:"from"`
@@ -90,11 +87,9 @@ type WebhookResult struct {
 // is a table nobody asked to grow.
 const responseLimit = 2 << 10
 
-// TestWebhook makes one call the way a delivery would, with a change that never
-// happened in place of one that did, so somebody can see their own end answer
-// before they rely on it. The status is what came back and the error says whether
-// the call was accepted; a far end that refuses is an answer rather than a
-// mistake on this side, which is why both are handed back together.
+// TestWebhook makes one call the way a delivery would, with a made up change in
+// place of a real one, so somebody can see their own end answer before relying on
+// it. A refusal from the far end is an answer, so it comes back with the result.
 func (n *Notifier) TestWebhook(ctx context.Context, serviceID int64, hook store.AlertWebhook) (WebhookResult, error) {
 	if hook.URL == "" {
 		return WebhookResult{Error: "the webhook has no URL"}, errors.New("the webhook has no URL")
@@ -105,10 +100,9 @@ func (n *Notifier) TestWebhook(ctx context.Context, serviceID int64, hook store.
 		return WebhookResult{Error: err.Error()}, err
 	}
 
-	// Nothing has moved, so the vendor's first component is named as though it
-	// had: a receiver that routes on a `{{component}}` header sees one filled in
-	// rather than an empty string, and a vendor with no components at all is
-	// tried as its own status instead.
+	// Nothing has moved, so the first component is named as though it had: a
+	// receiver routing on a `{{component}}` header gets one filled in, and a
+	// vendor with no components is tried as its own status instead.
 	alert := store.PendingAlert{
 		Kind:       store.ChannelWebhook,
 		ServiceID:  serviceID,
@@ -155,9 +149,7 @@ func (n *Notifier) sendWebhook(ctx context.Context, alert store.PendingAlert) er
 
 // webhookCall makes one call and reads what came back, without deciding what a
 // status means: a delivery treats anything but a 2xx as a refusal, while a try
-// from the page is there to show the subscriber exactly what their end said. A
-// receiver that answers anything but a 2xx has refused it, and one that cannot be
-// reached is a failure as well.
+// from the page shows the subscriber exactly what their end said.
 func (n *Notifier) webhookCall(ctx context.Context, hook store.AlertWebhook, body string, data webhookData, messageID string) (WebhookResult, error) {
 	headers, err := renderHeaders(hook.Headers, data)
 	if err != nil {
@@ -265,10 +257,8 @@ func (n *Notifier) webhookData(alert store.PendingAlert) webhookData {
 }
 
 // webhookBody writes what a call carries. The subscriber's own words go in the
-// headers; here the statuses are written as the site stores them, because a
-// receiver matches on those rather than on the wording a page shows. The values
-// are put in by the encoder rather than into a template, so a name with a quote
-// in it cannot end the string it sits in.
+// headers; here the statuses are the stored names, because a receiver matches on
+// those. The encoder writes the values, so a quote in a name cannot break out.
 func webhookBody(alert store.PendingAlert, data webhookData, snapshot store.ServiceSnapshot) (string, error) {
 	payload := webhookPayload{
 		Service: webhookService{
@@ -317,9 +307,8 @@ func webhookMessageID(alert store.PendingAlert) string {
 }
 
 // standardHeaders are the three headers the Standard Webhooks specification puts
-// on a signed call: which message it is, when it was made, and the signature over
-// both and the body. A rotation still going out is a second signature in the
-// same header, so a receiver that has the old secret keeps verifying.
+// on a signed call: the message id, when it was made, and the signature over both
+// and the body. A rotation going out is a second signature in the same header.
 func standardHeaders(hook store.AlertWebhook, id, body string, now time.Time) ([]store.AlertField, error) {
 	key, err := store.WebhookSigningKey(hook.Signing.Secret)
 	if err != nil {

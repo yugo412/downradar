@@ -239,10 +239,9 @@ func (s *Solarwinds) Fetch(ctx context.Context, t adapters.Target) (adapters.Rep
 	return rep, nil
 }
 
-// solarwindsIncidents folds the sections the page keeps an incident in: the
-// history, which is a day at a time, together with the one still open, and the
-// maintenance that is planned or done. An incident carries no impact of its own
-// here, so there is none to report.
+// solarwindsIncidents folds the sections the page keeps an incident in: day-by-
+// day history, the still-open one, and planned or done maintenance. Incidents
+// carry no impact of their own here, so there is none to report.
 func solarwindsIncidents(page swPageProps) []adapters.Incident {
 	var out []adapters.Incident
 
