@@ -11,15 +11,19 @@ import (
 )
 
 type User struct {
-	ID           int64      `json:"id"`
-	Email        string     `json:"email"`
-	Name         string     `json:"name"`
-	Role         string     `json:"role"`
-	PasswordHash string     `json:"-"`
-	VerifiedAt   *time.Time `json:"verifiedAt,omitempty"`
-	DisabledAt   *time.Time `json:"disabledAt,omitempty"`
-	CreatedAt    time.Time  `json:"createdAt"`
-	UpdatedAt    time.Time  `json:"updatedAt"`
+	ID           int64  `json:"id"`
+	Email        string `json:"email"`
+	Name         string `json:"name"`
+	Role         string `json:"role"`
+	PasswordHash string `json:"-"`
+	// HasPassword says whether a password was ever set. An account made through
+	// a provider has none, so the account screen has one to set rather than one
+	// to change, and the API has nothing to compare before setting it.
+	HasPassword bool       `json:"hasPassword"`
+	VerifiedAt  *time.Time `json:"verifiedAt,omitempty"`
+	DisabledAt  *time.Time `json:"disabledAt,omitempty"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	UpdatedAt   time.Time  `json:"updatedAt"`
 }
 
 func (u *User) Disabled() bool {
@@ -62,6 +66,7 @@ func scanUser(row rowScanner) (*User, error) {
 		&u.VerifiedAt, &u.DisabledAt, &u.CreatedAt, &u.UpdatedAt); err != nil {
 		return nil, err
 	}
+	u.HasPassword = u.PasswordHash != ""
 	return &u, nil
 }
 

@@ -5,6 +5,7 @@ useSeoMeta({ title: 'Sign in', robots: 'noindex, nofollow' })
 
 const route = useRoute()
 const { user, loaded, signIn, sendSignInLink, signInWithLink } = useAuth()
+const { providers, load: loadProviders, signInURL } = useAuthProviders()
 
 const email = ref('')
 const password = ref('')
@@ -30,6 +31,20 @@ const next = computed(() => {
   const raw = String(route.query.next ?? '')
   return raw.startsWith('/') && !raw.startsWith('//') ? raw : '/'
 })
+
+// The callback sends a failed sign in back here with the reason, because the
+// browser only followed a link and a JSON answer would be a dead end.
+const oauthError = computed(() => {
+  const reason = String(route.query.oauth ?? '')
+  if (!reason) return ''
+  const name = String(route.query.provider ?? '')
+  const label = providers.value.find((p) => p.name === name)?.label ?? 'the provider'
+  if (reason === 'refused') return `Signing in with ${label} was cancelled.`
+  if (reason === 'disabled') return 'That account cannot sign in.'
+  return `Signing in with ${label} did not work. Try again.`
+})
+
+onMounted(loadProviders)
 
 // Only reacts to the session arriving, so that signing in does not navigate
 // twice: submit() already does it. A link waiting in the address is the
@@ -95,6 +110,8 @@ function backToForm() {
     <h1 class="text-2xl font-bold tracking-tight">Sign in</h1>
 
     <div class="mt-6 rounded-box border border-base-300 bg-base-100 p-5 shadow-sm">
+      <p v-if="oauthError" role="alert" class="mb-4 text-sm text-error">{{ oauthError }}</p>
+
       <p v-if="linkState === 'busy'" class="flex items-center gap-2 text-sm opacity-80">
         <span class="loading loading-spinner loading-sm" />
         Signing you in from the link in your email.
@@ -111,6 +128,21 @@ function backToForm() {
       </template>
 
       <template v-else>
+        <template v-if="providers.length">
+          <div class="flex flex-col gap-2">
+            <a
+              v-for="p in providers"
+              :key="p.name"
+              :href="signInURL(p.name, next)"
+              class="btn btn-outline w-full"
+            >
+              <GitHubIcon v-if="p.name === 'github'" class="size-4" />
+              Continue with {{ p.label }}
+            </a>
+          </div>
+          <div class="divider my-3 text-xs uppercase tracking-wide opacity-60">or</div>
+        </template>
+
         <form class="flex flex-col gap-4" @submit.prevent="submit">
           <label class="form-control w-full">
             <span class="label-text mb-1 text-sm font-medium">Email</span>

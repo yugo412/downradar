@@ -86,10 +86,14 @@ export function useAuth() {
   }
 
   async function changePassword(currentPassword: string, newPassword: string) {
-    return $fetch<{ ok: boolean; otherSessionsEnded: number }>('/api/v1/auth/password', {
-      method: 'POST',
-      body: { currentPassword, newPassword },
-    })
+    const res = await $fetch<{ ok: boolean; otherSessionsEnded: number }>(
+      '/api/v1/auth/password',
+      { method: 'POST', body: { currentPassword, newPassword } },
+    )
+    // An account made through a provider sets its first password here, and from
+    // now on the screen has one to change.
+    if (user.value) user.value = { ...user.value, hasPassword: true }
+    return res
   }
 
   return {

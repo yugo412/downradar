@@ -72,6 +72,17 @@ export interface AuthUser {
   name: string
   role: Role
   verifiedAt?: string | null
+  // False for an account made through a provider, which has no password to
+  // change, only one to set.
+  hasPassword?: boolean
+}
+
+// One way to sign in that this deployment has configured. The screens offer the
+// buttons from this list, so a provider without credentials is not a button that
+// fails when it is pressed.
+export interface AuthProvider {
+  name: string
+  label: string
 }
 
 export type ServiceStatus = 'proposed' | 'published' | 'rejected' | 'no_match'
