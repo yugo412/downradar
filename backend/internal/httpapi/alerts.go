@@ -54,6 +54,12 @@ type slackRequest struct {
 	URL string `json:"url"`
 }
 
+// discordRequest is the incoming webhook URL of a Discord channel; an empty one
+// stops the messages.
+type discordRequest struct {
+	URL string `json:"url"`
+}
+
 type alertRequest struct {
 	// Email is the address the alert should go to. An empty one stops the emails;
 	// a request that says nothing about it, which is what the bell sends, leaves
@@ -75,6 +81,9 @@ type alertRequest struct {
 	// page that shows the way sends it every time, and an empty URL stops the
 	// messages; a request that says nothing about it leaves the way as it is.
 	Slack *slackRequest `json:"slack"`
+
+	// Discord is the fifth way: a Discord channel's incoming webhook URL.
+	Discord *discordRequest `json:"discord"`
 
 	// What the email reports on. WholeService is the vendor's own status;
 	// Components names components by the identifiers the vendor page shows,
@@ -186,12 +195,26 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		slack = &store.AlertSlack{URL: webhookURL}
 	}
 
+	// A Discord channel is named by the incoming webhook URL Discord gives for it,
+	// with the same bargain: an empty URL stops the messages.
+	var discord *store.AlertDiscord
+	saveDiscord := body.Discord != nil
+	if body.Discord != nil {
+		webhookURL, problem := parseDiscord(body.Discord.URL)
+		if problem != "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": problem})
+			return
+		}
+		discord = &store.AlertDiscord{URL: webhookURL}
+	}
+
 	// A request that names no way at all would write a subscription with nothing
 	// to send, which is not an alert. Clearing a way is naming it: an empty
 	// address is how somebody stops the emails.
-	if body.Email == nil && body.Webhook == nil && body.Telegram == nil && body.Slack == nil {
+	if body.Email == nil && body.Webhook == nil && body.Telegram == nil && body.Slack == nil &&
+		body.Discord == nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "An email address, a webhook, a chat or a Slack channel is required",
+			"error": "An email address, a webhook, a chat, a Slack channel or a Discord channel is required",
 		})
 		return
 	}
@@ -239,11 +262,10 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// An email, a chat and a Slack channel report on what was picked, so any of
-	// them with nothing picked beside it would be a way that never has anything to
-	// say. A webhook needs no pick of its own: it hears about the vendor itself.
+	// A way that reports on a pick needs one; a webhook hears about the vendor
+	// itself.
 	watchesByPick := (saveEmail && address != "") || (telegram != nil && telegram.ChatID != "") ||
-		(slack != nil && slack.URL != "")
+		(slack != nil && slack.URL != "") || (discord != nil && discord.URL != "")
 	if watchesByPick && !whole && len(componentIDs) == 0 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "Pick at least one thing to be told about",
@@ -273,13 +295,8 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Someone who is not signed in gets one alert: they have no identity but the
-	// address they typed, so there is nothing else to hold them to it. That alert
-	// is a whole vendor, because a component is a subscriber's, and it cannot call
-	// anywhere, post to a chat or a Slack channel either, because those ways are
-	// kept on an account. A subscriber may watch a few vendors, and the address
-	// they give does not have to be the one on their account. Staff are not held to
-	// a count.
+	// Someone who is not signed in gets one whole-vendor alert: components and the
+	// account-held ways need a subscriber. Staff are not held to a count.
 	switch {
 	case userID == nil:
 		if len(componentIDs) > 0 {
@@ -303,6 +320,12 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		if saveSlack {
 			writeJSON(w, http.StatusConflict, map[string]string{
 				"error": "Slack is for subscribers. Sign in to add one.",
+			})
+			return
+		}
+		if saveDiscord {
+			writeJSON(w, http.StatusConflict, map[string]string{
+				"error": "Discord is for subscribers. Sign in to add one.",
 			})
 			return
 		}
@@ -404,6 +427,14 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		}
 		change.Slack, change.SlackToken = slack, token
 	}
+	if discord != nil {
+		token, err := auth.NewToken()
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		change.Discord, change.DiscordToken = discord, token
+	}
 
 	secret := ""
 	var saveErr error
@@ -444,6 +475,7 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 	h.log.Info("alert subscription saved", "vendor", name, "email", address != "" && saveEmail,
 		"webhook", calls, "telegram", telegram != nil && telegram.ChatID != "",
 		"slack", slack != nil && slack.URL != "",
+		"discord", discord != nil && discord.URL != "",
 		"signed_in", userID != nil, "webhook_secret", secret != "",
 		"whole", whole, "components", len(componentIDs))
 	writeJSON(w, http.StatusCreated, answer)
@@ -522,6 +554,24 @@ func parseSlack(raw string) (string, string) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return "", "That does not look like a Slack webhook URL"
+	}
+	return rawURL, ""
+}
+
+// parseDiscord reads a Discord webhook URL. The page checks its shape; here it
+// only has to be an http(s) address.
+func parseDiscord(raw string) (string, string) {
+	rawURL := strings.TrimSpace(raw)
+	if rawURL == "" {
+		return "", ""
+	}
+	if len(rawURL) > 1024 {
+		return "", "That Discord webhook URL is too long"
+	}
+
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return "", "That does not look like a Discord webhook URL"
 	}
 	return rawURL, ""
 }
@@ -760,6 +810,64 @@ func (h *handlers) testSlack(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": result.OK, "error": result.Error})
 }
 
+// testDiscord posts through the held URL or the saved one, so a channel can be
+// checked before it is relied on.
+func (h *handlers) testDiscord(w http.ResponseWriter, r *http.Request) {
+	if !h.alertsEnabled || h.notifier == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "Alerts are not available right now",
+		})
+		return
+	}
+
+	var body discordRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
+		return
+	}
+
+	webhookURL, problem := parseDiscord(body.URL)
+	if problem != "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": problem})
+		return
+	}
+
+	serviceID, name, err := h.store.PublicService(r.Context(), r.PathValue("slug"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Vendor not found"})
+		return
+	}
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	// A saved URL is tried with the one it was saved with when the field is empty.
+	if webhookURL == "" {
+		webhookURL, err = h.store.DiscordWebhook(r.Context(), h.user(r).ID, serviceID)
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		if webhookURL == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "A Discord webhook URL is required",
+			})
+			return
+		}
+	}
+
+	result, err := h.notifier.TestDiscord(r.Context(), serviceID, webhookURL)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	h.log.Info("discord tried from the alert page", "vendor", name,
+		"user", h.user(r).Email, "ok", result.OK, "error", result.Error)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": result.OK, "error": result.Error})
+}
+
 // statusOrNil writes "no answer" as a null rather than a zero, so a call that was
 // never answered does not read as one that got a 0.
 func statusOrNil(status int) *int {
@@ -786,9 +894,10 @@ func (h *handlers) setAlertChannelPaused(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if body.Kind != store.ChannelEmail && body.Kind != store.ChannelWebhook &&
-		body.Kind != store.ChannelTelegram && body.Kind != store.ChannelSlack {
+		body.Kind != store.ChannelTelegram && body.Kind != store.ChannelSlack &&
+		body.Kind != store.ChannelDiscord {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "Kind must be email, webhook, telegram or slack",
+			"error": "Kind must be email, webhook, telegram, slack or discord",
 		})
 		return
 	}
@@ -1054,12 +1163,14 @@ func (h *handlers) getUserAlert(w http.ResponseWriter, r *http.Request) {
 		"webhookPaused":   view.WebhookPaused,
 		"telegramPaused":  view.TelegramPaused,
 		"slackPaused":     view.SlackPaused,
+		"discordPaused":   view.DiscordPaused,
 		"wholeService":    view.WholeService,
 		"components":      view.ComponentIDs,
 		"webhook":         view.Webhook,
 		"telegram":        view.Telegram,
 		"slack":           view.Slack,
 		"slackChannel":    view.SlackChannel,
+		"discord":         view.Discord,
 		"telegramEnabled": h.telegramEnabled,
 		"slackEnabled":    h.slack != nil && h.alertsEnabled,
 		// The bot is the owner's own, and the page shows it masked with a switch to
@@ -1102,6 +1213,9 @@ func maskDestination(kind, address string) string {
 	}
 	if kind == store.ChannelSlack {
 		return "your Slack channel"
+	}
+	if kind == store.ChannelDiscord {
+		return "your Discord channel"
 	}
 
 	local, domain, ok := strings.Cut(address, "@")

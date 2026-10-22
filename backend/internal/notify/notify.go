@@ -1,6 +1,6 @@
 // Package notify sends what a status change earns: an email to an address, a
-// message to a Telegram chat or a Slack channel, or a call to a webhook. The
-// change itself writes its deliveries as part of the same transaction that
+// message to a Telegram chat, a Slack or Discord channel, or a call to a webhook.
+// The change itself writes its deliveries as part of the same transaction that
 // records it, and this is the loop that drains them: polling never waits for a
 // mail server or a far end, and a delivery that fails is retried a few times
 // before it is left with its error.
@@ -101,6 +101,8 @@ func (n *Notifier) drain(ctx context.Context) error {
 			err = n.sendTelegram(ctx, alert)
 		case store.ChannelSlack:
 			err = n.sendSlack(ctx, alert)
+		case store.ChannelDiscord:
+			err = n.sendDiscord(ctx, alert)
 		default:
 			err = n.sendEmail(ctx, alert)
 		}

@@ -200,14 +200,10 @@ func (s *Store) applyServiceState(
 	}
 }
 
-// enqueueAlerts writes one delivery per live channel for a vendor whose own
-// status has changed. An email, a chat or a Slack channel is written one only if
-// the subscriber is watching the vendor as a whole, because those ways report on
-// what was picked and that is their set of targets. A webhook is written one
-// whenever the vendor changes at all, since its body says what the vendor looks
-// like now rather than only what moved. It runs in the same transaction as the
-// change itself, so an alert cannot be lost with a crash and cannot be written
-// twice by a retry.
+// enqueueAlerts writes one delivery per live channel when the vendor's status
+// changes. Picked-target ways (email, chat, Slack, Discord) get one only for the
+// whole vendor; a webhook gets one for any change. It shares the transaction, so
+// a crash cannot lose an alert and a retry cannot write it twice.
 //
 // A subscription that watches one component of the vendor is left out of the
 // messages about the vendor: what it asked about is that component, so the change
@@ -236,12 +232,9 @@ func (s *Store) enqueueAlerts(ctx context.Context, tx pgx.Tx, serviceID int64, f
 	return nil
 }
 
-// enqueueComponentAlerts is the same bargain for one component: an email, a chat
-// or a Slack channel is written a delivery if that component is one of the things
-// its subscriber picked, and a webhook is written one for any component of the
-// vendor, because its body carries them all. A component's first state is the baseline the rest
-// are read against, not a change, and that is why the caller only reaches here
-// when it was already known in another state.
+// enqueueComponentAlerts does the same for one component: picked-target ways get
+// a delivery when it is one they watch, and a webhook gets one for any component.
+// A component's first state is the baseline, not a change.
 func (s *Store) enqueueComponentAlerts(ctx context.Context, tx pgx.Tx, serviceID, componentID int64, from, to string, changedAt time.Time) error {
 	if _, err := tx.Exec(ctx, `
 		insert into alert_deliveries (channel_id, service_id, component_id, from_status, to_status, changed_at)

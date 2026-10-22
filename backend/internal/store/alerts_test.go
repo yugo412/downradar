@@ -1866,3 +1866,116 @@ func TestASlackChannelIsAFourthWayForOneAlert(t *testing.T) {
 		t.Errorf("stopping the channel changed the email to %q", view.Email)
 	}
 }
+
+// A Discord channel is the fifth way: one URL names where it posts, an empty one
+// stops it, and the URL stays masked on the page.
+func TestADiscordChannelIsAFifthWayForOneAlert(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	user := newTestUser(t, st, "subscriber")
+	id := alertService(t, st, uniqueName("alert discord"))
+
+	email := "sari@example.com"
+	const first = "https://discord.com/api/webhooks/100/first"
+	if err := st.SubscribeAlert(ctx, id, &user.ID, AlertChange{
+		Email:        &email,
+		EmailToken:   "token-discord-mail",
+		Discord:      &AlertDiscord{URL: first},
+		DiscordToken: "token-discord-way",
+		Targets:      WholeVendor,
+	}); err != nil {
+		t.Fatalf("SubscribeAlert: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = st.UnsubscribeAlert(context.Background(), "token-discord-mail")
+		_ = st.UnsubscribeAlert(context.Background(), "token-discord-way")
+	})
+
+	view, err := st.UserAlert(ctx, user.ID, id)
+	if err != nil {
+		t.Fatalf("UserAlert: %v", err)
+	}
+	if view.Discord != first {
+		t.Errorf("discord = %q, want %q", view.Discord, first)
+	}
+	if view.DiscordPaused {
+		t.Error("a channel that was just saved reads as paused")
+	}
+	if view.Email != email {
+		t.Errorf("email = %q, want %q", view.Email, email)
+	}
+
+	// A new URL updates the same channel and keeps its token.
+	const second = "https://discord.com/api/webhooks/100/second"
+	if err := st.SubscribeAlert(ctx, id, &user.ID, AlertChange{
+		Discord:      &AlertDiscord{URL: second},
+		DiscordToken: "token-discord-other",
+		Targets:      WholeVendor,
+	}); err != nil {
+		t.Fatalf("SubscribeAlert again: %v", err)
+	}
+
+	if n := countRows(t, st, `
+		select count(*) from alert_channels
+		where subscription_id = (select id from alert_subscriptions where service_id = $1)
+		  and kind = 'discord'`, id); n != 1 {
+		t.Errorf("discord channels = %d, want one", n)
+	}
+	if n := countRows(t, st, `
+		select count(*) from alert_channels
+		where token = 'token-discord-way' and address = $1`, second); n != 1 {
+		t.Error("the saved channel was replaced with a new token instead of updated")
+	}
+
+	view, err = st.UserAlert(ctx, user.ID, id)
+	if err != nil {
+		t.Fatalf("UserAlert after the change: %v", err)
+	}
+	if view.Discord != second {
+		t.Errorf("discord = %q, want %q", view.Discord, second)
+	}
+	if view.Email != email {
+		t.Errorf("saving the channel changed the email to %q", view.Email)
+	}
+
+	// A delivery carries the URL, which is the whole of where it posts.
+	queueDeliveryFor(t, st, "token-discord-way", nil)
+	pending, err := st.PendingAlerts(ctx, 3, 50)
+	if err != nil {
+		t.Fatalf("PendingAlerts: %v", err)
+	}
+	carried := false
+	for _, alert := range pending {
+		if alert.Kind == ChannelDiscord && alert.DiscordURL == second {
+			carried = true
+		}
+	}
+	if !carried {
+		t.Error("a Discord delivery does not carry the webhook it posts to")
+	}
+
+	// An empty URL is the way being stopped, and the email beside it stays.
+	if err := st.SubscribeAlert(ctx, id, &user.ID, AlertChange{
+		Discord: &AlertDiscord{},
+		Targets: WholeVendor,
+	}); err != nil {
+		t.Fatalf("SubscribeAlert with no URL: %v", err)
+	}
+	if n := countRows(t, st, `
+		select count(*) from alert_channels
+		where token = 'token-discord-way' and unsubscribed_at is not null`); n != 1 {
+		t.Error("the stopped channel is not marked as stopped")
+	}
+
+	view, err = st.UserAlert(ctx, user.ID, id)
+	if err != nil {
+		t.Fatalf("UserAlert after stopping: %v", err)
+	}
+	if view.Discord != "" {
+		t.Errorf("discord = %q, want it empty once stopped", view.Discord)
+	}
+	if view.Email != email {
+		t.Errorf("stopping the channel changed the email to %q", view.Email)
+	}
+}

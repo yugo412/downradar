@@ -208,6 +208,7 @@ export interface AlertState {
   webhookPaused?: boolean
   telegramPaused?: boolean
   slackPaused?: boolean
+  discordPaused?: boolean
   wholeService?: boolean
   components?: string[]
   webhook?: AlertWebhook | null
@@ -225,6 +226,9 @@ export interface AlertState {
   slack?: string
   slackChannel?: string
   slackEnabled?: boolean
+  // The incoming webhook URL of the Discord channel, shown masked like the Slack
+  // one. A Discord channel is set up by hand, so there is no install to name.
+  discord?: string
   calls?: WebhookCall[]
 }
 
