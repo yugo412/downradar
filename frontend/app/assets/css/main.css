@@ -91,6 +91,12 @@
 }
 
 @layer base {
+  /* The alert page changes height between ways, so reserve the scrollbar gutter
+     and keep the content from shifting when the bar appears or goes. */
+  html {
+    scrollbar-gutter: stable !important;
+  }
+
   html[data-theme="cmyk"] {
     color-scheme: light;
   }

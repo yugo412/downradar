@@ -228,9 +228,9 @@ const nothingToTellAbout = computed(
     picked.value.length === 0,
 )
 
-// What the saved ways are, which is what a pause can be asked about: a way has
-// to exist before it can be stopped, and what the fields hold and have not been
-// saved yet is not one yet.
+// What the saved ways are, which is what a switch can be asked about: a way has
+// to exist before it can be paused, and what the fields hold and have not been
+// saved yet is not a way yet.
 const savedEmail = computed(() => String(state.value?.email ?? ''))
 const savedWebhook = computed(() => String(state.value?.webhook?.url ?? ''))
 const savedTelegram = computed(() => String(state.value?.telegram ?? ''))
@@ -254,9 +254,8 @@ const slackNothingToPost = computed(() => !whole.value && picked.value.length ==
 // offered.
 const telegramEnabled = computed(() => state.value?.telegramEnabled === true)
 
-// Nothing arrives when every way the alert has is quiet. That is what the
-// account screen calls a paused alert, and it is the one state worth a banner
-// here, since a subscriber who paused from that screen is stopping by this one.
+// Nothing arrives when every way the alert has is quiet. The account screen and
+// the bell already call that paused; the banner says the same here.
 const nothingArriving = computed(() => {
   const ways = [
     { set: savedEmail.value !== '', paused: emailPaused.value },
@@ -267,21 +266,6 @@ const nothingArriving = computed(() => {
   ].filter((way) => way.set)
   return state.value?.subscribed === true && ways.length > 0 && ways.every((way) => way.paused)
 })
-
-// What the menu says each way is doing. It is read from the saved alert rather
-// than from the fields, so a way that has been typed into and not saved yet is
-// not claimed to be on by the menu beside the panel.
-function wayState(on: boolean, paused: boolean) {
-  if (!on) return { label: 'Off', cls: 'badge-ghost' }
-  if (paused) return { label: 'Paused', cls: 'badge-warning' }
-  return { label: 'On', cls: 'badge-success' }
-}
-
-const emailWay = computed(() => wayState(savedEmail.value !== '', emailPaused.value))
-const webhookWay = computed(() => wayState(savedWebhook.value !== '', webhookPaused.value))
-const telegramWay = computed(() => wayState(savedTelegram.value !== '', telegramPaused.value))
-const slackWay = computed(() => wayState(savedSlack.value !== '', slackPaused.value))
-const discordWay = computed(() => wayState(savedDiscord.value !== '', discordPaused.value))
 
 // The address on the account, offered as a one click fill in the email panel
 // while the field is empty.
@@ -818,17 +802,16 @@ async function refreshCalls() {
           Alerts for {{ vendor.name }}
         </h1>
         <p class="mt-1 text-sm opacity-70">
-          One alert per service, arriving by email, by webhook, in a Telegram
-          chat, in a Slack channel, in a Discord channel, or several of them. An
-          email, a chat, Slack and Discord report on what you pick; a call carries
-          the whole service.
+          One alert per service, delivered by email, webhook, Telegram, Slack,
+          Discord or a mix of them. Email, Telegram, Slack and Discord report on
+          what you pick. A webhook always carries the whole service.
         </p>
       </header>
 
       <div v-if="nothingArriving" role="alert" class="alert alert-warning mt-4 py-2 text-sm">
         <span>
           Every way of this alert is paused, so nothing is arriving. Start one
-          again with its own switch in the panel below.
+          with the switch beside its name.
         </span>
       </div>
 
@@ -839,169 +822,79 @@ async function refreshCalls() {
       <section class="mt-6">
         <h2 class="font-semibold">How it arrives</h2>
 
-        <div class="mt-3 grid gap-4 md:grid-cols-[14rem_1fr]">
-          <!-- The ways are a row of tabs on a phone and a menu beside the panel
-               once there is room for one. -->
-          <div role="tablist" class="tabs tabs-box flex-nowrap overflow-x-auto md:hidden">
-            <button
-              type="button"
-              role="tab"
-              class="tab shrink-0"
-              :class="{ 'tab-active': way === 'email' }"
-              @click="selectWay('email')"
-            >
-              Email
-              <span class="badge badge-xs ml-1 max-sm:hidden" :class="emailWay.cls">
-                {{ emailWay.label }}
-              </span>
-            </button>
-            <button
-              type="button"
-              role="tab"
-              class="tab shrink-0"
-              :class="{ 'tab-active': way === 'webhook' }"
-              @click="selectWay('webhook')"
-            >
-              Webhook
-              <span class="badge badge-xs ml-1 max-sm:hidden" :class="webhookWay.cls">
-                {{ webhookWay.label }}
-              </span>
-            </button>
-            <button
-              type="button"
-              role="tab"
-              class="tab shrink-0"
-              :class="{ 'tab-active': way === 'telegram' }"
-              @click="selectWay('telegram')"
-            >
-              Telegram
-              <span class="badge badge-xs ml-1 max-sm:hidden" :class="telegramWay.cls">
-                {{ telegramWay.label }}
-              </span>
-            </button>
-            <button
-              type="button"
-              role="tab"
-              class="tab shrink-0"
-              :class="{ 'tab-active': way === 'slack' }"
-              @click="selectWay('slack')"
-            >
-              Slack
-              <span class="badge badge-xs ml-1 max-sm:hidden" :class="slackWay.cls">
-                {{ slackWay.label }}
-              </span>
-            </button>
-            <button
-              type="button"
-              role="tab"
-              class="tab shrink-0"
-              :class="{ 'tab-active': way === 'discord' }"
-              @click="selectWay('discord')"
-            >
-              Discord
-              <span class="badge badge-xs ml-1 max-sm:hidden" :class="discordWay.cls">
-                {{ discordWay.label }}
-              </span>
-            </button>
-            <button
-              type="button"
-              role="tab"
-              class="tab shrink-0"
-              :class="{ 'tab-active': way === 'rss' }"
-              @click="selectWay('rss')"
-            >
-              RSS
-            </button>
+        <div class="mt-3 grid w-full gap-4 md:grid-cols-[14rem_minmax(0,1fr)]">
+          <!-- The way being shown is the one the list marks. Each way has its
+               own pause switch, and a way that is not set up has none to move. -->
+          <div class="w-full self-start md:w-56">
+            <div class="rounded-box border border-base-300 bg-base-100 p-2">
+              <ul class="flex w-full flex-col gap-1 p-0">
+                <AlertWayRow
+                  label="Email"
+                  icon="email"
+                  :active="way === 'email'"
+                  :on="savedEmail !== ''"
+                  :paused="emailPaused"
+                  :busy="pausing === 'email'"
+                  @select="selectWay('email')"
+                  @pause="setPaused('email', $event)"
+                />
+                <AlertWayRow
+                  label="Webhook"
+                  icon="webhook"
+                  :active="way === 'webhook'"
+                  :on="savedWebhook !== ''"
+                  :paused="webhookPaused"
+                  :busy="pausing === 'webhook'"
+                  @select="selectWay('webhook')"
+                  @pause="setPaused('webhook', $event)"
+                />
+                <AlertWayRow
+                  label="Telegram"
+                  icon="telegram"
+                  :active="way === 'telegram'"
+                  :on="savedTelegram !== ''"
+                  :paused="telegramPaused"
+                  :busy="pausing === 'telegram'"
+                  @select="selectWay('telegram')"
+                  @pause="setPaused('telegram', $event)"
+                />
+                <AlertWayRow
+                  label="Slack"
+                  icon="slack"
+                  :active="way === 'slack'"
+                  :on="savedSlack !== ''"
+                  :paused="slackPaused"
+                  :busy="pausing === 'slack'"
+                  @select="selectWay('slack')"
+                  @pause="setPaused('slack', $event)"
+                />
+                <AlertWayRow
+                  label="Discord"
+                  icon="discord"
+                  :active="way === 'discord'"
+                  :on="savedDiscord !== ''"
+                  :paused="discordPaused"
+                  :busy="pausing === 'discord'"
+                  @select="selectWay('discord')"
+                  @pause="setPaused('discord', $event)"
+                />
+                <li>
+                  <button
+                    type="button"
+                    class="flex w-full items-center gap-2 rounded-btn px-3 py-2 text-left text-sm"
+                    :class="way === 'rss' ? 'bg-base-200 font-medium' : 'hover:bg-base-200'"
+                    :aria-current="way === 'rss' ? 'true' : undefined"
+                    @click="selectWay('rss')"
+                  >
+                    <ChannelIcon kind="rss" />
+                    <span>RSS</span>
+                  </button>
+                </li>
+              </ul>
+            </div>
           </div>
 
-          <!-- The way being shown is the one the menu marks, which daisyUI does
-               with menu-active on the item itself rather than on its li. Its
-               fill is toned down by menu-quiet in main.css. -->
-          <ul class="menu menu-quiet hidden w-56 gap-1 self-start rounded-box border border-base-300 bg-base-100 p-2 md:flex">
-            <li>
-              <button
-                type="button"
-                class="justify-between"
-                :class="{ 'menu-active': way === 'email' }"
-                :aria-current="way === 'email' ? 'true' : undefined"
-                @click="selectWay('email')"
-              >
-                Email
-                <span class="badge badge-xs" :class="emailWay.cls">
-                  {{ emailWay.label }}
-                </span>
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                class="justify-between"
-                :class="{ 'menu-active': way === 'webhook' }"
-                :aria-current="way === 'webhook' ? 'true' : undefined"
-                @click="selectWay('webhook')"
-              >
-                Webhook
-                <span class="badge badge-xs" :class="webhookWay.cls">
-                  {{ webhookWay.label }}
-                </span>
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                class="justify-between"
-                :class="{ 'menu-active': way === 'telegram' }"
-                :aria-current="way === 'telegram' ? 'true' : undefined"
-                @click="selectWay('telegram')"
-              >
-                Telegram
-                <span class="badge badge-xs" :class="telegramWay.cls">
-                  {{ telegramWay.label }}
-                </span>
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                class="justify-between"
-                :class="{ 'menu-active': way === 'slack' }"
-                :aria-current="way === 'slack' ? 'true' : undefined"
-                @click="selectWay('slack')"
-              >
-                Slack
-                <span class="badge badge-xs" :class="slackWay.cls">
-                  {{ slackWay.label }}
-                </span>
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                class="justify-between"
-                :class="{ 'menu-active': way === 'discord' }"
-                :aria-current="way === 'discord' ? 'true' : undefined"
-                @click="selectWay('discord')"
-              >
-                Discord
-                <span class="badge badge-xs" :class="discordWay.cls">
-                  {{ discordWay.label }}
-                </span>
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                class="justify-between"
-                :class="{ 'menu-active': way === 'rss' }"
-                :aria-current="way === 'rss' ? 'true' : undefined"
-                @click="selectWay('rss')"
-              >
-                RSS
-              </button>
-            </li>
-          </ul>
-
-          <div class="min-w-0 rounded-box border border-base-300 bg-base-100 p-5">
+          <div class="min-w-0 w-full overflow-hidden rounded-box border border-base-300 bg-base-100 p-5">
             <div v-show="way === 'email'">
               <h3 class="font-semibold">Email</h3>
               <p class="mt-1 text-sm opacity-70">
@@ -1018,7 +911,7 @@ async function refreshCalls() {
                 class="input input-bordered mt-3 w-full"
               >
               <p v-if="!emailsOn && accountEmail" class="mt-2 text-sm opacity-70">
-                <button type="button" class="link" @click="email = accountEmail">
+                <button type="button" class="link break-all text-left" @click="email = accountEmail">
                   Use my account address ({{ accountEmail }})
                 </button>
               </p>
@@ -1043,41 +936,6 @@ async function refreshCalls() {
                 />
               </div>
 
-              <!-- The way's own switch, at the end of the way and just before
-                   Save. It is the way being quiet rather than the way being
-                   written, so it acts on its own rather than with Save, and a
-                   way that has nothing saved yet has nothing to be quiet. -->
-              <div class="mt-5 border-t border-base-300 pt-4">
-                <div class="flex items-center gap-3">
-                  <input
-                    id="pause-email"
-                    type="checkbox"
-                    class="toggle toggle-sm"
-                    :checked="!!savedEmail && !emailPaused"
-                    :disabled="!savedEmail || pausing === 'email'"
-                    @change="setPaused('email', $event)"
-                  >
-                  <label
-                    for="pause-email"
-                    class="text-sm"
-                    :class="savedEmail ? 'cursor-pointer' : ''"
-                  >
-                    <template v-if="!savedEmail">
-                      Nothing to pause yet.
-                      <span class="opacity-70">Save an address and this switch
-                        will hold the emails back without taking it away.</span>
-                    </template>
-                    <template v-else-if="emailPaused">
-                      Emails are paused.
-                      <span class="opacity-70">Switch this on to hear about changes again.</span>
-                    </template>
-                    <template v-else>
-                      Emails are on.
-                      <span class="opacity-70">Switch this off to pause them without taking the address away.</span>
-                    </template>
-                  </label>
-                </div>
-              </div>
             </div>
 
             <div v-show="way === 'webhook'">
@@ -1314,42 +1172,8 @@ webhook-signature: v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=</pre>
                 </ul>
               </div>
 
-              <!-- The way's own switch and the call that tries it, at the end
-                   of the way and just before Save. The switch says the way is
-                   working, so it is the way being quiet rather than the way
-                   being written, and it acts on its own. -->
               <div class="mt-5 border-t border-base-300 pt-4">
-                <div class="flex items-center gap-3">
-                  <input
-                    id="pause-webhook"
-                    type="checkbox"
-                    class="toggle toggle-sm"
-                    :checked="!!savedWebhook && !webhookPaused"
-                    :disabled="!savedWebhook || pausing === 'webhook'"
-                    @change="setPaused('webhook', $event)"
-                  >
-                  <label
-                    for="pause-webhook"
-                    class="text-sm"
-                    :class="savedWebhook ? 'cursor-pointer' : ''"
-                  >
-                    <template v-if="!savedWebhook">
-                      Nothing to pause yet.
-                      <span class="opacity-70">Save a URL and this switch will
-                        hold the calls back without taking it away.</span>
-                    </template>
-                    <template v-else-if="webhookPaused">
-                      Calls are paused.
-                      <span class="opacity-70">Switch this on to hear about changes again.</span>
-                    </template>
-                    <template v-else>
-                      Calls are on.
-                      <span class="opacity-70">Switch this off to pause them without taking the URL away.</span>
-                    </template>
-                  </label>
-                </div>
-
-                <div class="mt-3 flex flex-wrap items-center gap-3">
+                <div class="flex flex-wrap items-center gap-3">
                   <button
                     type="button"
                     class="btn btn-outline btn-sm"
@@ -1492,39 +1316,6 @@ webhook-signature: v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=</pre>
                 message to go. Try again later.
               </p>
 
-              <!-- The way's own switch, at the end of the way and just before
-                   Save, the same as the other ways. -->
-              <div class="mt-5 border-t border-base-300 pt-4">
-                <div class="flex items-center gap-3">
-                  <input
-                    id="pause-telegram"
-                    type="checkbox"
-                    class="toggle toggle-sm"
-                    :checked="!!savedTelegram && !telegramPaused"
-                    :disabled="!savedTelegram || pausing === 'telegram'"
-                    @change="setPaused('telegram', $event)"
-                  >
-                  <label
-                    for="pause-telegram"
-                    class="text-sm"
-                    :class="savedTelegram ? 'cursor-pointer' : ''"
-                  >
-                    <template v-if="!savedTelegram">
-                      Nothing to pause yet.
-                      <span class="opacity-70">Save a chat and this switch will
-                        hold the messages back without taking it away.</span>
-                    </template>
-                    <template v-else-if="telegramPaused">
-                      Messages are paused.
-                      <span class="opacity-70">Switch this on to hear about changes again.</span>
-                    </template>
-                    <template v-else>
-                      Messages are on.
-                      <span class="opacity-70">Switch this off to pause them without taking the chat away.</span>
-                    </template>
-                  </label>
-                </div>
-              </div>
             </div>
 
             <div v-show="way === 'slack'">
@@ -1705,39 +1496,6 @@ webhook-signature: v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=</pre>
                 </p>
               </div>
 
-              <!-- The way's own switch, at the end of the way and just before
-                   Save, the same as the other ways. -->
-              <div class="mt-5 border-t border-base-300 pt-4">
-                <div class="flex items-center gap-3">
-                  <input
-                    id="pause-slack"
-                    type="checkbox"
-                    class="toggle toggle-sm"
-                    :checked="!!savedSlack && !slackPaused"
-                    :disabled="!savedSlack || pausing === 'slack'"
-                    @change="setPaused('slack', $event)"
-                  >
-                  <label
-                    for="pause-slack"
-                    class="text-sm"
-                    :class="savedSlack ? 'cursor-pointer' : ''"
-                  >
-                    <template v-if="!savedSlack">
-                      Nothing to pause yet.
-                      <span class="opacity-70">Save a URL and this switch will
-                        hold the messages back without taking it away.</span>
-                    </template>
-                    <template v-else-if="slackPaused">
-                      Messages are paused.
-                      <span class="opacity-70">Switch this on to hear about changes again.</span>
-                    </template>
-                    <template v-else>
-                      Messages are on.
-                      <span class="opacity-70">Switch this off to pause them without taking the URL away.</span>
-                    </template>
-                  </label>
-                </div>
-              </div>
             </div>
 
             <div v-show="way === 'discord'">
@@ -1843,47 +1601,14 @@ webhook-signature: v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=</pre>
                 </p>
               </div>
 
-              <!-- The way's own switch, at the end of the way and just before
-                   Save, the same as the other ways. -->
-              <div class="mt-5 border-t border-base-300 pt-4">
-                <div class="flex items-center gap-3">
-                  <input
-                    id="pause-discord"
-                    type="checkbox"
-                    class="toggle toggle-sm"
-                    :checked="!!savedDiscord && !discordPaused"
-                    :disabled="!savedDiscord || pausing === 'discord'"
-                    @change="setPaused('discord', $event)"
-                  >
-                  <label
-                    for="pause-discord"
-                    class="text-sm"
-                    :class="savedDiscord ? 'cursor-pointer' : ''"
-                  >
-                    <template v-if="!savedDiscord">
-                      Nothing to pause yet.
-                      <span class="opacity-70">Save a URL and this switch will
-                        hold the messages back without taking it away.</span>
-                    </template>
-                    <template v-else-if="discordPaused">
-                      Messages are paused.
-                      <span class="opacity-70">Switch this on to hear about changes again.</span>
-                    </template>
-                    <template v-else>
-                      Messages are on.
-                      <span class="opacity-70">Switch this off to pause them without taking the URL away.</span>
-                    </template>
-                  </label>
-                </div>
-              </div>
             </div>
 
             <!-- The feed is the one way here that nothing is kept for, so it has
-                 no switch and no field to save: what it is, is an address. It
-                 sits last because it is the way with nothing to set up. -->
-            <div v-show="way === 'rss'">
+                 no field to save: what it is, is an address. It sits last
+                 because it is the way with nothing to set up. -->
+            <div v-show="way === 'rss'" class="w-full">
               <h3 class="font-semibold">RSS</h3>
-              <AlertFeed class="mt-1" :slug="slug" :name="vendor.name" />
+              <AlertFeed class="mt-1 w-full" :slug="slug" :name="vendor.name" />
             </div>
           </div>
 
