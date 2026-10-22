@@ -162,7 +162,7 @@ func webhookVendor(t *testing.T, st *store.Store, userID *int64, hook store.Aler
 	report := func(status adapters.Health) adapters.Report {
 		return adapters.Report{
 			Global:    status,
-			FetchedAt: time.Now().UTC(),
+			FetchedAt: time.Now().UTC().Add(-time.Hour),
 			Components: []adapters.ComponentStatus{
 				{SourceID: "c1", Name: name, Position: 1, Status: adapters.HealthOK},
 			},
@@ -277,7 +277,7 @@ func TestADrainCallsTheWebhookWhenAComponentMoves(t *testing.T) {
 	}
 	if _, err := st.ApplyReport(ctx, id, adapters.Report{
 		Global:    adapters.HealthMajor,
-		FetchedAt: time.Now().UTC(),
+		FetchedAt: time.Now().UTC().Add(-time.Hour),
 		Components: []adapters.ComponentStatus{
 			{SourceID: "c1", Name: name, Position: 1, Status: adapters.HealthDegraded},
 		},
@@ -437,7 +437,7 @@ func snapshotVendor(t *testing.T, st *store.Store) (int64, string, string) {
 	}
 	if _, err := st.ApplyReport(ctx, id, adapters.Report{
 		Global:    adapters.HealthOK,
-		FetchedAt: time.Now().UTC(),
+		FetchedAt: time.Now().UTC().Add(-time.Hour),
 		Components: []adapters.ComponentStatus{
 			{SourceID: "c1", Name: component, Position: 1, Status: adapters.HealthOK},
 		},
@@ -504,7 +504,7 @@ func TestADrainWritesDownTheCallItMade(t *testing.T) {
 	}
 	if _, err := st.ApplyReport(ctx, id, adapters.Report{
 		Global:    adapters.HealthDegraded,
-		FetchedAt: time.Now().UTC(),
+		FetchedAt: time.Now().UTC().Add(-time.Hour),
 		Components: []adapters.ComponentStatus{
 			{SourceID: "c1", Name: name, Position: 1, Status: adapters.HealthOK},
 		},

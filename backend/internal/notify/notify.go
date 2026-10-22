@@ -109,13 +109,13 @@ func (n *Notifier) drain(ctx context.Context) error {
 			}
 			n.log.Warn("alert delivery failed", "kind", alert.Kind, "vendor", alert.VendorSlug,
 				"attempt", alert.Attempts+1, "error", err)
-			if recErr := n.store.FailedAlert(ctx, alert.ID, err.Error()); recErr != nil {
+			if recErr := n.store.FailedAlert(ctx, alert.ID, alert.ToStatus, alert.ChangedAt, err.Error()); recErr != nil {
 				n.log.Error("failed to record the alert failure", "id", alert.ID, "error", recErr)
 			}
 			continue
 		}
 
-		if err := n.store.SentAlert(ctx, alert.ID); err != nil {
+		if err := n.store.SentAlert(ctx, alert.ID, alert.ToStatus, alert.ChangedAt); err != nil {
 			n.log.Error("failed to mark the alert sent", "id", alert.ID, "error", err)
 			continue
 		}

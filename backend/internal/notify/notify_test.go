@@ -106,7 +106,7 @@ func changedVendor(t *testing.T, st *store.Store, email string) string {
 	report := func(status adapters.Health) adapters.Report {
 		return adapters.Report{
 			Global:    status,
-			FetchedAt: time.Now().UTC(),
+			FetchedAt: time.Now().UTC().Add(-time.Hour),
 			Components: []adapters.ComponentStatus{
 				{SourceID: "c1", Name: name, Position: 1, Status: status},
 			},
@@ -155,7 +155,7 @@ func changedComponent(t *testing.T, st *store.Store, email string) (string, stri
 	report := func(global, component adapters.Health) adapters.Report {
 		return adapters.Report{
 			Global:    global,
-			FetchedAt: time.Now().UTC(),
+			FetchedAt: time.Now().UTC().Add(-time.Hour),
 			Components: []adapters.ComponentStatus{
 				{SourceID: "c1", Name: name + " Search", Position: 1, Status: component},
 			},

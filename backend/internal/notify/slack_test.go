@@ -53,7 +53,7 @@ func changedSlack(t *testing.T, st *store.Store, webhookURL string) string {
 	report := func(status adapters.Health) adapters.Report {
 		return adapters.Report{
 			Global:    status,
-			FetchedAt: time.Now().UTC(),
+			FetchedAt: time.Now().UTC().Add(-time.Hour),
 			Components: []adapters.ComponentStatus{
 				{SourceID: "c1", Name: name, Position: 1, Status: adapters.HealthOK},
 			},

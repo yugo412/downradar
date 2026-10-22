@@ -11,6 +11,11 @@ import (
 	"downradar.info/backend/internal/adapters"
 )
 
+// alertSettleWindow is how long a new status has to last before its alert is
+// sent. A vendor that flips back and forth within it gets one message for the
+// state it finally settles in, not one per poll.
+const alertSettleWindow = 5 * time.Minute
+
 func (s *Store) ApplyReport(ctx context.Context, serviceID int64, rep adapters.Report) (bool, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -201,9 +206,11 @@ func (s *Store) applyServiceState(
 }
 
 // enqueueAlerts writes one delivery per live channel when the vendor's status
-// changes. Picked-target ways (email, chat, Slack, Discord) get one only for the
-// whole vendor; a webhook gets one for any change. It shares the transaction, so
-// a crash cannot lose an alert and a retry cannot write it twice.
+// changes. The row is not due until alertSettleWindow has passed; a second change
+// before then updates it in place, so a burst becomes one message. Picked-target
+// ways (email, chat, Slack, Discord) get one only for the whole vendor; a webhook
+// gets one for any change. It shares the transaction, so a crash cannot lose an
+// alert and a retry cannot write it twice.
 //
 // A subscription that watches one component of the vendor is left out of the
 // messages about the vendor: what it asked about is that component, so the change
@@ -214,8 +221,9 @@ func (s *Store) applyServiceState(
 // from one status to another is worth a message.
 func (s *Store) enqueueAlerts(ctx context.Context, tx pgx.Tx, serviceID int64, from, to string, changedAt time.Time) error {
 	if _, err := tx.Exec(ctx, `
-		insert into alert_deliveries (channel_id, service_id, component_id, from_status, to_status, changed_at)
-		select c.id, a.service_id, null, $2, $3, $4
+		insert into alert_deliveries
+			(channel_id, service_id, component_id, from_status, to_status, changed_at, deliver_after)
+		select c.id, a.service_id, null, $2, $3, $4, $5
 		from alert_subscriptions a
 		join alert_channels c on c.subscription_id = a.id
 		where a.service_id = $1
@@ -225,20 +233,37 @@ func (s *Store) enqueueAlerts(ctx context.Context, tx pgx.Tx, serviceID int64, f
 			or exists (
 				select 1 from alert_targets t
 				where t.subscription_id = a.id and t.service_id = $1 and t.component_id is null)
-		  )`,
-		serviceID, from, to, changedAt); err != nil {
+		  )
+		on conflict (channel_id, service_id, coalesce(component_id, 0)) where sent_at is null
+		do update set
+			to_status     = excluded.to_status,
+			changed_at    = excluded.changed_at,
+			deliver_after = excluded.deliver_after,
+			attempts      = 0,
+			error         = null`,
+		serviceID, from, to, changedAt, changedAt.Add(alertSettleWindow)); err != nil {
 		return fmt.Errorf("apply: enqueue alerts: %w", err)
+	}
+
+	// A burst that ends where it started has no change left to announce.
+	if _, err := tx.Exec(ctx, `
+		delete from alert_deliveries
+		where service_id = $1 and component_id is null
+		  and sent_at is null and from_status = to_status`, serviceID); err != nil {
+		return fmt.Errorf("apply: drop settled alerts: %w", err)
 	}
 	return nil
 }
 
 // enqueueComponentAlerts does the same for one component: picked-target ways get
 // a delivery when it is one they watch, and a webhook gets one for any component.
-// A component's first state is the baseline, not a change.
+// Its settle window works the same way. A component's first state is the baseline,
+// not a change.
 func (s *Store) enqueueComponentAlerts(ctx context.Context, tx pgx.Tx, serviceID, componentID int64, from, to string, changedAt time.Time) error {
 	if _, err := tx.Exec(ctx, `
-		insert into alert_deliveries (channel_id, service_id, component_id, from_status, to_status, changed_at)
-		select c.id, a.service_id, $2, $3, $4, $5
+		insert into alert_deliveries
+			(channel_id, service_id, component_id, from_status, to_status, changed_at, deliver_after)
+		select c.id, a.service_id, $2, $3, $4, $5, $6
 		from alert_subscriptions a
 		join alert_channels c on c.subscription_id = a.id
 		where a.service_id = $1
@@ -248,9 +273,24 @@ func (s *Store) enqueueComponentAlerts(ctx context.Context, tx pgx.Tx, serviceID
 			or exists (
 				select 1 from alert_targets t
 				where t.subscription_id = a.id and t.component_id = $2)
-		  )`,
-		serviceID, componentID, from, to, changedAt); err != nil {
+		  )
+		on conflict (channel_id, service_id, coalesce(component_id, 0)) where sent_at is null
+		do update set
+			to_status     = excluded.to_status,
+			changed_at    = excluded.changed_at,
+			deliver_after = excluded.deliver_after,
+			attempts      = 0,
+			error         = null`,
+		serviceID, componentID, from, to, changedAt, changedAt.Add(alertSettleWindow)); err != nil {
 		return fmt.Errorf("apply: enqueue component alerts: %w", err)
+	}
+
+	// A component that ends where it started has no change left to announce.
+	if _, err := tx.Exec(ctx, `
+		delete from alert_deliveries
+		where service_id = $1 and component_id = $2
+		  and sent_at is null and from_status = to_status`, serviceID, componentID); err != nil {
+		return fmt.Errorf("apply: drop settled component alerts: %w", err)
 	}
 	return nil
 }
