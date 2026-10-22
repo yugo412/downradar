@@ -44,9 +44,8 @@ type UserView struct {
 	User
 	Services int `json:"services"`
 	// Alerts is what the account is watching, counted the way the per-account
-	// limit counts it: one per thing watched, by any channel that can still
-	// deliver, and only while the vendor is still polled. A paused one counts,
-	// an unsubscribed one does not.
+	// limit counts it: one per vendor watched, by any channel that can still
+	// deliver, and only while the vendor is still polled. Paused counts, ended does not.
 	Alerts int `json:"alerts"`
 }
 
@@ -86,9 +85,8 @@ func (s *Store) CreateUser(ctx context.Context, email, name, role, passwordHash 
 }
 
 // RegisterUser makes an account from the site itself. It is always a subscriber
-// and its address is not proved yet: the role is not something a visitor
-// chooses, and the address is only theirs once they have followed the link that
-// was sent to it.
+// and its address is not yet proved: a visitor does not choose the role, and the
+// address is only theirs once they follow the link sent to it.
 func (s *Store) RegisterUser(ctx context.Context, email, name, passwordHash string) (*User, error) {
 	return s.createUser(ctx, email, `
 		insert into users as u (email, name, role, password_hash)
@@ -240,9 +238,8 @@ func (s *Store) UserByID(ctx context.Context, id int64) (*User, error) {
 }
 
 // ListUsers is the admin screen. role narrows it to one role and search matches
-// the name or the email, which are the columns the list shows. It counts owned
-// services, because deleting an account deletes them too, and the alerts it
-// holds, because that is the other thing a row says.
+// name or email. It counts owned services, since deleting an account deletes them
+// too, and held alerts, since that is the other thing a row says.
 func (s *Store) ListUsers(ctx context.Context, role, search string) ([]UserView, error) {
 	rows, err := s.pool.Query(ctx, `
 		select `+userColumns+`,

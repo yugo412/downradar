@@ -1,9 +1,6 @@
-// Package notify sends what a status change earns: an email to an address, a
-// message to a Telegram chat, a Slack or Discord channel, or a call to a webhook.
-// The change itself writes its deliveries as part of the same transaction that
-// records it, and this is the loop that drains them: polling never waits for a
-// mail server or a far end, and a delivery that fails is retried a few times
-// before it is left with its error.
+// Package notify sends what a status change earns: an email, a Telegram, Slack
+// or Discord message, or a webhook call. The change writes its deliveries in the
+// same transaction that records it; this loop drains them and retries a failure.
 package notify
 
 import (
@@ -140,10 +137,8 @@ func (n *Notifier) sendEmail(ctx context.Context, alert store.PendingAlert) erro
 }
 
 // message is what the subscriber reads: what changed, when, where to look, and
-// the way out. What changed is the vendor's own status, or one component of it,
-// so a subscriber who picked components is told which one rather than the
-// vendor's name standing in for it. The email itself is written from a template,
-// which is where its wording lives.
+// the way out. A subscriber who picked components is told which one moved, not
+// just the vendor, and the wording itself lives in the email template.
 func (n *Notifier) message(alert store.PendingAlert) (string, string, error) {
 	what := alert.VendorName
 	if alert.ComponentName != "" {

@@ -20,9 +20,8 @@ const (
 )
 
 // GitHub signs somebody in with their GitHub account. The address comes from the
-// provider's own list of addresses, and only a verified one is accepted: the
-// public profile field can be empty, and an address the provider has not proved
-// would let somebody claim another person's account.
+// provider's list and only a verified one is accepted: the public profile field
+// can be empty, and an unproved address would let somebody claim another account.
 type GitHub struct {
 	clientID     string
 	clientSecret string

@@ -863,10 +863,8 @@ func TestAComponentChangeWakesOnlyItsComponentTarget(t *testing.T) {
 	}
 }
 
-// Asking again is changing your mind. What the subscription watches becomes what
-// was asked for this time, so a component can be added or dropped from the bell;
-// the channel keeps the token an email already carries, and a change of mind does
-// not throw away what is already waiting for something still watched.
+// Asking again replaces what is watched and keeps the email token and anything
+// still waiting for a watched target.
 func TestAskingAgainReplacesWhatIsWatched(t *testing.T) {
 	st := integrationStore(t)
 	ctx := context.Background()
@@ -978,10 +976,8 @@ func TestPurgingAVendorTakesTheAlertThatOnlyWatchedIt(t *testing.T) {
 	}
 }
 
-// A webhook is the second way one alert can arrive. It sits beside the address on
-// the same subscription, keeps a token of its own, and what it sends is read back
-// so a page can show it filled in. A save that names one way leaves the other
-// alone, and stopping a way ends it without taking the alert with it.
+// A webhook sits beside the address, keeps its own token, and can be stopped
+// without ending the alert.
 func TestAWebhookIsASecondWayForOneAlert(t *testing.T) {
 	st := integrationStore(t)
 	ctx := context.Background()
@@ -1201,10 +1197,8 @@ func TestAPendingWebhookCarriesItsCall(t *testing.T) {
 	}
 }
 
-// A webhook hears about every change of its vendor, while an email hears about
-// what it was told to report on. One alert can be both at once, and then the two
-// differ: a component nobody picked is still a call, because a webhook's body
-// carries the vendor's whole state rather than a pick of it.
+// A webhook hears about every component, while an email only hears about what it
+// was told to report on.
 func TestAWebhookHearsAboutEveryComponent(t *testing.T) {
 	st := integrationStore(t)
 	ctx := context.Background()

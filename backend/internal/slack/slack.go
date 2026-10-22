@@ -19,10 +19,9 @@ const (
 	slackAccessURL    = "https://slack.com/api/oauth.v2.access"
 )
 
-// App is the site's own Slack app, which is what the one click install uses.
-// Only the client id and secret are needed: the install asks for the
-// incoming-webhook scope, so the answer carries the URL of the channel the
-// person picked and the app never has to read the workspace's messages.
+// App is the site's own Slack app, which the one click install uses. Only the
+// client id and secret are needed: the install asks for the incoming-webhook
+// scope, so the answer carries the channel's URL without reading any messages.
 type App struct {
 	clientID     string
 	clientSecret string
@@ -43,10 +42,8 @@ func NewApp(clientID, clientSecret string) *App {
 }
 
 // AuthorizeURL is the page where Slack asks which workspace and channel to post
-// to. The state is ours and comes back untouched, which is how the callback
-// knows the answer belongs to a flow this browser started. Slack matches the
-// redirect address exactly, so it is a fixed path of its own rather than one
-// that names the alert.
+// to. The state comes back untouched, so the callback knows the flow started here;
+// Slack matches the redirect address exactly, and it names no alert.
 func (a *App) AuthorizeURL(state, redirectURI string) string {
 	query := url.Values{
 		"client_id":    {a.clientID},

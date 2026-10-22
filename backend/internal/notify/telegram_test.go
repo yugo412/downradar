@@ -132,10 +132,8 @@ func TestDrainSendsTelegramMessages(t *testing.T) {
 	}
 }
 
-// Telegram answers a chat it will not deliver to with a 200 and a body that says
-// so, so what it says has to be what decides whether the message was accepted.
-// A refusal leaves the delivery queued to be tried again rather than counted as
-// sent.
+// Telegram can refuse with a 200 and a body, so the body decides whether the
+// message was accepted; a refusal stays queued.
 func TestTelegramRefusalIsRetried(t *testing.T) {
 	st := testStore(t)
 	changedChat(t, st, "-1001234567890")

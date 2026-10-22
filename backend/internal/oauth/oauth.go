@@ -1,10 +1,6 @@
-// Package oauth signs somebody in through a provider that already knows who
-// they are. The site never sees a password for such an account, and the provider
-// is the one that vouches for the address.
-//
-// One provider is implemented today. The interface is what the next one has to
-// satisfy: the routes, the account lookup and the session are written once in
-// the handler, and only the exchange with the provider is per provider.
+// Package oauth signs somebody in through a provider that already knows who they
+// are. The site never sees a password, and only the exchange is per provider: the
+// routes, the account lookup and the session are written once in the handler.
 package oauth
 
 import "context"

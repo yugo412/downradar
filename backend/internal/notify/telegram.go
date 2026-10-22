@@ -17,10 +17,9 @@ import (
 	"downradar.info/backend/internal/store"
 )
 
-// The wording of a Telegram message is a file rather than a string in the code
-// that sends it, the same way the wording of an email is. A message is plain
-// text: a chat is not a page, and the only markup worth having there is a line
-// break.
+// The wording of a Telegram message is a file rather than a string, the same way
+// an email's is. A message is plain text: a chat is not a page, and the only
+// markup worth having there is a line break.
 //
 //go:embed templates/*.txt
 var messageFiles embed.FS
@@ -74,11 +73,9 @@ func (n *Notifier) sendTelegram(ctx context.Context, alert store.PendingAlert) e
 	return nil
 }
 
-// TestTelegram sends the message a delivery would, with a change that never
-// happened in its place, so somebody can see their chat answer before they rely
-// on it. The status is the vendor's first component moving from ok to major, the
-// same made up change the webhook is tried with, so what arrives looks like what
-// will arrive.
+// TestTelegram sends the message a delivery would, with a made up change in its
+// place, so somebody can see their chat answer before they rely on it. It is the
+// same ok-to-major move the webhook is tried with.
 func (n *Notifier) TestTelegram(ctx context.Context, serviceID int64, botToken, chatID string) (TelegramResult, error) {
 	if strings.TrimSpace(chatID) == "" {
 		return TelegramResult{Error: "the chat is empty"}, errors.New("the chat is empty")
@@ -171,10 +168,9 @@ func (n *Notifier) telegramCall(ctx context.Context, botToken, chatID, text stri
 	return TelegramResult{OK: true}
 }
 
-// telegramRequest makes one call to the Bot API. The token is the subscriber's
-// own bot, which is in the path because that is how the API is addressed, and what
-// comes back is read as JSON by the caller: every answer has the same shape, with
-// ok saying whether it worked.
+// telegramRequest makes one call to the Bot API. The subscriber's own bot token
+// is in the path because that is how the API is addressed, and the answer is read
+// as JSON by the caller, since every answer has the same shape.
 func (n *Notifier) telegramRequest(ctx context.Context, botToken, method string, body []byte, out any) error {
 	base := n.telegramAPI
 	if base == "" {

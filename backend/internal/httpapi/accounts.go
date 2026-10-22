@@ -13,10 +13,8 @@ import (
 	"downradar.info/backend/internal/store"
 )
 
-// How long each link is good for. Confirming an address is not urgent, and a
-// link in a week old inbox should still work; choosing a new password is. A link
-// that signs somebody in is good for minutes, because it opens the account and
-// the person it was sent to is looking at their mail.
+// How long each link is good for: a week to confirm an address, an hour to
+// choose a new password, and minutes to sign in, while the person is at their mail.
 const (
 	verifyTokenTTL = 7 * 24 * time.Hour
 	resetTokenTTL  = time.Hour
@@ -50,13 +48,9 @@ func localPath(next string) string {
 	return next
 }
 
-// sendVerification makes a fresh link and emails it. A failure to send is
-// logged rather than raised: the account exists either way, and the banner on
-// the site offers to try again.
-//
-// The context is detached from the request, because the answer does not wait for
-// the mail server: if the visitor's browser gives up first, the email should
-// still go.
+// sendVerification makes a fresh link and emails it. A failure to send is logged
+// rather than raised: the account exists either way and the banner offers to try
+// again. The context is detached from the request so a gone browser does not stop the mail.
 func (h *handlers) sendVerification(ctx context.Context, user *store.User) {
 	if h.accountMailer == nil {
 		return
@@ -86,10 +80,9 @@ type registerRequest struct {
 	Password string `json:"password"`
 }
 
-// register makes an account from the site itself. It is always a subscriber, and
-// an address on the site's own domain is refused with an answer that says no
-// more than that the account could not be made, so the reply cannot be used to
-// map our own mailboxes.
+// register makes an account from the site itself, always a subscriber. An address
+// on the site's own domain gets a reply that says no more than that the account
+// could not be made, so it cannot be used to map our mailboxes.
 func (h *handlers) register(w http.ResponseWriter, r *http.Request) {
 	if h.accountMailer == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{

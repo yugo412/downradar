@@ -14,10 +14,8 @@ import (
 	"downradar.info/backend/internal/store"
 )
 
-// verifiedWith is what a receiver does on its own: sign the message it was given
-// with the secret it kept, and see whether the signature that arrived is one of
-// them. Returning the one it could read back is what lets a test say which
-// secret a signature belongs to.
+// verifiedWith signs the message with the secret a receiver kept and checks
+// whether the arriving signature is one of them.
 func verifiedWith(secret, id, timestamp, body string, header string) bool {
 	key, err := store.WebhookSigningKey(secret)
 	if err != nil {

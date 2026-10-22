@@ -7,10 +7,8 @@ import (
 	"testing"
 )
 
-// servicesFilePath prefers SERVICES_FILE, which is what the running API uses,
-// and falls back to walking up from the working directory. The two environments
-// differ: on the host the file sits at the repository root, while in the
-// container it is mounted at a path only the environment variable knows about.
+// servicesFilePath prefers SERVICES_FILE and falls back to walking up from the
+// working directory, since the host and container keep the file in different places.
 func servicesFilePath(t *testing.T) string {
 	t.Helper()
 

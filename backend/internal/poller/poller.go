@@ -62,12 +62,9 @@ func (p *Poller) Run(ctx context.Context) {
 	}
 }
 
-// cycle reads the vendor list from the table every time. That is what replaced
-// the file watcher: a row written by a form is picked up on the next cycle,
-// with no reload mechanism in between.
-//
-// Detection runs first so that a vendor matched in this pass is polled with the
-// report that matched it, and the page is not fetched twice.
+// cycle reads the vendor list from the table every time, which is what replaced
+// the file watcher: a form-written row is picked up next cycle. Detection runs
+// first so a vendor matched here is polled with that report, not fetched twice.
 func (p *Poller) cycle(ctx context.Context) error {
 	if err := p.detectMissingProfile(ctx); err != nil && ctx.Err() == nil {
 		p.log.Error("profile detection pass failed", "error", err)

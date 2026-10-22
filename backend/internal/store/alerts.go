@@ -40,9 +40,8 @@ const (
 )
 
 // How a webhook says a call is ours. Standard signs every call with a secret
-// both ends know, following the Standard Webhooks specification; custom sends
-// the headers the subscriber wrote and nothing else, which is what a service
-// that only takes a static header or a URL needs.
+// both ends know; custom sends only the headers the subscriber wrote, which is
+// what a service needing a static header or URL takes.
 const (
 	WebhookAuthStandard = "standard"
 	WebhookAuthCustom   = "custom"
@@ -72,13 +71,8 @@ func AlertStateValid(state string) bool {
 }
 
 // AlertView is one subscription: what it is for, where it goes, and what it is
-// doing. The address is carried so a handler can mask it or show it, and the id
-// so the account screen can act on the row. VendorStatus is the vendor's own
-// health, which the account screen shows so a row says more than its name.
-//
-// A subscription keeps no state of its own. PausedAt and UnsubscribedAt are what
-// its channels say, because a channel is what decides whether a message can
-// still go out: one that is live keeps the subscription active.
+// doing. Its state comes from its channels, since a live one keeps it active,
+// and it carries VendorStatus so a row says more than the vendor's name.
 type AlertView struct {
 	ID             int64      `json:"id"`
 	VendorSlug     string     `json:"vendorSlug"`
@@ -98,12 +92,9 @@ type AlertView struct {
 	SlackPaused    bool `json:"slackPaused"`
 	DiscordPaused  bool `json:"discordPaused"`
 
-	// Telegram is the chat a message goes to, and Kind is the kind of channel a
-	// view is about when it is about one: the unsubscribe link in a message is
-	// read through the channel's own token, and the page it opens says what it is
-	// about to stop. TelegramBot is the bot that speaks to that chat, which is the
-	// subscriber's own rather than the site's and is never handed back to a page.
-	// Slack and Discord are the webhook URLs those messages go to.
+	// Telegram is the chat a message goes to and Kind the channel a view is about.
+	// TelegramBot is the subscriber's own bot, never handed back. Slack and
+	// Discord are the webhook URLs those messages go to.
 	Telegram     string `json:"-"`
 	TelegramBot  string `json:"-"`
 	Slack        string `json:"-"`
@@ -111,17 +102,13 @@ type AlertView struct {
 	Discord      string `json:"-"`
 	Kind         string `json:"-"`
 
-	// The kinds of channel the subscription arrives by, in a stable order. The
-	// ones that are still live are what a screen listing the rows shows, and a
-	// subscription with none left falls back to the kinds it had, so an ended row
-	// still says how it used to arrive.
+	// The kinds of channel the subscription arrives by, in a stable order; an
+	// ended row falls back to the kinds it had so it still says how it arrived.
 	Channels []string `json:"channels,omitempty"`
 
 	// What the subscription watches. WholeService is the vendor's own status;
-	// ComponentIDs are the vendor's identifiers for the components beside it, in
-	// the order they sit on the page, which is what a caller that has to tick the
-	// boxes again needs, while Components carries their names for a screen that
-	// only shows them.
+	// ComponentIDs are the vendor's identifiers in page order, which is what a
+	// caller reticking the boxes needs, while Components carries their names.
 	WholeService bool     `json:"wholeService"`
 	ComponentIDs []string `json:"-"`
 	Components   []string `json:"-"`
@@ -143,16 +130,9 @@ func (v AlertView) State() string {
 	}
 }
 
-// UserAlerts is everything one account has asked to be told about, newest first.
-// Rows that are paused or were unsubscribed are part of the list: the point of
-// the screen is to show them and offer to start them again. Each one carries the
-// vendor's current health, so a row can say whether the thing it watches is up,
-// and the components it watches beside it.
-//
-// A row is a subscription, which can watch several things and arrive several
-// ways. It shows the kinds of channel it arrives by, and the address the email
-// way goes to, which is empty for an alert that has no email, and it takes the
-// first thing the subscription watches.
+// UserAlerts is everything one account has asked to be told about, newest first,
+// paused and unsubscribed rows included so the screen can offer to start them
+// again. A row shows its channel kinds, its email address and what it watches.
 func (s *Store) UserAlerts(ctx context.Context, userID int64) ([]AlertView, error) {
 	rows, err := s.pool.Query(ctx, `
 		select a.id, v.slug, v.name, coalesce(ss.status, 'unknown'),
@@ -214,11 +194,9 @@ func (s *Store) UserAlerts(ctx context.Context, userID int64) ([]AlertView, erro
 	return out, rows.Err()
 }
 
-// SetChannelPausedByToken stops or starts the one channel a link came from. It is
-// the same switch the page offers a way, reached from a message rather than from a
-// signed in screen, so the token is the whole of what proves it: the link is the
-// channel. What was waiting for it is dropped, the same way the page's switch does
-// it, and a channel that was stopped for good cannot be started again by it.
+// SetChannelPausedByToken stops or starts the one channel a link came from, so
+// the token is the whole of what proves it. What was waiting is dropped, and a
+// channel stopped for good cannot be started again by it.
 func (s *Store) SetChannelPausedByToken(ctx context.Context, token string, paused bool) error {
 	var moved int
 	err := s.pool.QueryRow(ctx, `
@@ -246,11 +224,8 @@ func (s *Store) SetChannelPausedByToken(ctx context.Context, token string, pause
 }
 
 // SetUserAlertState moves one of an account's own subscriptions between active,
-// paused and unsubscribed. Every channel it has is moved with it: what the
-// screen calls pausing is the whole subscription going quiet, while the link in
-// one message stops only the channel that message came from. Anything waiting is
-// dropped, because the point of both is that nothing arrives, and resuming
-// should not deliver last week's news.
+// paused and unsubscribed, every channel with it; the link in one message stops
+// only its channel. Anything waiting is dropped so resuming brings no old news.
 func (s *Store) SetUserAlertState(ctx context.Context, userID, id int64, state string) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -295,10 +270,8 @@ func (s *Store) SetUserAlertState(ctx context.Context, userID, id int64, state s
 	return nil
 }
 
-// DeleteUserAlert removes one of an account's own subscriptions for good, and
-// with it what it watched and how it arrived. The unsubscribe link keeps a row
-// so the same address can be subscribed again; this is for somebody who wants it
-// gone from the screen.
+// DeleteUserAlert removes one of an account's own subscriptions for good, with
+// what it watched and how it arrived. An unsubscribe link keeps its row instead.
 func (s *Store) DeleteUserAlert(ctx context.Context, userID, id int64) error {
 	tag, err := s.pool.Exec(ctx,
 		`delete from alert_subscriptions where id = $1 and user_id = $2`, id, userID)
@@ -311,13 +284,9 @@ func (s *Store) DeleteUserAlert(ctx context.Context, userID, id int64) error {
 	return nil
 }
 
-// SetChannelPaused stops one way of an alert arriving without taking what it was
-// told away: the address or the URL stays where it is, so starting it again is
-// one press rather than typing it all back in. What is waiting for that way is
-// dropped, because the point of pausing is that nothing more arrives by it.
-//
-// The subscription itself is left alone. Pausing from the account screen is the
-// whole thing going quiet, which is every way it has; this is one of them.
+// SetChannelPaused stops one way of an alert arriving while keeping the address
+// or URL, so starting it again is one press. What was waiting is dropped; the
+// subscription itself is untouched, unlike pausing from the account screen.
 func (s *Store) SetChannelPaused(ctx context.Context, userID, serviceID int64, kind string, paused bool) error {
 	var moved int
 	err := s.pool.QueryRow(ctx, `
@@ -347,14 +316,9 @@ func (s *Store) SetChannelPaused(ctx context.Context, userID, serviceID int64, k
 	return nil
 }
 
-// PendingAlert is one message waiting to go out. It carries the change it is
-// about, so an alert describes the moment it happened even if the status has
-// moved on by the time the far end takes it. ComponentName is set when the
-// subscription watches one component of the vendor rather than the vendor
-// itself, and the message says which one it was about.
-//
-// Kind is how this one goes out: an email carries Email, a chat its id and bot,
-// a Slack or Discord channel its webhook URL, and a webhook its call.
+// PendingAlert is one message waiting to go out, carrying the change it is about
+// so it describes the moment it happened even if status has moved on. ComponentName
+// names the watched component, empty for the vendor; Kind says how it goes.
 type PendingAlert struct {
 	ID          int64
 	Kind        string
@@ -401,9 +365,8 @@ func (s *Store) PublicService(ctx context.Context, slug string) (int64, string, 
 }
 
 // AlertTargets is what the ways that report on a pick send about: the vendor's
-// own status, or named components of it, or both. A component is named by its row
-// id, which is what a target points at. A webhook has no targets of its own: it
-// hears about the vendor whatever is picked here.
+// own status, named components, or both, each component named by its row id. A
+// webhook has no targets: it hears about the vendor whatever is picked here.
 type AlertTargets struct {
 	Whole      bool
 	Components []int64
@@ -421,16 +384,8 @@ type AlertField struct {
 }
 
 // AlertWebhook is an alert's second way of arriving: where to call, and what to
-// send with it. URL is the channel's own address column, and the rest is its
-// settings, which is where the row always said a webhook's headers would live.
-//
-// What a webhook carries in its body is not up to the subscriber: every call
-// looks the same and says the changes the notifier writes from what it finds.
-// Only the headers are theirs, which is enough to sign a call or point it at a
-// queue of their own.
-//
-// Auth is how a call says it is ours. Signing is the secret that does it, and it
-// stays here: a page is told whether one is set and never what it is.
+// send with it. The body is not the subscriber's to shape, only the headers; Auth
+// says how a call is ours, and a signing secret is never handed back to a page.
 type AlertWebhook struct {
 	URL     string         `json:"url"`
 	Method  string         `json:"method"`
@@ -440,13 +395,9 @@ type AlertWebhook struct {
 	Signing WebhookSigning `json:"-"`
 }
 
-// WebhookSigning is the secret a signed call is made with. It is kept because
-// every call has to be signed with it, and it is hidden from every answer: the
-// subscriber sees it once, when it is made, and after that only the fact that
-// one is set.
-//
-// Previous is the secret a rotation is retiring. It goes out beside the new one
-// until PreviousUntil, which is long enough for a receiver to be changed over.
+// WebhookSigning is the secret a signed call is made with. It is hidden from
+// every answer: the subscriber sees it once, when it is made. Previous is the
+// retiring secret, sent beside the new one until PreviousUntil.
 type WebhookSigning struct {
 	Secret        string    `json:"secret,omitempty"`
 	CreatedAt     time.Time `json:"createdAt,omitempty"`
@@ -493,12 +444,9 @@ func encodeWebhook(hook AlertWebhook) ([]byte, error) {
 	return json.Marshal(settings)
 }
 
-// parseWebhookSettings reads back what encodeWebhook wrote. Any other settings,
-// which is what an email channel carries, read as an empty webhook.
-//
-// A webhook saved before there were two ways to authenticate has no auth of its
-// own, and it reads as custom: those are the headers it is already sending, and
-// a change here would break a call that works today.
+// parseWebhookSettings reads back what encodeWebhook wrote. Other settings read
+// as an empty webhook. A webhook saved before there were two ways to
+// authenticate has no auth and reads as custom, which is what it already sends.
 func parseWebhookSettings(raw []byte, address string) (AlertWebhook, error) {
 	hook := AlertWebhook{URL: address, Auth: WebhookAuthCustom}
 	if len(raw) == 0 {
@@ -521,10 +469,9 @@ func parseWebhookSettings(raw []byte, address string) (AlertWebhook, error) {
 	return hook, nil
 }
 
-// AlertChange is what one save asks for: the ways an alert should arrive, and
-// what it should watch. A way that is named replaces what the alert had; a way
-// that is nil is left as it is, which is what a request that says nothing about
-// it means. An empty address, or a webhook with no URL, stops that way.
+// AlertChange is what one save asks for: the ways an alert should arrive and what
+// it should watch. A named way replaces what was there, nil leaves it alone, and
+// an empty address or a webhook with no URL stops that way.
 type AlertChange struct {
 	// Email is the address the alert should go to. EmailToken is for the channel
 	// a save creates; a channel that is already there keeps the token it has, so
@@ -532,22 +479,16 @@ type AlertChange struct {
 	Email      *string
 	EmailToken string
 
-	// Webhook is the other way an alert can arrive. A webhook hears about every
-	// change of the vendor, its own status and any of its components, which is
-	// why it has nothing to pick: its body says what the vendor looks like now.
-	//
-	// WebhookNewSecret asks for a fresh signing secret as part of the save. It is
-	// the only way one is made, and the answer it comes back in is the only time
-	// it can be read.
+	// Webhook is the other way an alert can arrive. It hears about every change
+	// of the vendor, which is why it has nothing to pick: its body says what the
+	// vendor looks like now. WebhookNewSecret asks for a fresh signing secret.
 	Webhook          *AlertWebhook
 	WebhookToken     string
 	WebhookNewSecret bool
 
-	// Telegram is the chat a message goes to, which is the third way an alert can
-	// arrive. It reports on what was picked like an email does, and it belongs to
-	// an account rather than to the address somebody typed, because a chat is not
-	// something a visitor without an account has to hand. The bot that speaks to
-	// it is the subscriber's own, so the token is saved with the channel.
+	// Telegram is the chat a message goes to, reporting on what was picked like
+	// an email. It belongs to an account rather than a typed address, and the bot
+	// is the subscriber's own, so the token is saved with the channel.
 	Telegram      *AlertTelegram
 	TelegramToken string
 
@@ -575,8 +516,7 @@ func EmailOnly(email, token string, want AlertTargets) AlertChange {
 
 // ComponentIDs resolves components named by the vendor's own identifiers, which
 // is what a page has to hand, to the rows a target points at. The whole set is
-// refused if any of them is not one of this vendor's live components, because a
-// subscription is written against the list the subscriber was shown.
+// refused if any is not one of this vendor's live components.
 func (s *Store) ComponentIDs(ctx context.Context, serviceID int64, sourceIDs []string) ([]int64, error) {
 	if len(sourceIDs) == 0 {
 		return nil, nil
@@ -614,11 +554,8 @@ func (s *Store) ComponentIDs(ctx context.Context, serviceID int64, sourceIDs []s
 }
 
 // AddressWatchesService says whether one address already has an alert on one
-// vendor that can still arrive. Saving over it is somebody changing their mind
-// about that vendor rather than asking for another one, which is what keeps the
-// limit on a subscriber exact: what is already there does not count twice. An
-// address that stopped listening is not holding a place, so starting it again
-// asks for one.
+// vendor that can still arrive, so saving over it changes that alert rather than
+// asking for another and counts once. A stopped one holds no place.
 func (s *Store) AddressWatchesService(ctx context.Context, email string, serviceID int64) (bool, error) {
 	var watching bool
 	err := s.pool.QueryRow(ctx, `
@@ -635,10 +572,9 @@ func (s *Store) AddressWatchesService(ctx context.Context, email string, service
 	return watching, nil
 }
 
-// UserWatchesService says whether an account already has an alert on one vendor
-// that can still arrive. It is asked beside the address check because an alert
-// can arrive without an address at all: a webhook carries no email, and saving
-// one over an alert the account already has on this vendor takes no new place.
+// UserWatchesService is the same check for an account, asked beside the address
+// one because an alert can arrive without an address: a webhook saves over the
+// account's existing alert on this vendor and takes no new place.
 func (s *Store) UserWatchesService(ctx context.Context, userID, serviceID int64) (bool, error) {
 	var watching bool
 	err := s.pool.QueryRow(ctx, `
@@ -656,25 +592,9 @@ func (s *Store) UserWatchesService(ctx context.Context, userID, serviceID int64)
 	return watching, nil
 }
 
-// SubscribeAlert records what somebody wants to hear about one vendor. Asking
-// again is changing their mind: the ways this save names replace what the alert
-// had, and the set of targets becomes what was asked for, so what is no longer
-// watched goes and anything still waiting for it goes with it. A channel that
-// stays keeps its token, so a link in a message already sent still reaches this
-// row, and saving clears a pause or an unsubscribing rather than leaving somebody
-// with a way that is not being used.
-//
-// The targets are what the email reports on. A webhook hears about every change
-// of the vendor, and its body says what the vendor looks like now, so it has no
-// pick of its own to keep.
-//
-// The subscription is the one the account already has on this vendor, or the one
-// the address holds, or a new one. The account's own comes first: a page shows one
-// alert per vendor, and a save has to land on the row behind that page rather
-// than make a second one beside it.
-//
-// A user id is only kept if one is given, so subscribing while signed out never
-// clears a link that was made while signed in.
+// SubscribeAlert records what somebody wants to hear about one vendor; asking
+// again replaces ways and targets, drops their waiting messages, keeps tokens
+// and clears a pause. The account's row wins, and a user id is kept only if given.
 func (s *Store) SubscribeAlert(ctx context.Context, serviceID int64, userID *int64, change AlertChange) error {
 	_, err := s.subscribeAlert(ctx, serviceID, userID, change)
 	return err
@@ -756,10 +676,9 @@ func (s *Store) subscribeAlert(ctx context.Context, serviceID int64, userID *int
 	return secret, nil
 }
 
-// alertSubscription is the row a save belongs on: the alert the account already
-// has on this vendor if there is one, otherwise the one the address holds. Both
-// are rows on this vendor whatever their channels are doing, because a paused or
-// stopped way is still the row somebody is changing their mind about.
+// alertSubscription is the row a save belongs on: the account's alert on this
+// vendor if there is one, otherwise the address's. Both count whatever their
+// channels are doing, because a paused or stopped way is still being changed.
 func alertSubscription(ctx context.Context, tx pgx.Tx, serviceID int64, userID *int64, email *string) (int64, error) {
 	address := ""
 	if email != nil {
@@ -784,13 +703,8 @@ func alertSubscription(ctx context.Context, tx pgx.Tx, serviceID int64, userID *
 }
 
 // saveEmailChannel makes the subscription's email way say what this save asked
-// for. An empty address stops the emails rather than leaving a way with nowhere
-// to go: a page shows one address, and clearing it is how somebody says they
-// would rather not be emailed about this vendor at all.
-//
-// A subscription ends up with one email channel. An older build could leave an
-// address with two on one vendor, when somebody saved a second address while
-// signed in, and the one this save was given is the one that stays.
+// for; an empty address stops it. One email channel remains, the address this
+// save was given, even if an older build had left two on one vendor.
 func saveEmailChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, address, token string) error {
 	if address == "" {
 		return stopChannels(ctx, tx, subscriptionID, ChannelEmail)
@@ -849,15 +763,9 @@ func webhookChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64) (int64
 }
 
 // saveWebhookChannel makes the subscription's webhook say what this save asked
-// for. A webhook with no URL stops the calls rather than calling somewhere empty.
-// The header list is entirely the subscriber's: nothing is added to it here.
-//
-// A save that says nothing about the secret keeps the one that is there, which is
-// what makes saving the page safe after a secret has been made: the secret is
-// never typed into it, and a page that has not been told cannot hand it back.
-// Asking for a new one is the only way a secret is made, and what comes back is
-// the only time it can be read. The one it replaces keeps going out for a day, so
-// a receiver has time to move over.
+// for. No URL stops it, and the headers are the subscriber's own. A save naming
+// no secret keeps it; a new one comes only on request, with the old one signing
+// for a day during the switch.
 func (s *Store) saveWebhookChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, hook AlertWebhook, token string, newSecret bool) (string, error) {
 	if hook.URL == "" {
 		return "", stopChannels(ctx, tx, subscriptionID, ChannelWebhook)
@@ -927,20 +835,17 @@ func (s *Store) saveWebhookChannel(ctx context.Context, tx pgx.Tx, subscriptionI
 	return made, dropChannelsApartFrom(ctx, tx, subscriptionID, ChannelWebhook, channelID)
 }
 
-// AlertTelegram is the third way an alert can arrive: a chat, and the bot that
-// speaks to it. The bot belongs to the subscriber rather than to the site, so the
-// token is what this way is set up with; it is kept with the channel rather than
-// in configuration, and a page is never handed it back.
+// AlertTelegram is the third way an alert can arrive: a chat and the bot that
+// speaks to it. The bot is the subscriber's own, so its token is kept with the
+// channel rather than in configuration and is never handed back to a page.
 type AlertTelegram struct {
 	ChatID   string
 	BotToken string
 }
 
-// AlertSlack is the fourth way an alert can arrive: the incoming webhook URL of
-// a Slack channel. The URL names the workspace and the channel it posts to, so it
-// is the whole of what the way is set up with. Channel is the name Slack showed
-// when the webhook was made in one click, which is only there to say where a
-// message goes; a URL pasted by hand has none.
+// AlertSlack is the fourth way an alert can arrive: a Slack channel's incoming
+// webhook URL, which is the whole of what it is set up with. Channel is the name
+// an install showed, only to say where a message goes; a pasted URL has none.
 type AlertSlack struct {
 	URL     string
 	Channel string
@@ -998,15 +903,9 @@ func parseSlackSettings(raw []byte) (string, error) {
 	return settings.Channel, nil
 }
 
-// saveTelegramChannel makes the subscription's chat say what this save asked for.
-// An empty chat stops the messages rather than leaving a way with nowhere to go,
-// which is the same bargain an address has. A chat with no bot could never be
-// sent to, so the save has to name one rather than leave a way that looks set up
-// and is not. A channel that is already there keeps its token, so the link in a
-// message already sent still stops it.
-//
-// One chat per subscription, like one address: a save is a person saying where
-// they want to be told, and what they name is what they get.
+// saveTelegramChannel saves the chat. An empty chat stops it, and a chat with no
+// bot is refused. A channel already there keeps its token. One chat per
+// subscription, like one address.
 func (s *Store) saveTelegramChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, way AlertTelegram, token string) error {
 	if way.ChatID == "" {
 		return stopChannels(ctx, tx, subscriptionID, ChannelTelegram)
@@ -1060,16 +959,9 @@ func (s *Store) saveTelegramChannel(ctx context.Context, tx pgx.Tx, subscription
 }
 
 // saveSlackChannel makes the subscription's Slack way say what this save asked
-// for. An empty URL stops the messages rather than posting nowhere, which is the
-// same bargain an address has. A channel that is already there keeps its token,
-// so the link in a message already sent still stops it.
-//
-// The channel name only comes from an install, so a save that carries the same
-// URL without one keeps the name the install left. A URL pasted by hand has no
-// name, and a URL that changed is a different channel.
-//
-// One Slack way per subscription, like one address: a save is a person saying
-// where they want to be told, and what they name is what they get.
+// for. An empty URL stops it, and an existing channel keeps its token. A
+// same-URL save without a name keeps the install's name. One Slack way per
+// subscription, like one address.
 func (s *Store) saveSlackChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, way AlertSlack, token string) error {
 	if way.URL == "" {
 		return stopChannels(ctx, tx, subscriptionID, ChannelSlack)
@@ -1282,13 +1174,8 @@ func dropChannelsApartFrom(ctx context.Context, tx pgx.Tx, subscriptionID int64,
 }
 
 // setAlertTargets makes one subscription's messages report on exactly what was
-// asked for. A target that is still wanted is left where it is, so a message
-// already queued about it is not thrown away by an unrelated change of mind; the
-// partial unique indexes are what says which of them is already there. What a
-// target that goes takes with it is what was waiting to be sent about it, by
-// address or by chat: the change was real, but the person has just said they do
-// not want to hear about that thing. The calls are not affected, because a
-// webhook hears about the whole vendor.
+// asked for. A target still wanted keeps its queued messages; one that goes
+// drops what waited by email or chat, and calls stay: a webhook sees everything.
 func setAlertTargets(ctx context.Context, tx pgx.Tx, subscriptionID, serviceID int64, want AlertTargets) error {
 	// Written out rather than left to a foreign key, which is what dropped these
 	// while a delivery pointed at the target it was for.
@@ -1342,16 +1229,9 @@ type VendorRef struct {
 	Slug string
 }
 
-// AlertElsewhere returns the vendor an address is already subscribed to, other
-// than the one being asked about, or ErrNotFound when it has none. It is what a
-// visitor who is not signed in is held to: with no account behind them, the
-// address they typed is their whole identity, so its channels are the only thing
-// there is to count. The vendor is named so the answer can say which one, rather
-// than leaving somebody to guess.
-//
-// Only alerts that can still arrive count. A vendor that has been removed from
-// the catalogue is not polled any more, so the alert on it is not holding the
-// place that a second one would take.
+// AlertElsewhere returns the other vendor an address is already subscribed to,
+// or ErrNotFound; it is what holds a signed-out visitor, whose address is their
+// identity. Only alerts that can still arrive count: a removed vendor holds none.
 func (s *Store) AlertElsewhere(ctx context.Context, email string, serviceID int64) (*VendorRef, error) {
 	var ref VendorRef
 	err := s.pool.QueryRow(ctx, `
@@ -1373,13 +1253,9 @@ func (s *Store) AlertElsewhere(ctx context.Context, email string, serviceID int6
 	return &ref, nil
 }
 
-// WatchedServiceCount is how many vendors this account is watching, which is what
-// the cap on a subscriber counts. Vendors are the unit rather than the things
-// watched inside one: following a whole status page and three of its components
-// is one vendor, and an address hearing about a vendor by email and later by
-// webhook is one as well. A vendor removed from the catalogue is not polled any
-// more, so its alert is not holding a place. Guests are held by AlertElsewhere
-// instead, and staff are not held at all.
+// WatchedServiceCount is how many vendors an account watches, which is what a
+// subscriber's cap counts: vendors, not the things inside one, and a removed
+// vendor holds no place. Guests use AlertElsewhere; staff are not held at all.
 func (s *Store) WatchedServiceCount(ctx context.Context, userID int64) (int, error) {
 	var count int
 	err := s.pool.QueryRow(ctx, `
@@ -1456,14 +1332,8 @@ func (s *Store) UnsubscribeAlert(ctx context.Context, token string) error {
 }
 
 // UserAlert returns the alert a signed in person holds on one vendor, or
-// ErrNotFound when they hold none. It is what the bell reads to decide whether
-// to offer an alert or to say it already has one, so it looks at the link to the
-// account rather than at the address: the address they gave does not have to be
-// the one on their account. A paused one still counts as held.
-//
-// It also says what the subscription watches, so the bell can open with the
-// boxes the person left ticked. ComponentIDs are the vendor's own identifiers,
-// which is what the page has to hand.
+// ErrNotFound. It follows the account link rather than the address, counts a
+// paused one, and says what is watched so the bell opens with its boxes ticked.
 func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertView, error) {
 	var view AlertView
 	var webhookAddress string
@@ -1698,12 +1568,9 @@ type ServiceComponent struct {
 	Status string
 }
 
-// ServiceSnapshot is a vendor as it stands now: what it is called, the status it
-// is in, and everything it reports under itself. A webhook body carries the whole
-// of it rather than only the thing that changed, so a receiver can act on the
-// state of the vendor rather than only on the news. The name and the slug are
-// here for the one caller that has no delivery to read them from: a try from the
-// page, which has a service and nothing else yet.
+// ServiceSnapshot is a vendor as it stands now: its name, status and everything
+// it reports under itself. A webhook body carries all of it, not just what
+// changed, so a receiver can act on state; the name and slug serve a page test.
 type ServiceSnapshot struct {
 	Name       string
 	Slug       string
@@ -1748,11 +1615,9 @@ func (s *Store) ServiceSnapshot(ctx context.Context, serviceID int64) (ServiceSn
 	return snapshot, rows.Err()
 }
 
-// WebhookCall is one call to a webhook that was made, and what came back. It is
-// what the page shows beside the webhook it belongs to, so a subscriber can see
-// that their end answers without asking anybody. The body that was sent and the
-// headers are not kept: they are the subscriber's own words, and one of them may
-// be a key.
+// WebhookCall is one call to a webhook and what came back, shown beside it so a
+// subscriber can see their end answers. The body and headers are not kept: they
+// are the subscriber's own words, and one may be a key.
 type WebhookCall struct {
 	ID        int64     `json:"id"`
 	Kind      string    `json:"kind"`

@@ -47,9 +47,8 @@ type slackButton struct {
 }
 
 // slackResult is what one message came back with. An incoming webhook answers a
-// 200 with the word "ok"; a refusal comes either as the same status with the
-// reason in the body or as a 4xx, so the body is what is read rather than the
-// status alone.
+// 200 with "ok", but a refusal can also be a 200 with the reason in the body, so
+// the body is read rather than the status alone.
 type slackResult struct {
 	OK    bool
 	Error string
@@ -84,10 +83,9 @@ func (n *Notifier) sendSlack(ctx context.Context, alert store.PendingAlert) erro
 	return nil
 }
 
-// TestSlack posts the message a delivery would, with a change that never happened
-// in its place, so a channel can be checked before it is relied on. The status is
-// the vendor's first component moving from ok to major, the same made up change
-// the other ways are tried with.
+// TestSlack posts the message a delivery would, with a made up change in its
+// place, so a channel can be checked before it is relied on. It is the same
+// ok-to-major move on the first component the other ways are tried with.
 func (n *Notifier) TestSlack(ctx context.Context, serviceID int64, webhookURL string) (slackResult, error) {
 	if strings.TrimSpace(webhookURL) == "" {
 		return slackResult{Error: "the slack webhook is empty"}, errors.New("the slack webhook is empty")
@@ -119,9 +117,8 @@ func (n *Notifier) TestSlack(ctx context.Context, serviceID int64, webhookURL st
 }
 
 // WelcomeSlack posts the message a channel gets the moment it is connected, so
-// the person sees that the install worked without waiting for the first change.
-// It is not a delivery and carries no way out, because nothing has been saved
-// to stop yet.
+// the person sees the install worked. It is not a delivery and carries no way
+// out, because nothing has been saved to stop yet.
 func (n *Notifier) WelcomeSlack(ctx context.Context, webhookURL, vendorName, vendorSlug string) error {
 	if strings.TrimSpace(webhookURL) == "" {
 		return errors.New("the slack webhook is empty")

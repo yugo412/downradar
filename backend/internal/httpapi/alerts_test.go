@@ -593,10 +593,9 @@ func TestParseEmail(t *testing.T) {
 	}
 }
 
-// A subscriber may keep a few alerts, and the count is per account rather than
-// per address: the address they give does not have to be the one on their
-// account, so counting addresses would let the same person past the cap by
-// typing a different one each time. Staff are not capped.
+// A subscriber may keep a few alerts, and the count is per account rather than per
+// address: the address they give need not be their account's, so counting addresses
+// would let the same person past the cap by typing a new one. Staff are not capped.
 func TestSubscriberAlertsAreCapped(t *testing.T) {
 	st, router := testRouter(t)
 
@@ -990,10 +989,9 @@ func TestAWebhookTakesAPlaceAtTheCap(t *testing.T) {
 	}
 }
 
-// An address with nothing picked beside it would be a way of being told nothing,
-// and an email reports on what was asked for, so a save that names no component
-// and does not want the vendor itself is refused. A webhook needs no pick,
-// because what it carries is the vendor whatever the picks are.
+// An address with nothing picked beside it would be told nothing, and an email
+// reports on what was asked for, so a save with no component and no whole vendor is
+// refused. A webhook needs no pick, because it always carries the vendor itself.
 func TestAnEmailWithNothingToReportOnIsRefused(t *testing.T) {
 	st, router := testRouter(t)
 	slug := alertVendor(t, st)
@@ -1045,10 +1043,9 @@ func hookServer(t *testing.T, reply int, body string) (*httptest.Server, func() 
 	}
 }
 
-// The page can try the webhook it is holding, saved or not, and is shown back
-// what the far end said. It is the same call a delivery would make, with a change
-// that never happened in it, and it is written down like one so the page can show
-// what it did.
+// The page can try the webhook it is holding, saved or not, and is shown what the
+// far end said. It is the same call a delivery would make, with a change that never
+// happened, and it is written down like one so the page can show what it did.
 func TestTryingAWebhookFromThePage(t *testing.T) {
 	st, router := testRouter(t)
 	ctx := context.Background()
@@ -1181,9 +1178,8 @@ func TestTryingAWebhookFromThePage(t *testing.T) {
 }
 
 // Either way of an alert can be made quiet on its own without taking away what it
-// was told: stopping a way for good is clearing its field and saving. Both quiet
-// is what the account screen calls a paused alert, and its own button starts
-// every way at once.
+// was told; stopping a way for good is clearing its field and saving. Both quiet is
+// a paused alert on the account screen, whose button starts every way at once.
 func TestPausingOneWayFromThePage(t *testing.T) {
 	st, router := testRouter(t)
 	slug := alertVendor(t, st)

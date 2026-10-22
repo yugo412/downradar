@@ -23,11 +23,9 @@ type SlackApp interface {
 	Exchange(ctx context.Context, code, redirectURI string) (slack.Webhook, error)
 }
 
-// The cookie that carries an install from the alert page to the callback. Slack
-// sends the browser back to one fixed address, which is what the app registers,
-// so the alert the install belongs to has to travel beside the state rather than
-// in the address. The state itself is what proves the answer belongs to a flow
-// this browser started.
+// The cookie carrying an install from the alert page to the callback. Slack sends
+// the browser back to one fixed address, so the alert travels beside the state
+// rather than in the address; the state proves this browser started the flow.
 const (
 	slackStateCookie = "dr_slack"
 	slackStateTTL    = 10 * time.Minute
@@ -120,10 +118,9 @@ func (h *handlers) slackConnect(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, h.slack.AuthorizeURL(state, h.slackRedirectURL()), http.StatusFound)
 }
 
-// slackTargets reads what the page had ticked. The list is kept in the cookie,
-// which is a few kilobytes, so a vendor with an unusual number of components is
-// refused rather than cut short: saving the alert first is the way to connect
-// one of those.
+// slackTargets reads what the page had ticked. The list lives in a cookie of a few
+// kilobytes, so a vendor with an unusual number of components is refused rather
+// than cut short; saving the alert first is the way to connect one.
 func slackTargets(r *http.Request) (bool, []string, string) {
 	query := r.URL.Query()
 	whole := query.Get("wholeService") == "true"

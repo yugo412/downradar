@@ -19,9 +19,8 @@ const (
 )
 
 // Google signs somebody in with their Google account. The address comes from the
-// userinfo endpoint the access token opens, and only one Google has verified is
-// accepted: an address somebody typed into their own account is not proof that
-// the mailbox is theirs.
+// userinfo endpoint, and only one Google has verified is accepted: an address
+// typed into an account is no proof the mailbox is theirs.
 type Google struct {
 	clientID     string
 	clientSecret string

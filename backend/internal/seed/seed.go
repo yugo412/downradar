@@ -29,11 +29,9 @@ type fileYAML struct {
 	Vendors []vendorYAML `yaml:"vendors"`
 }
 
-// Load reads a bootstrap file of vendors and turns it into targets.
-//
-// Everything a vendor row needs is checked here, because the poller now trusts
-// the table: an unknown profile, a duplicate slug or an internal url has to be
-// rejected before it is written.
+// Load reads a bootstrap file of vendors and turns it into targets. Everything a
+// row needs is checked here because the poller trusts the table: an unknown
+// profile, duplicate slug or internal url is rejected before it is written.
 func Load(path string, profiles catalog.Profiles) ([]adapters.Target, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {

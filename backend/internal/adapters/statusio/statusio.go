@@ -22,10 +22,9 @@ const defaultStatusioEndpoint = "/1.0/status/"
 // public API is addressed by, so it is read from the page rather than configured.
 var statusioPageID = regexp.MustCompile(`(?i)(?:statuspage_?id|page_?id)\s*[:=]\s*["']([0-9a-f]{24})["']`)
 
-// Status.io numbers its states and documents the labels: 100 Operational,
-// 200 Planned maintenance, 300 Degraded performance, 400 Partial service
-// disruption, 500 Service disruption, 600 Security issue. A security issue is
-// reported as major, because it is an active problem rather than a quiet one.
+// Status.io numbers its states: 100 Operational, 200 Planned maintenance,
+// 300 Degraded performance, 400 Partial service disruption, 500 Service
+// disruption, 600 Security issue, which is major as it is an active problem.
 var statusioCode = map[int]adapters.Health{
 	100: adapters.HealthOK,
 	200: adapters.HealthMaintenance,

@@ -39,10 +39,9 @@ func (s *SMTP) Send(ctx context.Context, to, subject, body string) error {
 	return s.SendReply(ctx, to, subject, body, "")
 }
 
-// SendReply delivers one message and sets the reply address, so answering goes
-// to whoever wrote in rather than to the site's own mailbox. It is what the
-// contact form needs; the account and alert mail are not answered, so they use
-// Send.
+// SendReply delivers one message and sets the reply address, so answering goes to
+// whoever wrote in rather than the site's own mailbox. The contact form needs it;
+// account and alert mail are not answered, so they use Send.
 func (s *SMTP) SendReply(ctx context.Context, to, subject, body, replyTo string) error {
 	host, port, err := net.SplitHostPort(s.addr)
 	if err != nil {
@@ -71,12 +70,9 @@ func (s *SMTP) SendReply(ctx context.Context, to, subject, body, replyTo string)
 	}
 }
 
-// send is the conversation itself. It is written out rather than handed to
-// smtp.SendMail for one reason: a server on 465 speaks TLS from the first byte,
-// and SendMail dials in the clear and waits for a greeting, which such a server
-// never sends in the clear. Every other port is dialled plainly and upgraded
-// with STARTTLS when the server offers it, which is what SendMail would have
-// done anyway.
+// send is the conversation itself, written out rather than handed to
+// smtp.SendMail: a server on 465 speaks TLS from the first byte, and SendMail
+// dials in the clear. Other ports start plain and upgrade with STARTTLS.
 func send(addr, host, port string, auth smtp.Auth, from, to string, msg []byte) error {
 	var (
 		conn net.Conn
@@ -159,10 +155,9 @@ func Message(from, to, subject, body string) []byte {
 	return MessageReplyTo(from, to, subject, body, "")
 }
 
-// MessageReplyTo is Message with a Reply-To header, which is what makes an
-// answer go back to the person who wrote in rather than to the site's own
-// mailbox. An empty replyTo leaves the header out. The body is HTML, because
-// every email the site sends is written from a template.
+// MessageReplyTo is Message with a Reply-To header, which sends an answer back to
+// the person who wrote in. An empty replyTo leaves the header out, and the body is
+// HTML because every email the site sends comes from a template.
 func MessageReplyTo(from, to, subject, body, replyTo string) []byte {
 	var b strings.Builder
 
@@ -186,9 +181,8 @@ func MessageReplyTo(from, to, subject, body, replyTo string) []byte {
 }
 
 // header keeps a value on one line and inside ASCII. A subject is built from a
-// vendor name, which is free text a moderator typed: a newline in it would
-// otherwise split the headers, and an accent has to be encoded rather than sent
-// raw.
+// vendor name a moderator typed: a newline would otherwise split the headers, and
+// an accent has to be encoded rather than sent raw.
 func header(value string) string {
 	value = strings.Join(strings.Fields(value), " ")
 	if isASCII(value) {

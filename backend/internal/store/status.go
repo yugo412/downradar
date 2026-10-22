@@ -1,9 +1,8 @@
 package store
 
-// Status says whether a vendor is live. A row written by the suggest form is
-// proposed; a moderator publishes it later. A vendor added without a profile
-// that no adapter could read is no_match: it is kept, but not polled until a
-// profile for its platform exists.
+// Status says whether a vendor is live. The suggest form writes a proposed row
+// and a moderator publishes it; one no adapter could read is no_match, kept but
+// not polled until a profile for its platform exists.
 type Status string
 
 const (

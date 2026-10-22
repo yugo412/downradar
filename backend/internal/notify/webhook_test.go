@@ -123,10 +123,8 @@ func decodePayload(t *testing.T, body string) receivedPayload {
 	return payload
 }
 
-// webhookVendor writes a vendor, subscribes one webhook to it, and moves it from
-// ok to major while the component under it stays where it was, which is one call
-// waiting to go out. The owner is whoever the call is recorded for, or nobody,
-// which is what most of these tests care about.
+// webhookVendor subscribes one webhook and moves the vendor from ok to major,
+// leaving one call. The owner is whoever the call is recorded for, or nobody.
 func webhookVendor(t *testing.T, st *store.Store, userID *int64, hook store.AlertWebhook) string {
 	t.Helper()
 	ctx := context.Background()
@@ -179,10 +177,8 @@ func webhookVendor(t *testing.T, st *store.Store, userID *int64, hook store.Aler
 	return slug
 }
 
-// A webhook is called the way the subscriber described it: the method, the URL
-// and the headers they wrote, with the placeholders filled in. The token its
-// channel carries goes with the call, because that is what the far end checks
-// before it trusts one.
+// A call uses the method, URL and headers the subscriber wrote, with placeholders
+// filled in and the channel's token attached.
 func TestDrainCallsTheWebhookTheSubscriberDescribed(t *testing.T) {
 	st := testStore(t)
 
@@ -532,10 +528,8 @@ func TestADrainWritesDownTheCallItMade(t *testing.T) {
 	}
 }
 
-// A try from the page is a real call with a change that never happened in it, so
-// a subscriber sees the shape their receiver has to read before they lean on it.
-// A far end that refuses is an answer rather than a mistake on this side, which
-// is why the status and the error come back together.
+// A try is a real call with a made-up change, and a refusal comes back as the
+// answer rather than a mistake on this side.
 func TestATestCallCarriesAnExampleChange(t *testing.T) {
 	st := testStore(t)
 	ctx := context.Background()

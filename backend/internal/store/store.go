@@ -80,12 +80,9 @@ func (s *Store) Close() { s.pool.Close() }
 const migrationLockID int64 = 85720260116
 
 func (s *Store) Migrate(ctx context.Context) error {
-	// One migrator at a time. Two processes starting together, or the test
-	// packages of one `go test ./...` sharing a database, would otherwise both
-	// decide that a migration is missing and race to apply and record it.
-	//
-	// The lock is taken and released on one connection, because a session level
-	// advisory lock belongs to the session that took it.
+	// One migrator at a time: two processes starting together, or test packages
+	// sharing a database, would otherwise find a migration missing and race to
+	// apply it. The lock lives on one connection, since it is session level.
 	conn, err := s.pool.Acquire(ctx)
 	if err != nil {
 		return fmt.Errorf("store: acquire a connection for the migration lock: %w", err)

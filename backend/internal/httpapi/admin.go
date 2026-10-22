@@ -204,12 +204,9 @@ func (h *handlers) listServices(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// findVisibleService reads a service and answers 404 when the caller may not
-// see it. Not 403: a private service should not even be confirmed to exist.
-//
-// This is the management shape of a row, which carries the owner's address and
-// the fetch log, so it is the owner's and the staff's. A catalogue row that
-// belongs to somebody else is read through the public vendor API instead.
+// findVisibleService reads a service and answers 404, not 403, when the caller may
+// not see it: a private service should not even be confirmed to exist. The row
+// carries the owner's address and fetch log, so only the owner and staff may read it.
 func (h *handlers) findVisibleService(w http.ResponseWriter, r *http.Request) *store.AdminService {
 	current, err := h.store.AdminGetService(r.Context(), r.PathValue("slug"))
 	if errors.Is(err, store.ErrNotFound) {
@@ -227,10 +224,9 @@ func (h *handlers) findVisibleService(w http.ResponseWriter, r *http.Request) *s
 	return current
 }
 
-// myServices is the dashboard's own list: the private services of the caller, in
-// the public shape, so the browser can add them to the catalogue. It is a
-// separate route from the management list because the two answer different
-// questions and return different shapes.
+// myServices is the dashboard's own list: the caller's published services in the
+// public shape. It is separate from the management list because the two answer
+// different questions and return different shapes.
 func (h *handlers) myServices(w http.ResponseWriter, r *http.Request) {
 	vendors, err := h.store.OwnedVendors(r.Context(), h.user(r).ID)
 	if err != nil {
@@ -538,10 +534,9 @@ func (h *handlers) updateService(w http.ResponseWriter, r *http.Request) {
 	user := h.user(r)
 	staff := auth.CanManageServices(user.Role)
 
-	// A subscriber edits the service they added: its name, its page, its logo,
-	// its category, its aliases and who may see it. The address, the adapter, its
-	// endpoint, the stage and the active flag stay with staff, so a body that
-	// carries them changes nothing.
+	// A subscriber edits the service they added: name, page, logo, category, aliases
+	// and visibility. The address, adapter, endpoint, stage and active flag stay
+	// with staff, so a body that carries them changes nothing.
 	if !staff {
 		body.Slug = nil
 		body.Profile = nil
@@ -666,10 +661,9 @@ func (h *handlers) updateService(w http.ResponseWriter, r *http.Request) {
 		patch.Status = &status
 	}
 
-	// Who may see a service and who looks after it are separate questions. A
-	// private row belongs to whoever asked for it; publishing one leaves it with
-	// whoever added it, whether that is the subscriber who chose private and
-	// changed their mind or a member of staff moving it to the catalogue.
+	// Who may see a service and who looks after it are separate questions. A private
+	// row belongs to whoever asked for it; publishing it leaves it with whoever added
+	// it, whether that is the subscriber or a member of staff moving it.
 	if body.Visibility != nil {
 		visibility := strings.ToLower(clean(sanitize(*body.Visibility)))
 		if visibility != visibilityPublic && visibility != visibilityPrivate {

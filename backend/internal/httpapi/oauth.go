@@ -17,10 +17,9 @@ import (
 	"downradar.info/backend/internal/store"
 )
 
-// The cookie that carries the state of a sign in through a provider. It is short
-// lived and read only by the callback: the provider sends the state back in the
-// query string, and the two have to agree for the answer to be the one this
-// browser asked for.
+// The cookie that carries the state of a provider sign in. It is short lived and
+// read only by the callback: the provider returns the state in the query string,
+// and the two must agree for the answer to be the one this browser asked for.
 const (
 	oauthStateCookie = "dr_oauth"
 	oauthStateTTL    = 10 * time.Minute
@@ -150,9 +149,8 @@ func (h *handlers) oauthCallback(w http.ResponseWriter, r *http.Request) {
 }
 
 // accountFromProvider finds or makes the account behind an identity. The
-// provider's own id comes first, then the address, and only then a new account:
-// that way an address somebody already registered gets the new way in instead of
-// a second account.
+// provider's own id comes first, then the address, and only then a new account,
+// so an address already registered gets the new way in instead of a second account.
 func (h *handlers) accountFromProvider(ctx context.Context, provider string, id oauth.Identity) (*store.User, error) {
 	email := auth.NormalizeEmail(id.Email)
 	if !auth.ValidEmail(email) {

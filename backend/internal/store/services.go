@@ -71,11 +71,9 @@ func (s *Store) Services(ctx context.Context) ([]ServiceRow, error) {
 	return out, rows.Err()
 }
 
-// ProposeService records a suggestion as a proposed row. It is what the suggest
-// form writes; nothing polls it until a moderator publishes it. A signed in
-// suggester is stored as the owner, which is attribution for the review queue,
-// not a visibility choice: approving the suggestion clears it and publishes the
-// row to the catalogue.
+// ProposeService records a suggestion as a proposed row; nothing polls it until a
+// moderator publishes it. A signed in suggester becomes the owner as attribution,
+// not visibility, and approving publishes the row while keeping that owner.
 func (s *Store) ProposeService(ctx context.Context, name, pageURL string, ownerID *int64) (string, error) {
 	slug, err := s.uniqueSlug(ctx, Slugify(name))
 	if err != nil {
@@ -143,10 +141,9 @@ func Slugify(name string) string {
 	return strings.Trim(sb.String(), "-")
 }
 
-// SeedServices upserts vendors from a bootstrap file.
-//
-// It deliberately does not deactivate anything: a vendor added through the form
-// must survive a reseed, so the seed only ever writes what it was given.
+// SeedServices upserts vendors from a bootstrap file. It deliberately does not
+// deactivate anything: a vendor added through the form must survive a reseed, so
+// the seed only ever writes what it was given.
 func (s *Store) SeedServices(ctx context.Context, targets []adapters.Target) (int, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {

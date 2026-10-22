@@ -1,8 +1,6 @@
-// Package account sends the emails an account needs on its own: one that proves
-// an address belongs to whoever typed it, one that signs somebody in from their
-// inbox, and one that lets somebody who has forgotten their password back in. It is separate from the alert mailer
-// because it is about people rather than about vendors, and because these are
-// sent while the request is being answered, not queued.
+// Package account sends the emails an account needs on its own: confirming an
+// address, signing somebody in from their inbox, and letting a forgotten password
+// back in. It is not queued like alert mail, and it is about people, not vendors.
 package account
 
 import (
@@ -47,12 +45,8 @@ func (m *Mailer) Verify(ctx context.Context, to, name, token string) error {
 }
 
 // Login sends the link that signs somebody in without a password. It is the
-// shortest lived of the three, because it opens the account itself, and it is
-// the one that most often sits in an inbox waiting to be used.
-//
-// next is the page to open once the link has done its work. The caller has
-// already checked that it is a path on this site, and it is escaped here so the
-// link stays a valid URL.
+// shortest lived of the three, because it opens the account itself. next is the
+// page to open after, already checked as a site path and escaped here.
 func (m *Mailer) Login(ctx context.Context, to, name, token, next string) error {
 	link := fmt.Sprintf("%s/login?token=%s", m.publicURL, token)
 	if next != "" {

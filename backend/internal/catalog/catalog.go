@@ -72,12 +72,9 @@ type fileYAML struct {
 	Detect   []string               `yaml:"detect"`
 }
 
-// Load reads services.yaml, which now only holds profiles.
-//
-// Validation is deliberately strict and fails at startup: a profile naming an
-// adapter that does not exist would otherwise turn into vendors that silently
-// never poll, and a detect queue naming a profile that is not declared would
-// quietly stop detecting vendors.
+// Load reads services.yaml, which now only holds profiles. Validation is strict
+// at startup: an unknown adapter would become vendors that silently never poll,
+// and an undeclared detect profile would quietly stop detecting vendors.
 func Load(path string) (Catalog, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {

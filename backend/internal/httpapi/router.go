@@ -81,10 +81,9 @@ type Options struct {
 	SessionCookieSecure     bool
 	AlertsEnabled           bool
 	TelegramEnabled         bool
-	// Providers is every way to sign in that this deployment has credentials
-	// for, keyed by the name the routes use. An empty map is a site with no
-	// provider sign in, which is the default. PublicURL is the site's own
-	// address, which is what the provider sends the browser back to.
+	// Providers is every sign in this deployment has credentials for, keyed by
+	// route name. An empty map is a site with no provider sign in, the default.
+	// PublicURL is the site's own address, what the provider sends the browser back to.
 	Providers map[string]oauth.Provider
 	// Slack is the site's own Slack app, which is what the one click install
 	// uses. Without it the page keeps the manual webhook path and does not offer
@@ -212,30 +211,29 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	mux.HandleFunc("PATCH /api/v1/alerts/{token}", h.publicRead(h.pauseAlert))
 	mux.HandleFunc("OPTIONS /api/v1/alerts/{token}", h.publicRead(h.getAlert))
 
-	// The same path, for somebody signed in: the bell reads whether they already
-	// have an alert here, and the modal's button stops it. Both answer for one
-	// session only, so neither is cacheable.
+	// The same path for somebody signed in: the bell reads whether an alert is
+	// already here, and the modal's button stops it. Both answer for one session
+	// only, so neither is cacheable.
 	mux.HandleFunc("GET /api/v1/vendors/{slug}/alerts", h.requireAuth(h.getUserAlert))
 	mux.HandleFunc("DELETE /api/v1/vendors/{slug}/alerts", h.requireAuth(h.deleteUserAlert))
 
-	// A webhook is a call out to somebody else's end, so the page lets them try
-	// it: the call uses what the page is holding rather than what was last saved,
-	// and its answer is shown back. It is a call anywhere the subscriber names, so
-	// it is counted against the same budget as subscribing.
+	// A webhook calls somebody else's end, so the page lets them try it with what
+	// the page holds rather than what was saved, and shows the answer. It is counted
+	// against the same budget as subscribing.
 	mux.HandleFunc("POST /api/v1/vendors/{slug}/alerts/test",
 		h.requireAuth(h.limited(h.alertLimiter, false,
 			"You have tried that webhook several times already, please try again later",
 			h.testWebhook)))
 
-	// A message to a chat is tried the same way, and counted against the same
-	// budget: it is a message to somebody else's end either way.
+	// A message to a chat is tried the same way, against the same budget: it is a
+	// message to somebody else's end either way.
 	mux.HandleFunc("POST /api/v1/vendors/{slug}/alerts/telegram/test",
 		h.requireAuth(h.limited(h.alertLimiter, false,
 			"You have tried that chat several times already, please try again later",
 			h.testTelegram)))
 
-	// A message to a Slack channel is tried the same way, and counted against the
-	// same budget: it is a message to somebody else's end either way.
+	// A message to a Slack channel is tried the same way, against the same budget:
+	// it is a message to somebody else's end either way.
 	mux.HandleFunc("POST /api/v1/vendors/{slug}/alerts/slack/test",
 		h.requireAuth(h.limited(h.alertLimiter, false,
 			"You have tried that Slack channel several times already, please try again later",
@@ -247,10 +245,9 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 			"You have tried that Discord channel several times already, please try again later",
 			h.testDiscord)))
 
-	// Installing the site's Slack app is a navigation rather than a call: the
-	// browser leaves for Slack and comes back to one fixed address, which is
-	// what the app has registered. The alert it belongs to travels in a cookie
-	// beside the state, so the callback does not have to name a vendor.
+	// Installing the site's Slack app is a navigation, not a call: the browser
+	// leaves for Slack and comes back to a fixed address the app has registered.
+	// The alert travels in a cookie beside the state, so the callback need not name a vendor.
 	mux.HandleFunc("GET /api/v1/vendors/{slug}/alerts/slack/connect",
 		h.requireAuth(h.slackConnect))
 	mux.HandleFunc("GET /api/v1/slack/callback", h.slackCallback)
@@ -259,10 +256,9 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	// subscriber makes one of them quiet for a while.
 	mux.HandleFunc("POST /api/v1/vendors/{slug}/alerts/pause", h.requireAuth(h.setAlertChannelPaused))
 
-	// The account screen lists everything one person has asked to be told about
-	// and lets them pause, resume, end or remove any of it. It lives under auth
-	// with the rest of the account, and {id} is the row's own id rather than the
-	// token, because the session is what proves it is theirs.
+	// The account screen lists everything one person asked to be told about and
+	// lets them pause, resume, end or remove it. {id} is the row's own id rather
+	// than the token, because the session proves it is theirs.
 	mux.HandleFunc("GET /api/v1/auth/alerts", h.requireAuth(h.listUserAlerts))
 	mux.HandleFunc("PATCH /api/v1/auth/alerts/{id}", h.requireAuth(h.setUserAlertState))
 	mux.HandleFunc("DELETE /api/v1/auth/alerts/{id}", h.requireAuth(h.deleteUserAlertRow))
@@ -271,13 +267,9 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 		h.authEndpoint(h.limited(h.loginLimiter, false,
 			"Too many sign in attempts, please try again later", h.login)))
 
-	// Signing in through a provider that already knows the visitor. The start is
-	// a redirect to the provider; the callback finishes in the same session
-	// cookie the password form issues. Both are counted with registering and the
-	// other account flows, because a flow somebody starts over and over is the
-	// same kind of noise. The providers list is what the screens read to decide
-	// whether to offer the buttons at all, so it is never cached: a stale copy
-	// would keep offering a provider that was just turned off.
+	// Signing in through a provider that knows the visitor: the start redirects,
+	// the callback finishes in the same session cookie. Both share the account
+	// budget; the provider list is never cached, or a stale copy keeps offering one turned off.
 	mux.HandleFunc("GET /api/v1/auth/providers",
 		h.authEndpoint(h.limited(h.readLimiter, true,
 			"Rate limit exceeded, please try again in a moment", h.authProviders)))
@@ -288,11 +280,9 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 		h.authEndpoint(h.limited(h.accountLimiter, false,
 			"Too many sign in attempts, please try again later", h.oauthCallback)))
 
-	// Accounts made from the site. These send email to an address somebody typed,
-	// so they get their own budget rather than sharing the sign in one.
-	// Sending a sign in link is its own budget rather than the sign in form's:
-	// it puts a message into any inbox somebody types, so it is the one that
-	// costs something to abuse.
+	// Accounts made from the site email an address somebody typed, so they get their
+	// own budget. A sign in link has its own, separate budget: it puts a message into
+	// any inbox somebody types, so it is the one that costs something to abuse.
 	mux.HandleFunc("POST /api/v1/auth/link",
 		h.authEndpoint(h.limited(h.linkLimiter, false,
 			"Too many sign in links, please try again later", h.sendLoginLink)))
@@ -334,10 +324,9 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 			"Rate limit exceeded, please try again in a moment", h.detectProfile)))
 	mux.HandleFunc("GET /api/v1/categories", h.requireAuth(h.listCategories))
 
-	// A subscriber may read the services they added and add another, but the
-	// catalogue belongs to the people who run it: changing a row, moving an
-	// adapter and running the queue stay with staff. Every one of these reads is
-	// narrowed to what the caller may see, an owner to their own rows.
+	// A subscriber may read, add and edit their own services; staff keep the
+	// address, adapter, endpoint, stage and detection queue. Reads are narrowed to
+	// what the caller may see.
 	mux.HandleFunc("GET /api/v1/services", h.requireAuth(h.listServices))
 	mux.HandleFunc("POST /api/v1/services", h.requireAuth(h.createService))
 	mux.HandleFunc("GET /api/v1/services/{slug}", h.requireAuth(h.getService))
@@ -381,9 +370,8 @@ func (h *handlers) publicAlert(next http.HandlerFunc) http.HandlerFunc {
 }
 
 // publicContact throttles the contact form. It sends email, so it gets its own
-// budget rather than sharing the one for suggestions. Unlike the alert endpoint
-// the site's proxy is not skipped: the real client IP travels with the request,
-// and a form that mails the owner is worth counting per visitor.
+// budget rather than sharing the one for suggestions. Unlike alerts, the site's
+// proxy is not skipped: the client IP travels with the request and mail is worth counting.
 func (h *handlers) publicContact(next http.HandlerFunc) http.HandlerFunc {
 	return h.publicEndpoint(h.contactLimiter, false,
 		"You have sent several messages already, please try again later", next)
@@ -476,8 +464,7 @@ func (h *handlers) getVendor(w http.ResponseWriter, r *http.Request) {
 
 // recentChanges is the newest changes across the catalogue, which is what a feed
 // for the whole site is built from. It is public and cacheable like the rest of
-// the catalogue, and the limit is the caller's so a feed can ask for what it
-// carries rather than for everything.
+// the catalogue, and the limit is the caller's so a feed asks only for what it carries.
 func (h *handlers) recentChanges(w http.ResponseWriter, r *http.Request) {
 	limit := 50
 	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
