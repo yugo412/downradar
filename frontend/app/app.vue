@@ -317,7 +317,7 @@ async function resend() {
             <span v-if="resending" class="loading loading-spinner loading-xs" />
             Send it again
           </button>
-          <span v-if="resent" class="text-success">Sent.</span>
+          <span v-if="resent" class="text-success">Sent</span>
         </div>
       </div>
     </ClientOnly>
