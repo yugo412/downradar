@@ -96,6 +96,11 @@ func run() error {
 	} else {
 		log.Warn("sign in with github is off: GITHUB_CLIENT_ID or GITHUB_CLIENT_SECRET is not set")
 	}
+	if cfg.GoogleClientID != "" && cfg.GoogleClientSecret != "" {
+		providers["google"] = oauth.NewGoogle(cfg.GoogleClientID, cfg.GoogleClientSecret)
+	} else {
+		log.Warn("sign in with google is off: GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET is not set")
+	}
 
 	if cfg.RawPayloadDays > 0 {
 		go runRawPayloadCleanup(ctx, st, time.Duration(cfg.RawPayloadDays)*24*time.Hour, log)
