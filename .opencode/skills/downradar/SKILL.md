@@ -95,6 +95,9 @@ app itself, not from fixtures.
   with the built-ins switched off. They share one palette, and the state colours
   carry white text. `.badge-picked` is a hand written rule because daisyUI's badge
   rule sits in a nested layer that outranks a plain Tailwind utility.
+- When a change alters what the site does or what it collects, check `/about`,
+  `/terms` and `/privacy` and update whichever page now describes the old
+  behaviour. Those pages are part of the change, not a later cleanup.
 
 ## Working with the maintainer
 

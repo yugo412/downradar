@@ -76,6 +76,10 @@ useSeoMeta({
         <p class="mt-1 flex flex-wrap items-center gap-x-2">
           <NuxtLink to="/" class="link">{{ siteName }}</NuxtLink>
           <span aria-hidden="true">&middot;</span>
+          <NuxtLink to="/privacy" class="link">Privacy</NuxtLink>
+          <span aria-hidden="true">&middot;</span>
+          <NuxtLink to="/terms" class="link">Terms</NuxtLink>
+          <span aria-hidden="true">&middot;</span>
           <NuxtLink to="/api" class="link">Public API</NuxtLink>
           <template v-if="githubRepo">
             <span aria-hidden="true">&middot;</span>
