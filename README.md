@@ -122,6 +122,12 @@ accept the host's address; a relay that filters by IP rejects the SMTP login
 with a plain authentication failure. `TELEGRAM_API_BASE` points the Bot API at a
 server of your own rather than at Telegram, which is what a self-hosted bot needs;
 the bots themselves are the subscribers' own, so nothing about them is set here.
+Adding a Slack channel in one click needs `SLACK_CLIENT_ID` and
+`SLACK_CLIENT_SECRET` from an app at api.slack.com/apps, with the
+incoming-webhook scope and `PUBLIC_URL/api/v1/slack/callback` registered as its
+redirect URL, and the app distributed. The signing secret is not used, because
+the site does not take Slack events. Without the two values the button is off and
+the manual webhook field is still there.
 
 Two things that are easy to get wrong:
 
@@ -220,11 +226,12 @@ and points at signing in.
 When the visitor is signed in the bell is a link instead of a dialog, to a page
 for that one service, and it says Subscribed if their account already has an alert
 here or Paused if it is quiet. The page sets up the ways the alert can arrive: an
-address, a webhook, a Telegram chat, or several of them, each shown as it is set
-and left empty to be turned off. The list of what the vendor reports sits inside
-the email way, because that is the way that reports on a pick, with what is
-already ticked shown as it is; a call carries the whole vendor, so it has nothing
-to pick, and a chat is told what the email is told. One Save writes the
+address, a webhook, a Telegram chat, a Slack channel, or several of them, each
+shown as it is set and left empty to be turned off. The list of what the vendor
+reports sits inside the email way and again inside the Slack way, because those
+are the ways that report on a pick, with what is already ticked shown as it is; a
+call carries the whole vendor, so it has nothing to pick, and a chat is told what
+the email is told. One Save writes the
 whole alert, so a component can be added or dropped and a way stopped in the same
 go. An alert is deleted from the alerts screen rather than from the page for its
 service. Each way that is set up can be
@@ -355,10 +362,42 @@ can be checked or replaced rather than only pasted again. A chat can be tried fr
 the page before it is saved, with the same made up change a webhook is tried with,
 and what Telegram says about a chat it will not deliver to is shown as it is.
 
+A Slack channel is the fourth way, and like a chat it belongs to an account alone:
+the page takes the incoming webhook URL Slack makes for a channel, and a delivery
+is written for the things that alert watches. The message is written in Slack's
+own blocks rather than as a webhook body, with the change in a heading, the status
+it moved from and to beside it, a button to the vendor page, and a link that stops
+that channel's messages. The URL names the workspace and the channel, so it is the
+whole of what the way is made of, and it is kept with the channel and shown back
+to its owner masked, with a switch to reveal it.
+
+There are two ways to get it. Add to Slack installs the site's own Slack app in
+one click: Slack asks which workspace and channel to post to, and the webhook it
+makes is saved with the alert, along with the channel's name so the page can say
+where the messages go. The install finishes with one message in the channel
+saying that it is connected, so the person sees it worked before the first change
+arrives. Nothing has to be pasted, and the site never reads the workspace's
+messages: the install asks only for the incoming-webhook scope. For
+that half to be offered, the deployment needs `SLACK_CLIENT_ID` and
+`SLACK_CLIENT_SECRET`, and the app needs the incoming-webhook scope and
+`PUBLIC_URL` plus `/api/v1/slack/callback` registered as its redirect URL. Slack
+matches it exactly, which is why the path is fixed and the alert travels in the
+flow's state instead. The app also has to be distributed before people outside
+its own workspace can install it, and a plain HTTP redirect such as the dev
+site's keeps it from being distributed until that entry is removed.
+
+The other way is a webhook of the reader's own, made at api.slack.com/apps:
+create an app from scratch, switch on Incoming Webhooks, add it to the channel and
+copy the URL it shows. Anybody who may add apps to the workspace can make one.
+Either way, a channel can be tried from the page before it is saved, with the same
+made up change, and what Slack says about a message it will not take is shown as
+it is.
+
 Sending is an outbox rather than something the poller does inline. A status
 change writes one delivery per channel in the same transaction that records the
 change, and a loop drains them: over SMTP for an address, over HTTP for a
-webhook, over the Bot API for a chat. A mail server or an endpoint that is slow
+webhook, over the Bot API for a chat, and over an incoming webhook for a Slack
+channel. A mail server or an endpoint that is slow
 or down therefore cannot hold
 up polling, a delivery that fails is retried a few times and then left with its
 error, and nothing is lost if the process stops between the two steps. The

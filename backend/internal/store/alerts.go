@@ -21,13 +21,14 @@ const (
 	AlertUnsubscribed = "unsubscribed"
 )
 
-// The ways an alert can arrive, as the channel's kind column holds them. Email
-// and Telegram report on what the subscriber picked, so they are written a
+// The ways an alert can arrive, as the channel's kind column holds them. Email,
+// Telegram and Slack report on what the subscriber picked, so they are written a
 // delivery for the things they watch; a webhook hears about the whole vendor.
 const (
 	ChannelEmail    = "email"
 	ChannelWebhook  = "webhook"
 	ChannelTelegram = "telegram"
+	ChannelSlack    = "slack"
 )
 
 // The two kinds of webhook call that are written down: one the sender made for a
@@ -93,15 +94,20 @@ type AlertView struct {
 	EmailPaused    bool `json:"emailPaused"`
 	WebhookPaused  bool `json:"webhookPaused"`
 	TelegramPaused bool `json:"telegramPaused"`
+	SlackPaused    bool `json:"slackPaused"`
 
 	// Telegram is the chat a message goes to, and Kind is the kind of channel a
 	// view is about when it is about one: the unsubscribe link in a message is
 	// read through the channel's own token, and the page it opens says what it is
 	// about to stop. TelegramBot is the bot that speaks to that chat, which is the
 	// subscriber's own rather than the site's and is never handed back to a page.
-	Telegram    string `json:"-"`
-	TelegramBot string `json:"-"`
-	Kind        string `json:"-"`
+	// Slack is the incoming webhook URL a Slack message goes to, which is the
+	// channel's address.
+	Telegram     string `json:"-"`
+	TelegramBot  string `json:"-"`
+	Slack        string `json:"-"`
+	SlackChannel string `json:"-"`
+	Kind         string `json:"-"`
 
 	// The kinds of channel the subscription arrives by, in a stable order. The
 	// ones that are still live are what a screen listing the rows shows, and a
@@ -143,8 +149,8 @@ func (v AlertView) State() string {
 //
 // A row is a subscription, which can watch several things and arrive several
 // ways. It shows the kinds of channel it arrives by, and the address the email
-// way goes to, or the URL the webhook way goes to for an alert that does not use
-// email at all, and it takes the first thing the subscription watches.
+// way goes to, which is empty for an alert that has no email, and it takes the
+// first thing the subscription watches.
 func (s *Store) UserAlerts(ctx context.Context, userID int64) ([]AlertView, error) {
 	rows, err := s.pool.Query(ctx, `
 		select a.id, v.slug, v.name, coalesce(ss.status, 'unknown'),
@@ -166,7 +172,8 @@ func (s *Store) UserAlerts(ctx context.Context, userID int64) ([]AlertView, erro
 			where t2.subscription_id = a.id
 		) w on true
 		left join lateral (
-			select (array_agg(c.address order by (c.unsubscribed_at is null) desc, (c.kind = 'email') desc, c.id))[1] as address,
+			select (array_agg(c.address order by (c.unsubscribed_at is null) desc, c.id)
+			        filter (where c.kind = 'email'))[1] as address,
 			       count(*) as total,
 			       count(*) filter (where c.unsubscribed_at is not null) as ended,
 			       count(*) filter (where c.unsubscribed_at is null and c.paused_at is null) as live,
@@ -345,13 +352,15 @@ func (s *Store) SetChannelPaused(ctx context.Context, userID, serviceID int64, k
 // itself, and the message says which one it was about.
 //
 // Kind is how this one goes out: an email channel carries the address in Email,
-// and a webhook carries the call to make in Webhook.
+// a Telegram chat its id and bot, a Slack channel its incoming webhook URL, and a
+// webhook the call to make in Webhook.
 type PendingAlert struct {
 	ID          int64
 	Kind        string
 	Email       string
 	ChatID      string
 	TelegramBot string
+	SlackURL    string
 	Webhook     AlertWebhook
 	ServiceID   int64
 	ChannelID   int64
@@ -389,10 +398,10 @@ func (s *Store) PublicService(ctx context.Context, slug string) (int64, string, 
 	return id, name, nil
 }
 
-// AlertTargets is what the email way reports on: the vendor's own status, or
-// named components of it, or both. A component is named by its row id, which is
-// what a target points at. A webhook has no targets of its own: it hears about
-// the vendor whatever is picked here.
+// AlertTargets is what the ways that report on a pick send about: the vendor's
+// own status, or named components of it, or both. A component is named by its row
+// id, which is what a target points at. A webhook has no targets of its own: it
+// hears about the vendor whatever is picked here.
 type AlertTargets struct {
 	Whole      bool
 	Components []int64
@@ -540,8 +549,14 @@ type AlertChange struct {
 	Telegram      *AlertTelegram
 	TelegramToken string
 
-	// Targets is what the email way reports on: the vendor's own status, the
-	// components of it that were picked, or both.
+	// Slack is the fourth way an alert can arrive: the incoming webhook URL of a
+	// Slack channel. It reports on what was picked, like an email, because the
+	// message names the component that moved.
+	Slack      *AlertSlack
+	SlackToken string
+
+	// Targets is what the ways that report on a pick send about: the vendor's own
+	// status, the components of it that were picked, or both.
 	Targets AlertTargets
 }
 
@@ -710,6 +725,11 @@ func (s *Store) subscribeAlert(ctx context.Context, serviceID int64, userID *int
 	}
 	if change.Telegram != nil {
 		if err := saveTelegramChannel(ctx, tx, subscriptionID, *change.Telegram, change.TelegramToken); err != nil {
+			return "", fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
+		}
+	}
+	if change.Slack != nil {
+		if err := saveSlackChannel(ctx, tx, subscriptionID, *change.Slack, change.SlackToken); err != nil {
 			return "", fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
 		}
 	}
@@ -900,6 +920,16 @@ type AlertTelegram struct {
 	BotToken string
 }
 
+// AlertSlack is the fourth way an alert can arrive: the incoming webhook URL of
+// a Slack channel. The URL names the workspace and the channel it posts to, so it
+// is the whole of what the way is set up with. Channel is the name Slack showed
+// when the webhook was made in one click, which is only there to say where a
+// message goes; a URL pasted by hand has none.
+type AlertSlack struct {
+	URL     string
+	Channel string
+}
+
 type telegramSettings struct {
 	BotToken string `json:"botToken"`
 }
@@ -921,6 +951,30 @@ func parseTelegramSettings(raw []byte) (string, error) {
 		return "", fmt.Errorf("alerts: read telegram settings: %w", err)
 	}
 	return settings.BotToken, nil
+}
+
+type slackSettings struct {
+	Channel string `json:"channel,omitempty"`
+}
+
+// encodeSlackSettings writes the name of the channel a webhook was made for. It
+// is only a label for the page, not something a delivery reads.
+func encodeSlackSettings(settings slackSettings) ([]byte, error) {
+	return json.Marshal(settings)
+}
+
+// parseSlackSettings reads back what encodeSlackSettings wrote. A URL pasted by
+// hand has no name, which reads as an empty one.
+func parseSlackSettings(raw []byte) (string, error) {
+	if len(raw) == 0 {
+		return "", nil
+	}
+
+	var settings slackSettings
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		return "", fmt.Errorf("alerts: read slack settings: %w", err)
+	}
+	return settings.Channel, nil
 }
 
 // saveTelegramChannel makes the subscription's chat say what this save asked for.
@@ -978,6 +1032,91 @@ func saveTelegramChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, w
 		return fmt.Errorf("update the telegram way: %w", err)
 	}
 	return dropChannelsApartFrom(ctx, tx, subscriptionID, ChannelTelegram, channelID)
+}
+
+// saveSlackChannel makes the subscription's Slack way say what this save asked
+// for. An empty URL stops the messages rather than posting nowhere, which is the
+// same bargain an address has. A channel that is already there keeps its token,
+// so the link in a message already sent still stops it.
+//
+// The channel name only comes from an install, so a save that carries the same
+// URL without one keeps the name the install left. A URL pasted by hand has no
+// name, and a URL that changed is a different channel.
+//
+// One Slack way per subscription, like one address: a save is a person saying
+// where they want to be told, and what they name is what they get.
+func saveSlackChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, way AlertSlack, token string) error {
+	if way.URL == "" {
+		return stopChannels(ctx, tx, subscriptionID, ChannelSlack)
+	}
+
+	var channelID int64
+	var channelToken string
+	var address string
+	var raw []byte
+	err := tx.QueryRow(ctx, `
+		select id, token, address, coalesce(settings, '{}'::jsonb)
+		from alert_channels
+		where subscription_id = $1 and kind = 'slack'
+		order by (unsubscribed_at is null) desc, id
+		limit 1`, subscriptionID).Scan(&channelID, &channelToken, &address, &raw)
+
+	channel := way.Channel
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		channelToken = token
+	case err != nil:
+		return fmt.Errorf("read the slack way: %w", err)
+	case channel == "" && address == way.URL:
+		channel, err = parseSlackSettings(raw)
+		if err != nil {
+			return err
+		}
+	}
+
+	settings, err := encodeSlackSettings(slackSettings{Channel: channel})
+	if err != nil {
+		return fmt.Errorf("write the slack way: %w", err)
+	}
+
+	// A row id is never zero, so nothing found means nothing is there yet.
+	if channelID == 0 {
+		if _, err := tx.Exec(ctx, `
+			insert into alert_channels (subscription_id, kind, address, settings, token)
+			values ($1, 'slack', $2, $3, $4)`, subscriptionID, way.URL, settings, channelToken); err != nil {
+			return fmt.Errorf("add the slack way: %w", err)
+		}
+		return nil
+	}
+
+	if _, err := tx.Exec(ctx, `
+		update alert_channels
+		set address = $2, settings = $3, unsubscribed_at = null, updated_at = now()
+		where id = $1`, channelID, way.URL, settings); err != nil {
+		return fmt.Errorf("update the slack way: %w", err)
+	}
+	return dropChannelsApartFrom(ctx, tx, subscriptionID, ChannelSlack, channelID)
+}
+
+// SlackWebhook returns the incoming webhook URL a Slack way on this vendor is set
+// up with, for a message tried from the page that does not ask for the URL again.
+// It is empty when there is no Slack way to send to.
+func (s *Store) SlackWebhook(ctx context.Context, userID, serviceID int64) (string, error) {
+	var webhook string
+	err := s.pool.QueryRow(ctx, `
+		select c.address
+		from alert_channels c
+		join alert_subscriptions a on a.id = c.subscription_id
+		where a.user_id = $1 and a.service_id = $2 and c.kind = 'slack'
+		order by (c.unsubscribed_at is null) desc, c.id
+		limit 1`, userID, serviceID).Scan(&webhook)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("alerts: the slack webhook: %w", err)
+	}
+	return webhook, nil
 }
 
 // TelegramBot returns the bot a chat on this vendor is set up with, for a message
@@ -1240,6 +1379,7 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 	var webhookAddress string
 	var webhookSettings []byte
 	var telegramSettings []byte
+	var slackRaw []byte
 	err := s.pool.QueryRow(ctx, `
 		select a.id, v.slug, v.name, coalesce(ch.address, ''), a.created_at,
 		       case when ch.total > 0 and ch.ended < ch.total and ch.live = 0
@@ -1249,7 +1389,8 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 		       w.whole, w.components,
 		       coalesce(ch.webhook_address, ''), coalesce(ch.webhook_settings, '{}'::jsonb),
 		       coalesce(ch.telegram_address, ''), coalesce(ch.telegram_settings, '{}'::jsonb),
-		       ch.email_paused, ch.webhook_paused, ch.telegram_paused
+		       coalesce(ch.slack_address, ''), coalesce(ch.slack_settings, '{}'::jsonb),
+		       ch.email_paused, ch.webhook_paused, ch.telegram_paused, ch.slack_paused
 		from alert_subscriptions a
 		join services v on v.id = a.service_id
 		left join lateral (
@@ -1271,6 +1412,10 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 			        filter (where c.kind = 'telegram' and c.unsubscribed_at is null))[1] as telegram_address,
 			       (array_agg(c.settings order by c.id)
 			        filter (where c.kind = 'telegram' and c.unsubscribed_at is null))[1] as telegram_settings,
+			       (array_agg(c.address order by c.id)
+			        filter (where c.kind = 'slack' and c.unsubscribed_at is null))[1] as slack_address,
+			       (array_agg(c.settings order by c.id)
+			        filter (where c.kind = 'slack' and c.unsubscribed_at is null))[1] as slack_settings,
 			       count(*) as total,
 			       count(*) filter (where c.unsubscribed_at is not null) as ended,
 			       count(*) filter (where c.unsubscribed_at is null and c.paused_at is null) as live,
@@ -1281,7 +1426,9 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 			       count(*) filter (where c.kind = 'webhook' and c.unsubscribed_at is null
 			                          and c.paused_at is not null) > 0 as webhook_paused,
 			       count(*) filter (where c.kind = 'telegram' and c.unsubscribed_at is null
-			                          and c.paused_at is not null) > 0 as telegram_paused
+			                          and c.paused_at is not null) > 0 as telegram_paused,
+			       count(*) filter (where c.kind = 'slack' and c.unsubscribed_at is null
+			                          and c.paused_at is not null) > 0 as slack_paused
 			from alert_channels c
 			where c.subscription_id = a.id
 		) ch on true
@@ -1298,7 +1445,8 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 		&view.WholeService, &view.ComponentIDs,
 		&webhookAddress, &webhookSettings,
 		&view.Telegram, &telegramSettings,
-		&view.EmailPaused, &view.WebhookPaused, &view.TelegramPaused)
+		&view.Slack, &slackRaw,
+		&view.EmailPaused, &view.WebhookPaused, &view.TelegramPaused, &view.SlackPaused)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -1319,6 +1467,13 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 			return nil, err
 		}
 		view.TelegramBot = bot
+	}
+	if view.Slack != "" {
+		channel, err := parseSlackSettings(slackRaw)
+		if err != nil {
+			return nil, err
+		}
+		view.SlackChannel = channel
 	}
 	return &view, nil
 }
@@ -1409,9 +1564,9 @@ func (s *Store) PendingAlerts(ctx context.Context, maxAttempts, limit int) ([]Pe
 			return nil, fmt.Errorf("alerts: scan pending: %w", err)
 		}
 
-		// The address is the inbox for an email, the chat for a Telegram message
-		// and the URL for a webhook, and what the settings hold is what a webhook
-		// has to carry with it.
+		// The address is the inbox for an email, the chat for a Telegram message,
+		// the incoming webhook URL for a Slack message and the URL for a webhook,
+		// and what the settings hold is what a webhook has to carry with it.
 		switch p.Kind {
 		case ChannelWebhook:
 			hook, err := parseWebhookSettings(settings, address)
@@ -1426,6 +1581,8 @@ func (s *Store) PendingAlerts(ctx context.Context, maxAttempts, limit int) ([]Pe
 				return nil, err
 			}
 			p.TelegramBot = bot
+		case ChannelSlack:
+			p.SlackURL = address
 		default:
 			p.Email = address
 		}

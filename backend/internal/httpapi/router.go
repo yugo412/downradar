@@ -33,6 +33,7 @@ type handlers struct {
 	contactMailer   *contact.Mailer
 	notifier        *notify.Notifier
 	providers       map[string]oauth.Provider
+	slack           SlackApp
 	publicURL       string
 	readLimiter     *ipLimiter
 	suggestLimiter  *ipLimiter
@@ -85,6 +86,10 @@ type Options struct {
 	// provider sign in, which is the default. PublicURL is the site's own
 	// address, which is what the provider sends the browser back to.
 	Providers map[string]oauth.Provider
+	// Slack is the site's own Slack app, which is what the one click install
+	// uses. Without it the page keeps the manual webhook path and does not offer
+	// the button.
+	Slack     SlackApp
 	PublicURL string
 }
 
@@ -163,6 +168,7 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 		contactMailer:   opts.ContactMailer,
 		notifier:        opts.Notifier,
 		providers:       opts.Providers,
+		slack:           opts.Slack,
 		publicURL:       publicURL,
 		readLimiter:     newIPLimiter(readInterval, opts.RateLimitBurst),
 		suggestLimiter:  newIPLimiter(suggestInterval, opts.SuggestBurst),
@@ -227,6 +233,21 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 		h.requireAuth(h.limited(h.alertLimiter, false,
 			"You have tried that chat several times already, please try again later",
 			h.testTelegram)))
+
+	// A message to a Slack channel is tried the same way, and counted against the
+	// same budget: it is a message to somebody else's end either way.
+	mux.HandleFunc("POST /api/v1/vendors/{slug}/alerts/slack/test",
+		h.requireAuth(h.limited(h.alertLimiter, false,
+			"You have tried that Slack channel several times already, please try again later",
+			h.testSlack)))
+
+	// Installing the site's Slack app is a navigation rather than a call: the
+	// browser leaves for Slack and comes back to one fixed address, which is
+	// what the app has registered. The alert it belongs to travels in a cookie
+	// beside the state, so the callback does not have to name a vendor.
+	mux.HandleFunc("GET /api/v1/vendors/{slug}/alerts/slack/connect",
+		h.requireAuth(h.slackConnect))
+	mux.HandleFunc("GET /api/v1/slack/callback", h.slackCallback)
 
 	// Stopping one way without taking away what it was told, which is how a
 	// subscriber makes one of them quiet for a while.

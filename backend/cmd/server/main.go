@@ -21,6 +21,7 @@ import (
 	"downradar.info/backend/internal/notify"
 	"downradar.info/backend/internal/oauth"
 	"downradar.info/backend/internal/poller"
+	"downradar.info/backend/internal/slack"
 	"downradar.info/backend/internal/store"
 )
 
@@ -106,6 +107,16 @@ func run() error {
 		go runRawPayloadCleanup(ctx, st, time.Duration(cfg.RawPayloadDays)*24*time.Hour, log)
 	}
 
+	// Adding a Slack channel in one click is the site's own Slack app. Without
+	// both halves of its credentials the page keeps the manual webhook path and
+	// does not offer the button.
+	var slackApp *slack.App
+	if cfg.SlackClientID != "" && cfg.SlackClientSecret != "" {
+		slackApp = slack.NewApp(cfg.SlackClientID, cfg.SlackClientSecret)
+	} else {
+		log.Warn("adding to slack is off: SLACK_CLIENT_ID or SLACK_CLIENT_SECRET is not set")
+	}
+
 	srv := &http.Server{
 		Addr: cfg.HTTPAddr,
 		Handler: httpapi.NewRouter(st, log, httpapi.Options{
@@ -135,6 +146,7 @@ func run() error {
 			SessionTTL:              cfg.SessionTTL,
 			SessionCookieSecure:     cfg.SessionCookieSecure,
 			Providers:               providers,
+			Slack:                   slackApp,
 			PublicURL:               cfg.PublicURL,
 			AlertsEnabled:           cfg.SMTPAddr != "",
 			// Telegram is offered only while there is a sender loop to drain what

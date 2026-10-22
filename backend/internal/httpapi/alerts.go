@@ -47,6 +47,13 @@ type telegramRequest struct {
 	BotToken string `json:"botToken"`
 }
 
+// slackRequest is the incoming webhook URL of a Slack channel. The URL names the
+// workspace and the channel it posts to, so it is the whole of what this way is
+// set up with. An empty one stops the messages.
+type slackRequest struct {
+	URL string `json:"url"`
+}
+
 type alertRequest struct {
 	// Email is the address the alert should go to. An empty one stops the emails;
 	// a request that says nothing about it, which is what the bell sends, leaves
@@ -63,6 +70,11 @@ type alertRequest struct {
 	// keeps the one already there, and a request that says nothing about it leaves
 	// the way as it is.
 	Telegram *telegramRequest `json:"telegram"`
+
+	// Slack is the fourth way: the incoming webhook URL of a Slack channel. A
+	// page that shows the way sends it every time, and an empty URL stops the
+	// messages; a request that says nothing about it leaves the way as it is.
+	Slack *slackRequest `json:"slack"`
 
 	// What the email reports on. WholeService is the vendor's own status;
 	// Components names components by the identifiers the vendor page shows,
@@ -160,12 +172,26 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		telegram = &store.AlertTelegram{ChatID: chatID, BotToken: botToken}
 	}
 
+	// A Slack channel is named by the incoming webhook URL Slack gives for it.
+	// An empty URL is somebody stopping the messages, which is the same bargain
+	// an address has.
+	var slack *store.AlertSlack
+	saveSlack := body.Slack != nil
+	if body.Slack != nil {
+		webhookURL, problem := parseSlack(body.Slack.URL)
+		if problem != "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": problem})
+			return
+		}
+		slack = &store.AlertSlack{URL: webhookURL}
+	}
+
 	// A request that names no way at all would write a subscription with nothing
 	// to send, which is not an alert. Clearing a way is naming it: an empty
 	// address is how somebody stops the emails.
-	if body.Email == nil && body.Webhook == nil && body.Telegram == nil {
+	if body.Email == nil && body.Webhook == nil && body.Telegram == nil && body.Slack == nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "An email address, a webhook or a chat is required",
+			"error": "An email address, a webhook, a chat or a Slack channel is required",
 		})
 		return
 	}
@@ -213,10 +239,11 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// An email and a chat report on what was picked, so either of them with
-	// nothing picked beside it would be a way that never has anything to say. A
-	// webhook needs no pick of its own: it hears about the vendor itself.
-	watchesByPick := (saveEmail && address != "") || (telegram != nil && telegram.ChatID != "")
+	// An email, a chat and a Slack channel report on what was picked, so any of
+	// them with nothing picked beside it would be a way that never has anything to
+	// say. A webhook needs no pick of its own: it hears about the vendor itself.
+	watchesByPick := (saveEmail && address != "") || (telegram != nil && telegram.ChatID != "") ||
+		(slack != nil && slack.URL != "")
 	if watchesByPick && !whole && len(componentIDs) == 0 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "Pick at least one thing to be told about",
@@ -248,10 +275,11 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 
 	// Someone who is not signed in gets one alert: they have no identity but the
 	// address they typed, so there is nothing else to hold them to it. That alert
-	// is a whole vendor, because a component is a subscriber's, and it cannot
-	// call anywhere either, because a webhook is kept on an account. A subscriber
-	// may watch a few vendors, and the address they give does not have to be the
-	// one on their account. Staff are not held to a count.
+	// is a whole vendor, because a component is a subscriber's, and it cannot call
+	// anywhere, post to a chat or a Slack channel either, because those ways are
+	// kept on an account. A subscriber may watch a few vendors, and the address
+	// they give does not have to be the one on their account. Staff are not held to
+	// a count.
 	switch {
 	case userID == nil:
 		if len(componentIDs) > 0 {
@@ -269,6 +297,12 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		if saveTelegram {
 			writeJSON(w, http.StatusConflict, map[string]string{
 				"error": "Telegram is for subscribers. Sign in to add one.",
+			})
+			return
+		}
+		if saveSlack {
+			writeJSON(w, http.StatusConflict, map[string]string{
+				"error": "Slack is for subscribers. Sign in to add one.",
 			})
 			return
 		}
@@ -362,6 +396,14 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		}
 		change.Telegram, change.TelegramToken = telegram, token
 	}
+	if slack != nil {
+		token, err := auth.NewToken()
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		change.Slack, change.SlackToken = slack, token
+	}
 
 	secret := ""
 	var saveErr error
@@ -401,6 +443,7 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 	}
 	h.log.Info("alert subscription saved", "vendor", name, "email", address != "" && saveEmail,
 		"webhook", calls, "telegram", telegram != nil && telegram.ChatID != "",
+		"slack", slack != nil && slack.URL != "",
 		"signed_in", userID != nil, "webhook_secret", secret != "",
 		"whole", whole, "components", len(componentIDs))
 	writeJSON(w, http.StatusCreated, answer)
@@ -461,6 +504,26 @@ func parseWebhook(body webhookRequest) (*store.AlertWebhook, string) {
 	}
 
 	return &store.AlertWebhook{URL: rawURL, Method: method, Headers: headers, Auth: auth}, ""
+}
+
+// parseSlack reads the incoming webhook URL of a Slack channel and refuses
+// anything the sender could not call. The page is where the URL has to look like
+// Slack's own, because a channel is named by that URL and nothing else; here it
+// only has to be an address, the same bargain a webhook gets.
+func parseSlack(raw string) (string, string) {
+	rawURL := strings.TrimSpace(raw)
+	if rawURL == "" {
+		return "", ""
+	}
+	if len(rawURL) > 1024 {
+		return "", "That Slack webhook URL is too long"
+	}
+
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return "", "That does not look like a Slack webhook URL"
+	}
+	return rawURL, ""
 }
 
 // parseFields reads a list of names and values, and drops the empty rows a screen
@@ -636,6 +699,67 @@ func (h *handlers) testTelegram(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": result.OK, "error": result.Error})
 }
 
+// testSlack posts the message a delivery would, through the webhook the page is
+// holding or the one the channel is already saved with, so a Slack channel can be
+// checked before it is relied on. Slack is what says whether the message arrived,
+// and what it says is handed back as it is.
+func (h *handlers) testSlack(w http.ResponseWriter, r *http.Request) {
+	if !h.alertsEnabled || h.notifier == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "Alerts are not available right now",
+		})
+		return
+	}
+
+	var body slackRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
+		return
+	}
+
+	webhookURL, problem := parseSlack(body.URL)
+	if problem != "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": problem})
+		return
+	}
+
+	serviceID, name, err := h.store.PublicService(r.Context(), r.PathValue("slug"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Vendor not found"})
+		return
+	}
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	// The URL is a secret the page shows masked, so a way that is already saved is
+	// tried with the URL it was saved with when the field is empty.
+	if webhookURL == "" {
+		webhookURL, err = h.store.SlackWebhook(r.Context(), h.user(r).ID, serviceID)
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		if webhookURL == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "A Slack webhook URL is required",
+			})
+			return
+		}
+	}
+
+	result, err := h.notifier.TestSlack(r.Context(), serviceID, webhookURL)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	h.log.Info("slack tried from the alert page", "vendor", name,
+		"user", h.user(r).Email, "ok", result.OK, "error", result.Error)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": result.OK, "error": result.Error})
+}
+
 // statusOrNil writes "no answer" as a null rather than a zero, so a call that was
 // never answered does not read as one that got a 0.
 func statusOrNil(status int) *int {
@@ -662,9 +786,9 @@ func (h *handlers) setAlertChannelPaused(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if body.Kind != store.ChannelEmail && body.Kind != store.ChannelWebhook &&
-		body.Kind != store.ChannelTelegram {
+		body.Kind != store.ChannelTelegram && body.Kind != store.ChannelSlack {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "Kind must be email, webhook or telegram",
+			"error": "Kind must be email, webhook, telegram or slack",
 		})
 		return
 	}
@@ -913,6 +1037,7 @@ func (h *handlers) getUserAlert(w http.ResponseWriter, r *http.Request) {
 			"calls":           calls,
 			"telegramEnabled": h.telegramEnabled,
 			"telegramBot":     "",
+			"slackEnabled":    h.slack != nil && h.alertsEnabled,
 		})
 		return
 	}
@@ -928,11 +1053,15 @@ func (h *handlers) getUserAlert(w http.ResponseWriter, r *http.Request) {
 		"emailPaused":     view.EmailPaused,
 		"webhookPaused":   view.WebhookPaused,
 		"telegramPaused":  view.TelegramPaused,
+		"slackPaused":     view.SlackPaused,
 		"wholeService":    view.WholeService,
 		"components":      view.ComponentIDs,
 		"webhook":         view.Webhook,
 		"telegram":        view.Telegram,
+		"slack":           view.Slack,
+		"slackChannel":    view.SlackChannel,
 		"telegramEnabled": h.telegramEnabled,
+		"slackEnabled":    h.slack != nil && h.alertsEnabled,
 		// The bot is the owner's own, and the page shows it masked with a switch to
 		// reveal it, so it can be seen and replaced rather than only pasted again.
 		"telegramBot": view.TelegramBot,
@@ -970,6 +1099,9 @@ func (h *handlers) deleteUserAlert(w http.ResponseWriter, r *http.Request) {
 func maskDestination(kind, address string) string {
 	if kind == store.ChannelTelegram {
 		return "your chat"
+	}
+	if kind == store.ChannelSlack {
+		return "your Slack channel"
 	}
 
 	local, domain, ok := strings.Cut(address, "@")
