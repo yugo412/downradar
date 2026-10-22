@@ -13,8 +13,14 @@ import (
 	"downradar.info/backend/internal/adapters"
 )
 
+const testAppKey = "test-app-key"
+
 func integrationStoreWith(t *testing.T, opts Options) *Store {
 	t.Helper()
+
+	if opts.AppKey == "" {
+		opts.AppKey = testAppKey
+	}
 
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {

@@ -101,9 +101,9 @@ useSeoMeta({
       <h2 class="text-lg font-semibold">Security</h2>
       <p class="mt-3">
         Passwords are stored as hashes, session tokens are stored hashed, and
-        channel secrets are shown masked. No internet service can promise perfect
-        security, but the site is built to keep these values out of pages and
-        logs.
+        channel secrets are shown masked and sealed at rest with the app key. No
+        internet service can promise perfect security, but the site is built to
+        keep these values out of pages and logs.
       </p>
     </section>
 

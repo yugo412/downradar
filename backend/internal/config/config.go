@@ -45,6 +45,7 @@ type Config struct {
 	AlertPerHour            int
 	AlertBurst              int
 	AlertLimitPerSubscriber int
+	AppKey                  string
 	AccountPerHour          int
 	AccountBurst            int
 	ContactPerHour          int
@@ -93,6 +94,7 @@ func Load() Config {
 		AlertPerHour:            envInt("ALERT_RATE_LIMIT_PER_HOUR", 6),
 		AlertBurst:              envInt("ALERT_RATE_LIMIT_BURST", 5),
 		AlertLimitPerSubscriber: envInt("ALERT_LIMIT_PER_SUBSCRIBER", 10),
+		AppKey:                  env("APP_KEY", ""),
 		AccountPerHour:          envInt("ACCOUNT_RATE_LIMIT_PER_HOUR", 5),
 		AccountBurst:            envInt("ACCOUNT_RATE_LIMIT_BURST", 10),
 		ContactPerHour:          envInt("CONTACT_RATE_LIMIT_PER_HOUR", 6),

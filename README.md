@@ -113,13 +113,15 @@ sudo docker compose run --rm api downradar-user -email you@example.com -name "Yo
 `services.yaml` is bind mounted rather than baked in, so writing a profile is a
 file copy and `docker compose restart api`, with no release behind it.
 
-Alerts need three variables in `.env`: `SMTP_ADDR` for the mail server,
-`MAIL_FROM` for the sender, and `PUBLIC_URL` for the links an email
-carries, which has to be the public address or every unsubscribe link points at
-localhost. Without `SMTP_ADDR` the API starts with the feature off and refuses
-subscriptions instead of taking them and sending nothing. The relay has to
-accept the host's address; a relay that filters by IP rejects the SMTP login
-with a plain authentication failure. `TELEGRAM_API_BASE` points the Bot API at a
+Alerts need four variables in `.env`: `SMTP_ADDR` for the mail server,
+`MAIL_FROM` for the sender, `PUBLIC_URL` for the links an email carries, which
+has to be the public address or every unsubscribe link points at localhost, and
+`APP_KEY`, which seals the secrets kept in alert channel settings. Generate
+`APP_KEY` with `openssl rand -hex 32` and keep it with the rest of `.env`: losing
+it makes saved webhook headers and bot tokens unreadable. Without `SMTP_ADDR`
+the API starts with the feature off and refuses subscriptions instead of taking
+them and sending nothing. The relay has to accept the host's address; a relay
+that filters by IP rejects the SMTP login with a plain authentication failure. `TELEGRAM_API_BASE` points the Bot API at a
 server of your own rather than at Telegram, which is what a self-hosted bot needs;
 the bots themselves are the subscribers' own, so nothing about them is set here.
 Adding a Slack channel in one click needs `SLACK_CLIENT_ID` and
