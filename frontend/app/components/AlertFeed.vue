@@ -61,14 +61,18 @@ onBeforeUnmount(() => clearTimeout(copiedTimer))
       </button>
     </div>
 
-    <div class="mt-3 flex items-center gap-2">
+    <div class="join mt-3 w-full">
       <input
         :value="feedUrl"
         readonly
         aria-label="Feed URL"
-        class="input input-bordered input-sm w-full min-w-0 flex-1"
+        class="input input-bordered join-item w-full min-w-0 flex-1"
       >
-      <button type="button" class="btn btn-outline btn-sm shrink-0" @click="copyUrl">
+      <button
+        type="button"
+        class="btn btn-outline join-item shrink-0 !border-base-content/20"
+        @click="copyUrl"
+      >
         {{ copied ? 'Copied.' : 'Copy URL' }}
       </button>
     </div>
