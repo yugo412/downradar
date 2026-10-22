@@ -40,7 +40,7 @@ onBeforeUnmount(() => clearTimeout(copiedTimer))
 </script>
 
 <template>
-  <div>
+  <div class="w-full">
     <p class="text-sm opacity-70">
       A feed of every status change for {{ name }}, for a reader of your own. It
       needs no account and nothing is stored here, so there is nothing to switch

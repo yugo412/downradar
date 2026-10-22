@@ -71,7 +71,7 @@ const shownComponents = computed(() => {
     </div>
 
     <div
-      class="mt-1 min-h-0 overflow-y-auto border-t border-base-300"
+      class="mt-1 min-h-0 overflow-auto border-t border-base-300"
       :class="props.fill ? 'flex-1' : 'max-h-80'"
     >
       <label class="flex cursor-pointer items-center gap-3 px-5 py-2 hover:bg-base-200">

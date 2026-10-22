@@ -236,15 +236,12 @@ call carries the whole vendor, so it has nothing to pick, and a chat is told wha
 the email is told. One Save writes the
 whole alert, so a component can be added or dropped and a way stopped in the same
 go. An alert is deleted from the alerts screen rather than from the page for its
-service. Each way that is set up can be
-paused on its own, which keeps the address, the URL or the chat where it is and
-stops that way alone until it is started again. The switch for that sits at the
-foot of the
-way it belongs to, in the last row before Save. Pausing is the way's own switch rather than
-something Save does, so saving leaves a paused way paused and an address can be
-corrected without anything going out. An alert made while signed out belongs to
-the address rather than to the account, so the bell does not claim it: nothing on
-the page can say whether that address is theirs.
+service. Each way has its own switch in the way list, which keeps the address,
+URL or chat where it is and stops that way alone until it is started again.
+Pausing is separate from Save, so saving leaves a paused way paused and an
+address can be corrected without anything going out. An alert made while signed
+out belongs to the address rather than to the account, so the bell does not
+claim it: nothing on the page can say whether that address is theirs.
 
 Signed in visitors also get a screen at `/alerts`, in the navigation beside the
 service menu, listing every subscription their account holds with what it
