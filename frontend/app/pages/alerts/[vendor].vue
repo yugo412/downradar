@@ -8,6 +8,7 @@ useSeoMeta({ title: 'Alert', robots: 'noindex, nofollow' })
 const { user } = useAuth()
 
 const route = useRoute()
+const router = useRouter()
 const slug = computed(() => String(route.params.vendor ?? ''))
 const origin = useRequestURL().origin
 
@@ -23,7 +24,7 @@ if (vendorError.value?.statusCode === 404) {
 // feed is the last one: it is not an alert the site keeps, so nothing about it
 // is saved, but it is offered beside the others because that is where somebody
 // looking for it will look.
-type Way = 'email' | 'webhook' | 'telegram' | 'rss'
+type Way = 'email' | 'webhook' | 'telegram' | 'slack' | 'rss'
 
 function blankWebhook(): AlertWebhook {
   return { url: '', method: 'POST', headers: [], auth: 'standard', signed: false }
@@ -66,10 +67,57 @@ const chat = ref('')
 const botToken = ref('')
 const way = ref<Way>('email')
 
+// The panel that is open is part of the address, so a link to one opens it. The
+// hash is the way's own name: #email, #webhook, #telegram, #slack, #rss.
+const ways = ['email', 'webhook', 'telegram', 'slack', 'rss'] as const
+
+function isWay(value: string): value is Way {
+  return (ways as readonly string[]).includes(value)
+}
+
+function hashWay(): Way | null {
+  const hash = route.hash.replace(/^#/, '')
+  return isWay(hash) ? hash : null
+}
+
+function selectWay(next: Way) {
+  way.value = next
+  if (route.hash !== '#' + next) {
+    router.replace({ hash: '#' + next })
+  }
+}
+
+// A hand-edited address or a back button changes the hash without going through
+// selectWay, so the panel follows it.
+watch(
+  () => route.hash,
+  (hash) => {
+    const next = hash.replace(/^#/, '')
+    if (isWay(next) && next !== way.value) way.value = next
+  },
+)
+
+// The Slack way is a URL rather than a chat: the incoming webhook Slack makes for
+// the channel. It is a secret, so the field masks it and offers to show it.
+const slackURL = ref('')
+
 // Trying the chat, and what the chat service answered. It is a message like a
 // delivery, so what comes back is whether it arrived rather than a body.
 const trying = ref(false)
 const testAnswer = ref<{ ok: boolean; error: string } | null>(null)
+
+// Trying the Slack channel, which answers whether the message arrived.
+const slackTrying = ref(false)
+const slackAnswer = ref<{ ok: boolean; error: string } | null>(null)
+
+// Disconnecting is a save of its own: it stops the Slack way and leaves the
+// other ways and what the alert watches exactly as they were.
+const disconnecting = ref(false)
+
+// What an install answered, in the address the callback sent the browser back
+// with. It is read once and taken out of the address, so a reload does not say
+// it again. The channel itself arrives with the alert, not here.
+const slackNotice = ref<{ ok: boolean; text: string } | null>(null)
 
 // What the email reports on. A call reports on the whole service, whatever is
 // picked here, because its body says what the service looks like now.
@@ -79,7 +127,10 @@ const picked = ref<string[]>([])
 const emailsOn = computed(() => email.value.trim() !== '')
 const callsOn = computed(() => hook.value.url.trim() !== '')
 const chatsOn = computed(() => chat.value.trim() !== '')
-const anyWay = computed(() => emailsOn.value || callsOn.value || chatsOn.value)
+const slackOn = computed(() => slackURL.value.trim() !== '')
+const anyWay = computed(
+  () => emailsOn.value || callsOn.value || chatsOn.value || slackOn.value,
+)
 
 // What is wrong with the webhook URL as it stands. An empty one is not wrong:
 // that is how the calls are stopped. Anything else has to be an address the
@@ -102,10 +153,38 @@ const hookProblem = computed(() => {
   return ''
 })
 
-// An address or a chat with nothing picked beside it would be a way of being told
-// nothing, since both report on what was picked.
+// What is wrong with the Slack URL as it stands. An empty one is not wrong: that
+// is how the messages are stopped. Anything else has to be an incoming webhook
+// URL of the kind Slack itself makes for a channel.
+const slackProblem = computed(() => {
+  const url = slackURL.value.trim()
+  if (url === '') return ''
+  if (url.length > 1024) return 'That Slack webhook URL is too long.'
+
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return 'That does not look like a Slack webhook URL.'
+  }
+  const host = parsed.hostname
+  if (
+    parsed.protocol !== 'https:' ||
+    (host !== 'hooks.slack.com' && host !== 'hooks.slack-gov.com') ||
+    !parsed.pathname.startsWith('/services/')
+  ) {
+    return 'Paste the incoming webhook URL Slack gives you, starting with https://hooks.slack.com/services/.'
+  }
+  return ''
+})
+
+// An address, a chat or a Slack channel with nothing picked beside it would be a
+// way of being told nothing, since each reports on what was picked.
 const nothingToTellAbout = computed(
-  () => (emailsOn.value || chatsOn.value) && !whole.value && picked.value.length === 0,
+  () =>
+    (emailsOn.value || chatsOn.value || slackOn.value) &&
+    !whole.value &&
+    picked.value.length === 0,
 )
 
 // What the saved ways are, which is what a pause can be asked about: a way has
@@ -114,9 +193,19 @@ const nothingToTellAbout = computed(
 const savedEmail = computed(() => String(state.value?.email ?? ''))
 const savedWebhook = computed(() => String(state.value?.webhook?.url ?? ''))
 const savedTelegram = computed(() => String(state.value?.telegram ?? ''))
+const savedSlack = computed(() => String(state.value?.slack ?? ''))
+const slackChannel = computed(() => String(state.value?.slackChannel ?? ''))
 const emailPaused = computed(() => state.value?.emailPaused === true)
 const webhookPaused = computed(() => state.value?.webhookPaused === true)
 const telegramPaused = computed(() => state.value?.telegramPaused === true)
+const slackPaused = computed(() => state.value?.slackPaused === true)
+
+// Whether the site has a Slack app to install in one click. Without one the
+// panel keeps the manual webhook path and says why the button is not offered.
+const slackEnabled = computed(() => state.value?.slackEnabled === true)
+
+// A Slack message that reports on nothing would never have anything to say.
+const slackNothingToPost = computed(() => !whole.value && picked.value.length === 0)
 
 // Whether the site has a sender loop at all, which is what decides if a chat is
 // offered.
@@ -130,6 +219,7 @@ const nothingArriving = computed(() => {
     { set: savedEmail.value !== '', paused: emailPaused.value },
     { set: savedWebhook.value !== '', paused: webhookPaused.value },
     { set: savedTelegram.value !== '', paused: telegramPaused.value },
+    { set: savedSlack.value !== '', paused: slackPaused.value },
   ].filter((way) => way.set)
   return state.value?.subscribed === true && ways.length > 0 && ways.every((way) => way.paused)
 })
@@ -146,6 +236,7 @@ function wayState(on: boolean, paused: boolean) {
 const emailWay = computed(() => wayState(savedEmail.value !== '', emailPaused.value))
 const webhookWay = computed(() => wayState(savedWebhook.value !== '', webhookPaused.value))
 const telegramWay = computed(() => wayState(savedTelegram.value !== '', telegramPaused.value))
+const slackWay = computed(() => wayState(savedSlack.value !== '', slackPaused.value))
 
 // The address on the account, offered as a one click fill in the email panel
 // while the field is empty.
@@ -202,7 +293,24 @@ const sample = computed(() => {
   )
 })
 
-onMounted(load)
+onMounted(async () => {
+  await load()
+
+  const result = String(route.query.slack ?? '')
+  if (result) {
+    showSlackResult()
+    return
+  }
+
+  const next = hashWay()
+  if (next) way.value = next
+
+  // Keep the address naming the panel that is open, even when the panel was
+  // picked by what the alert already has.
+  if (route.hash !== '#' + way.value) {
+    router.replace({ hash: '#' + way.value })
+  }
+})
 
 async function load() {
   try {
@@ -220,14 +328,20 @@ async function load() {
       : blankWebhook()
     chat.value = res.subscribed ? res.telegram ?? '' : ''
     botToken.value = res.subscribed ? res.telegramBot ?? '' : ''
+    slackURL.value = res.subscribed ? res.slack ?? '' : ''
     testAnswer.value = null
+    slackAnswer.value = null
 
     whole.value = res.subscribed ? res.wholeService ?? true : true
     picked.value = res.subscribed ? res.components ?? [] : []
 
     // The way that is already set up decides which panel opens.
-    if (res.subscribed && !res.email && res.webhook && !res.telegram) way.value = 'webhook'
-    else if (res.subscribed && !res.email && !res.webhook && res.telegram) way.value = 'telegram'
+    if (res.subscribed && !res.email && res.webhook && !res.telegram && !res.slack) way.value = 'webhook'
+    else if (res.subscribed && !res.email && !res.webhook && res.telegram && !res.slack) {
+      way.value = 'telegram'
+    } else if (res.subscribed && !res.email && !res.webhook && !res.telegram && res.slack) {
+      way.value = 'slack'
+    }
   } catch (err) {
     error.value = apiError(err, 'Could not load this alert.')
   } finally {
@@ -235,10 +349,108 @@ async function load() {
   }
 }
 
+// What the callback said when Slack sent the browser back. The reason is in the
+// address rather than in the answer, because the install is a navigation. It is
+// read once and taken out of the address so a reload does not say it again.
+function showSlackResult() {
+  const result = String(route.query.slack ?? '')
+  if (!result) return
+
+  const messages: Record<string, { ok: boolean; text: string }> = {
+    connected: {
+      ok: true,
+      text: 'Slack is connected. The channel is saved with this alert.',
+    },
+    refused: {
+      ok: false,
+      text: 'Slack was not connected. Nothing changed.',
+    },
+    limit: {
+      ok: false,
+      text: 'Your account has reached its limit of services. Remove one from your alerts page first.',
+    },
+    pick: {
+      ok: false,
+      text: 'Pick the whole service or at least one component before connecting Slack.',
+    },
+    'too-many': {
+      ok: false,
+      text: 'This alert picks too many things to connect in one click. Pick the whole service instead.',
+    },
+    unavailable: {
+      ok: false,
+      text: 'Adding to Slack is not set up on this site. Paste a webhook URL below instead.',
+    },
+    failed: {
+      ok: false,
+      text: 'Slack could not be connected. Try again.',
+    },
+  }
+  slackNotice.value = messages[result] ?? messages.failed
+  way.value = 'slack'
+
+  const query = { ...route.query }
+  delete query.slack
+  router.replace({ query, hash: '#slack' })
+}
+
+// One click installs the site's Slack app. What the page holds is saved first,
+// so an address or a chat typed but not saved yet is not left behind by the trip
+// to Slack. A page with no other way has nothing to save before the callback
+// writes the channel with the picks below.
+async function connectSlack() {
+  if (!slackEnabled.value || slackNothingToPost.value || busy.value) return
+  if (hookProblem.value || slackProblem.value) return
+
+  if (anyWay.value) {
+    await save()
+    if (busy.value || error.value || secretOpen.value) return
+  }
+
+  const query = new URLSearchParams({ wholeService: String(whole.value) })
+  for (const id of picked.value) query.append('components', id)
+  window.location.href =
+    `/api/v1/vendors/${encodeURIComponent(slug.value)}/alerts/slack/connect?` +
+    query.toString()
+}
+
+// Stopping the channel is the same save the page already makes, with an empty
+// URL and the targets the alert already has. Naming only Slack leaves the other
+// ways alone, so nothing else about the alert changes.
+async function disconnectSlack() {
+  if (!savedSlack.value || disconnecting.value) return
+
+  disconnecting.value = true
+  slackNotice.value = null
+
+  try {
+    await $fetch(`/api/v1/vendors/${slug.value}/alerts`, {
+      method: 'POST',
+      body: {
+        slack: { url: '' },
+        wholeService: state.value?.wholeService ?? true,
+        components: state.value?.components ?? [],
+      },
+    })
+    await load()
+    slackNotice.value = {
+      ok: true,
+      text: 'Slack is disconnected. Nothing else about this alert changed.',
+    }
+  } catch (err) {
+    slackNotice.value = {
+      ok: false,
+      text: apiError(err, 'Could not disconnect Slack.'),
+    }
+  } finally {
+    disconnecting.value = false
+  }
+}
+
 // What a save sends: the whole alert every time, so what is off stays off. An
-// empty URL is a webhook being stopped rather than one being left as it was, and
-// the same goes for the chat. generateSecret asks for a fresh signing secret in
-// the same save, which is the only way one is made.
+// empty URL is a webhook or a Slack channel being stopped rather than one being
+// left as it was, and the same goes for the chat. generateSecret asks for a fresh
+// signing secret in the same save, which is the only way one is made.
 function alertBody(generateSecret = false) {
   return {
     email: email.value.trim(),
@@ -252,6 +464,7 @@ function alertBody(generateSecret = false) {
         }
       : { url: '' },
     telegram: { chatId: chat.value.trim(), botToken: botToken.value.trim() },
+    slack: { url: slackURL.value.trim() },
     wholeService: whole.value,
     components: picked.value,
   }
@@ -260,7 +473,7 @@ function alertBody(generateSecret = false) {
 type SaveAnswer = { status: string; webhookSecret?: string }
 
 async function save() {
-  if (hookProblem.value) return
+  if (hookProblem.value || slackProblem.value) return
 
   // A signed webhook needs a secret before it can be saved. The dialog is opened
   // instead of refusing at the banner: making the secret is the same save, and
@@ -349,7 +562,8 @@ async function setPaused(way: Way, event: Event) {
     })
     if (way === 'email') current.emailPaused = !on
     else if (way === 'webhook') current.webhookPaused = !on
-    else current.telegramPaused = !on
+    else if (way === 'telegram') current.telegramPaused = !on
+    else current.slackPaused = !on
   } catch (err) {
     error.value = apiError(err)
     box.checked = !on
@@ -422,6 +636,33 @@ async function tryTelegram() {
   }
 }
 
+// A message is sent to the Slack channel the page is holding, saved or not, so a
+// channel can be checked before it is relied on. What comes back is whether it
+// arrived, and what Slack said when it did not.
+async function trySlack() {
+  if (!slackOn.value && !savedSlack.value) return
+
+  slackTrying.value = true
+  slackAnswer.value = null
+  error.value = ''
+
+  try {
+    slackAnswer.value = await $fetch<{ ok: boolean; error: string }>(
+      `/api/v1/vendors/${slug.value}/alerts/slack/test`,
+      {
+        method: 'POST',
+        body: { url: slackURL.value.trim() },
+      },
+    )
+  } catch (err) {
+    // A refusal is shown in the answer box beside the button rather than in the
+    // banner at the top of the page, which is off screen from down here.
+    slackAnswer.value = { ok: false, error: apiError(err, 'The message could not be sent.') }
+  } finally {
+    slackTrying.value = false
+  }
+}
+
 // The sample body is meant to be pasted somewhere else, so the page hands it
 // over as it is. The button says it was copied for a moment, then goes back to
 // being pressable.
@@ -470,8 +711,8 @@ async function refreshCalls() {
         </h1>
         <p class="mt-1 text-sm opacity-70">
           One alert per service, arriving by email, by webhook, in a Telegram
-          chat, or several of them. An email and a chat report on what you pick;
-          a call carries the whole service.
+          chat, in a Slack channel, or several of them. An email, a chat and
+          Slack report on what you pick; a call carries the whole service.
         </p>
       </header>
 
@@ -498,7 +739,7 @@ async function refreshCalls() {
               role="tab"
               class="tab"
               :class="{ 'tab-active': way === 'email' }"
-              @click="way = 'email'"
+              @click="selectWay('email')"
             >
               Email
               <span class="badge badge-xs ml-1 max-sm:hidden" :class="emailWay.cls">
@@ -510,7 +751,7 @@ async function refreshCalls() {
               role="tab"
               class="tab"
               :class="{ 'tab-active': way === 'webhook' }"
-              @click="way = 'webhook'"
+              @click="selectWay('webhook')"
             >
               Webhook
               <span class="badge badge-xs ml-1 max-sm:hidden" :class="webhookWay.cls">
@@ -522,7 +763,7 @@ async function refreshCalls() {
               role="tab"
               class="tab"
               :class="{ 'tab-active': way === 'telegram' }"
-              @click="way = 'telegram'"
+              @click="selectWay('telegram')"
             >
               Telegram
               <span class="badge badge-xs ml-1 max-sm:hidden" :class="telegramWay.cls">
@@ -533,8 +774,20 @@ async function refreshCalls() {
               type="button"
               role="tab"
               class="tab"
+              :class="{ 'tab-active': way === 'slack' }"
+              @click="selectWay('slack')"
+            >
+              Slack
+              <span class="badge badge-xs ml-1 max-sm:hidden" :class="slackWay.cls">
+                {{ slackWay.label }}
+              </span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              class="tab"
               :class="{ 'tab-active': way === 'rss' }"
-              @click="way = 'rss'"
+              @click="selectWay('rss')"
             >
               RSS
             </button>
@@ -550,7 +803,7 @@ async function refreshCalls() {
                 class="justify-between"
                 :class="{ 'menu-active': way === 'email' }"
                 :aria-current="way === 'email' ? 'true' : undefined"
-                @click="way = 'email'"
+                @click="selectWay('email')"
               >
                 Email
                 <span class="badge badge-xs" :class="emailWay.cls">
@@ -564,7 +817,7 @@ async function refreshCalls() {
                 class="justify-between"
                 :class="{ 'menu-active': way === 'webhook' }"
                 :aria-current="way === 'webhook' ? 'true' : undefined"
-                @click="way = 'webhook'"
+                @click="selectWay('webhook')"
               >
                 Webhook
                 <span class="badge badge-xs" :class="webhookWay.cls">
@@ -578,7 +831,7 @@ async function refreshCalls() {
                 class="justify-between"
                 :class="{ 'menu-active': way === 'telegram' }"
                 :aria-current="way === 'telegram' ? 'true' : undefined"
-                @click="way = 'telegram'"
+                @click="selectWay('telegram')"
               >
                 Telegram
                 <span class="badge badge-xs" :class="telegramWay.cls">
@@ -590,9 +843,23 @@ async function refreshCalls() {
               <button
                 type="button"
                 class="justify-between"
+                :class="{ 'menu-active': way === 'slack' }"
+                :aria-current="way === 'slack' ? 'true' : undefined"
+                @click="selectWay('slack')"
+              >
+                Slack
+                <span class="badge badge-xs" :class="slackWay.cls">
+                  {{ slackWay.label }}
+                </span>
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                class="justify-between"
                 :class="{ 'menu-active': way === 'rss' }"
                 :aria-current="way === 'rss' ? 'true' : undefined"
-                @click="way = 'rss'"
+                @click="selectWay('rss')"
               >
                 RSS
               </button>
@@ -999,12 +1266,29 @@ webhook-signature: v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=</pre>
               </p>
 
               <template v-if="telegramEnabled">
-                <p class="mt-3 text-sm opacity-70">
-                  Make a bot of your own with
-                  <span class="font-medium">@BotFather</span> in Telegram and paste
-                  the token it gives you here. Then press Start on that bot, since
-                  a bot can only message a chat that started it.
-                </p>
+                <details class="mt-3 min-w-0 rounded-box border border-base-300">
+                  <summary class="cursor-pointer px-4 py-3 text-sm font-medium">
+                    How to make a bot
+                  </summary>
+                  <div class="min-w-0 border-t border-base-300 px-4 py-3">
+                    <ol class="list-decimal space-y-1 pl-5 text-sm opacity-70">
+                      <li>
+                        Make a bot of your own with
+                        <span class="font-medium">@BotFather</span> in Telegram, then
+                        paste the token it gives you here.
+                      </li>
+                      <li>
+                        Press Start on that bot, since a bot can only message a chat
+                        that started it.
+                      </li>
+                      <li>
+                        Get the chat's number from
+                        <span class="font-medium">@userinfobot</span>. For a group,
+                        add your bot to the group first.
+                      </li>
+                    </ol>
+                  </div>
+                </details>
 
                 <!-- The class goes on a wrapper rather than on the field: a
                      PasswordInput hands its attributes to the input itself. -->
@@ -1030,9 +1314,8 @@ webhook-signature: v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=</pre>
                   class="input input-bordered mt-3 w-full"
                 >
                 <p class="mt-2 text-sm opacity-70">
-                  The chat's number goes here: @userinfobot gives you yours, and for
-                  a group, add your bot to the group first. Leave the chat empty to
-                  stop the messages for good.
+                  The chat's number, from @userinfobot. Leave it empty to stop the
+                  messages for good.
                 </p>
 
                 <div class="mt-3 flex flex-wrap items-center gap-3">
@@ -1109,6 +1392,219 @@ webhook-signature: v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=</pre>
               </div>
             </div>
 
+            <div v-show="way === 'slack'">
+              <h3 class="font-semibold">Slack</h3>
+              <p class="mt-1 text-sm opacity-70">
+                A message in a Slack channel each time one of the things you pick
+                below changes, in either direction.
+              </p>
+
+              <!-- Installing the site's Slack app is the way this is meant to be
+                   set up: Slack asks which channel, and the webhook it makes is
+                   saved here. The manual field below is the other way, for a
+                   reader who already has a webhook of their own. -->
+              <div
+                v-if="slackNotice"
+                :role="slackNotice.ok ? 'status' : 'alert'"
+                class="alert mt-4 py-2 text-sm"
+                :class="slackNotice.ok ? 'alert-success' : 'alert-error'"
+              >
+                <span>{{ slackNotice.text }}</span>
+              </div>
+
+              <div
+                class="mt-4"
+                :class="slackChannel ? 'rounded-box border border-base-300 p-4' : ''"
+              >
+                <div class="flex flex-wrap items-center gap-3">
+                  <p v-if="slackChannel" class="min-w-0 text-sm">
+                    Connected to
+                    <span class="font-medium">{{ slackChannel }}</span>. Connect
+                    again to move it.
+                  </p>
+                  <div
+                    class="flex flex-wrap items-center gap-2"
+                    :class="slackChannel ? 'ml-auto' : ''"
+                  >
+                    <button
+                      type="button"
+                      class="btn btn-sm shrink-0"
+                      :disabled="!slackEnabled || slackNothingToPost || busy"
+                      @click="connectSlack"
+                    >
+                      <SlackIcon class="size-4 shrink-0" />
+                      {{ slackChannel ? 'Change channel' : 'Add to Slack' }}
+                    </button>
+                    <button
+                      v-if="slackChannel"
+                      type="button"
+                      class="btn btn-ghost btn-sm text-error"
+                      :disabled="disconnecting || busy"
+                      @click="disconnectSlack"
+                    >
+                      <span
+                        v-if="disconnecting"
+                        class="loading loading-spinner loading-xs"
+                      />
+                      Disconnect
+                    </button>
+                  </div>
+                </div>
+                <p v-if="!slackEnabled" class="mt-3 text-xs opacity-70">
+                  Signing in to Slack is not set up on this site. Paste a webhook
+                  URL below.
+                </p>
+                <p v-else-if="slackNothingToPost" class="mt-3 text-xs text-error">
+                  Pick the whole service or a component below first.
+                </p>
+              </div>
+
+              <!-- A channel added in one click has no URL to paste and nothing to
+                   look up, so the manual way is not shown beside it. A URL that
+                   was pasted by hand keeps the field, because that is how it is
+                   checked or replaced. -->
+              <template v-if="!slackChannel">
+                <div class="mt-5 flex items-center gap-3 text-xs opacity-70">
+                  <span class="h-px flex-1 bg-base-300" />
+                  or paste a webhook URL
+                  <span class="h-px flex-1 bg-base-300" />
+                </div>
+
+                <details class="mt-3 min-w-0 rounded-box border border-base-300">
+                  <summary class="cursor-pointer px-4 py-3 text-sm font-medium">
+                    How to make a webhook
+                  </summary>
+                  <div class="min-w-0 border-t border-base-300 px-4 py-3">
+                    <ol class="list-decimal space-y-1 pl-5 text-sm opacity-70">
+                      <li>
+                        Open
+                        <a
+                          href="https://api.slack.com/apps"
+                          class="link"
+                          target="_blank"
+                          rel="noopener"
+                        >api.slack.com/apps</a>
+                        and create an app from scratch.
+                      </li>
+                      <li>In the app, open Incoming Webhooks and switch it on.</li>
+                      <li>
+                        Add a webhook to the workspace, pick the channel, then copy
+                        the URL it gives you here.
+                      </li>
+                    </ol>
+                    <p class="mt-2 text-sm opacity-70">
+                      Anybody who may add apps to the workspace can make one.
+                    </p>
+                  </div>
+                </details>
+
+                <!-- The URL is a secret, so the field masks it and offers to show
+                     it, the same way the chat's bot token is shown. -->
+                <div class="mt-3">
+                  <PasswordInput
+                    v-model="slackURL"
+                    label="Webhook URL"
+                    secret="webhook URL"
+                    autocomplete="off"
+                    placeholder="https://hooks.slack.com/services/..."
+                  >
+                    <p v-if="slackProblem" class="mt-2 text-sm text-error">{{ slackProblem }}</p>
+                    <p class="mt-2 text-sm opacity-70">
+                      The URL is kept with this alert and shown masked. Leave it
+                      empty to stop the messages for good.
+                    </p>
+                  </PasswordInput>
+                </div>
+              </template>
+
+              <!-- What a Slack message reports on, which is what the subscriber
+                   picked: the message names the component that moved. -->
+              <div class="mt-4 rounded-box border border-base-300">
+                <div class="flex items-center justify-between border-b border-base-300 px-5 py-3">
+                  <span class="text-sm font-medium">What to post about</span>
+                  <StatusBadge :status="vendor.status" size="xs" />
+                </div>
+                <AlertTargets
+                  v-model:whole="whole"
+                  v-model:picked="picked"
+                  :slug="slug"
+                  :name="vendor.name"
+                  :status="vendor.status"
+                  :components="vendor.componentsList ?? []"
+                />
+              </div>
+
+              <div class="mt-3 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  class="btn btn-outline btn-sm"
+                  :disabled="slackTrying || (!slackOn && !savedSlack) || !!slackProblem"
+                  @click="trySlack"
+                >
+                  <span v-if="slackTrying" class="loading loading-spinner loading-xs" />
+                  Send a test message
+                </button>
+                <span v-if="!slackAnswer" class="text-xs opacity-70">
+                  A message goes to this channel now, saved or not.
+                </span>
+              </div>
+
+              <div
+                v-if="slackAnswer"
+                class="mt-3 rounded-box border border-base-300 bg-base-200 p-3"
+              >
+                <p class="flex flex-wrap items-center gap-2 text-sm">
+                  <span class="font-medium">What Slack answered</span>
+                  <span
+                    class="badge badge-sm"
+                    :class="slackAnswer.ok ? 'badge-success' : 'badge-error'"
+                  >
+                    {{ slackAnswer.ok ? 'delivered' : 'refused' }}
+                  </span>
+                </p>
+                <p v-if="slackAnswer.error" class="mt-2 text-sm text-error">
+                  {{ slackAnswer.error }}
+                </p>
+                <p v-else class="mt-2 text-sm opacity-70">
+                  The message arrived in that channel.
+                </p>
+              </div>
+
+              <!-- The way's own switch, at the end of the way and just before
+                   Save, the same as the other three. -->
+              <div class="mt-5 border-t border-base-300 pt-4">
+                <div class="flex items-center gap-3">
+                  <input
+                    id="pause-slack"
+                    type="checkbox"
+                    class="toggle toggle-sm"
+                    :checked="!!savedSlack && !slackPaused"
+                    :disabled="!savedSlack || pausing === 'slack'"
+                    @change="setPaused('slack', $event)"
+                  >
+                  <label
+                    for="pause-slack"
+                    class="text-sm"
+                    :class="savedSlack ? 'cursor-pointer' : ''"
+                  >
+                    <template v-if="!savedSlack">
+                      Nothing to pause yet.
+                      <span class="opacity-70">Save a URL and this switch will
+                        hold the messages back without taking it away.</span>
+                    </template>
+                    <template v-else-if="slackPaused">
+                      Messages are paused.
+                      <span class="opacity-70">Switch this on to hear about changes again.</span>
+                    </template>
+                    <template v-else>
+                      Messages are on.
+                      <span class="opacity-70">Switch this off to pause them without taking the URL away.</span>
+                    </template>
+                  </label>
+                </div>
+              </div>
+            </div>
+
             <!-- The feed is the one way here that nothing is kept for, so it has
                  no switch and no field to save: what it is, is an address. It
                  sits last because it is the way with nothing to set up. -->
@@ -1127,7 +1623,7 @@ webhook-signature: v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=</pre>
               <button
                 type="button"
                 class="btn btn-primary btn-sm"
-                :disabled="busy || nothingToTellAbout || (!anyWay && !state?.subscribed) || !!hookProblem"
+                :disabled="busy || nothingToTellAbout || (!anyWay && !state?.subscribed) || !!hookProblem || !!slackProblem"
                 @click="save"
               >
                 <span v-if="busy" class="loading loading-spinner loading-xs" />
@@ -1139,7 +1635,8 @@ webhook-signature: v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=</pre>
               Pick at least one thing to be told about.
             </p>
             <p v-else-if="!anyWay && !state?.subscribed" class="mt-2 text-sm opacity-70">
-              An alert needs an address, a webhook or a chat to arrive on.
+              An alert needs an address, a webhook, a chat or a Slack webhook to
+              arrive on.
             </p>
           </div>
         </div>

@@ -207,6 +207,7 @@ export interface AlertState {
   emailPaused?: boolean
   webhookPaused?: boolean
   telegramPaused?: boolean
+  slackPaused?: boolean
   wholeService?: boolean
   components?: string[]
   webhook?: AlertWebhook | null
@@ -216,6 +217,14 @@ export interface AlertState {
   telegram?: string
   telegramBot?: string
   telegramEnabled?: boolean
+  // The incoming webhook URL of the Slack channel, which the page shows masked
+  // with a switch to reveal it, the same way the chat's bot token is shown. The
+  // name is what an install left behind, so the page can say which channel the
+  // messages go to; a URL pasted by hand has none. SlackEnabled says whether the
+  // site has a Slack app to install in one click.
+  slack?: string
+  slackChannel?: string
+  slackEnabled?: boolean
   calls?: WebhookCall[]
 }
 

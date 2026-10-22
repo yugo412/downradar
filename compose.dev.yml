@@ -117,6 +117,11 @@ services:
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      # Adding a Slack channel in one click installs the site's own Slack app.
+      # The callback registered with it is PUBLIC_URL plus
+      # /api/v1/slack/callback.
+      SLACK_CLIENT_ID: ${SLACK_CLIENT_ID:-}
+      SLACK_CLIENT_SECRET: ${SLACK_CLIENT_SECRET:-}
       ALERT_SEND_INTERVAL: ${ALERT_SEND_INTERVAL:-5s}
       ALERT_RATE_LIMIT_PER_HOUR: ${ALERT_RATE_LIMIT_PER_HOUR:-6}
       ALERT_RATE_LIMIT_BURST: ${ALERT_RATE_LIMIT_BURST:-5}

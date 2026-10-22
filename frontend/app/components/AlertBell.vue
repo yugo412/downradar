@@ -183,7 +183,8 @@ async function subscribe() {
         <p class="mt-2 text-sm opacity-70">Every email has a link to stop them again.</p>
         <p class="mt-2 text-sm opacity-70">
           <NuxtLink to="/login" class="link">Sign in</NuxtLink>
-          to have the alert in one place and reach it by webhook as well.
+          to keep the alert in one place and add a webhook, a chat or a Slack
+          channel as well.
         </p>
         <div class="mt-4 flex justify-end">
           <button type="button" class="btn btn-sm" @click="close">Close</button>

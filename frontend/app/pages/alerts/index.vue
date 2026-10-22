@@ -12,12 +12,16 @@ const limit = ref<number | null>(null)
 const used = ref(0)
 const loading = ref(true)
 const error = ref('')
+const notice = ref('')
 const busy = ref<number | null>(null)
 const deleting = ref<AccountAlert | null>(null)
 
 const atLimit = computed(() => limit.value !== null && used.value >= limit.value)
 
-onMounted(load)
+onMounted(async () => {
+  await load()
+  showSlackFailure()
+})
 
 async function load() {
   try {
@@ -32,6 +36,18 @@ async function load() {
   } finally {
     loading.value = false
   }
+}
+
+// A Slack install that never made it back to an alert page ends here, because
+// the callback had no alert to name. The reason is read once and taken out of
+// the address, so a reload does not say it again.
+function showSlackFailure() {
+  if (String(route.query.slack ?? '') !== 'failed') return
+
+  notice.value = 'Slack could not be connected. Open the alert page and try again.'
+  const query = { ...route.query }
+  delete query.slack
+  router.replace({ query })
 }
 
 // Pause, resume and unsubscribe are the same change asked for three ways.
@@ -84,13 +100,15 @@ function watches(alert: AccountAlert) {
 }
 
 // What a row arrives by, which is what the list says about where an alert goes:
-// a row can use an email, a webhook, or both, and a row that is quiet or ended
-// still says how it used to arrive. The destination itself is on the page for
-// its service, beside the field that holds it.
+// a row can use an address, a webhook, a chat, a Slack channel, or several of
+// them, and a row that is quiet or ended still says how it used to arrive. The
+// destination itself is on the page for its service, beside the field that holds
+// it.
 const CHANNEL_LABELS: Record<string, string> = {
   email: 'Email',
   webhook: 'Webhook',
   telegram: 'Telegram',
+  slack: 'Slack',
 }
 
 function channelNames(alert: AccountAlert) {
@@ -349,15 +367,20 @@ watch(
     <header class="mb-6">
       <h1 class="text-2xl font-bold tracking-tight">Alerts</h1>
       <p class="mt-1 text-sm opacity-70">
-        You get an email, a webhook call, or both each time one of these changes status.
-        An email reports on what you picked; a call carries the whole service, its own
-        status and every component under it. Every email carries an unsubscribe link
-        as well.
+        You get an email, a webhook call, a Telegram message or a Slack message
+        each time one of these changes status. An email, a chat and a Slack
+        channel report on what you picked; a call carries the whole service, its
+        own status and every component under it. Emails, chats and Slack messages
+        carry a link that stops them as well.
       </p>
     </header>
 
     <p v-if="error" role="alert" class="alert alert-error mb-6">
       <span>{{ error }}</span>
+    </p>
+
+    <p v-if="notice" role="alert" class="alert alert-warning mb-6">
+      <span>{{ notice }}</span>
     </p>
 
     <p v-if="atLimit" class="alert alert-warning mb-6">

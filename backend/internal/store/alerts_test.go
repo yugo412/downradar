@@ -1750,3 +1750,119 @@ func TestALinkCanPauseTheWayItCameFrom(t *testing.T) {
 		t.Errorf("an unknown link = %v, want ErrNotFound", err)
 	}
 }
+
+// A Slack channel is a fourth way for one alert: it is saved beside an address,
+// one URL names where it posts, and an empty one stops it. The URL is a secret,
+// so it stays on the channel and the page is handed it to show masked.
+func TestASlackChannelIsAFourthWayForOneAlert(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	user := newTestUser(t, st, "subscriber")
+	id := alertService(t, st, uniqueName("alert slack"))
+
+	email := "sari@example.com"
+	const first = "https://hooks.slack.com/services/T000/B000/first"
+	if err := st.SubscribeAlert(ctx, id, &user.ID, AlertChange{
+		Email:      &email,
+		EmailToken: "token-slack-mail",
+		Slack:      &AlertSlack{URL: first},
+		SlackToken: "token-slack-way",
+		Targets:    WholeVendor,
+	}); err != nil {
+		t.Fatalf("SubscribeAlert: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = st.UnsubscribeAlert(context.Background(), "token-slack-mail")
+		_ = st.UnsubscribeAlert(context.Background(), "token-slack-way")
+	})
+
+	view, err := st.UserAlert(ctx, user.ID, id)
+	if err != nil {
+		t.Fatalf("UserAlert: %v", err)
+	}
+	if view.Slack != first {
+		t.Errorf("slack = %q, want %q", view.Slack, first)
+	}
+	if view.SlackPaused {
+		t.Error("a channel that was just saved reads as paused")
+	}
+	if view.Email != email {
+		t.Errorf("email = %q, want %q", view.Email, email)
+	}
+
+	// Saving a new URL for the way keeps it one channel, and keeps the token that
+	// the link in a message already sent stops it by.
+	const second = "https://hooks.slack.com/services/T000/B000/second"
+	if err := st.SubscribeAlert(ctx, id, &user.ID, AlertChange{
+		Slack:      &AlertSlack{URL: second},
+		SlackToken: "token-slack-other",
+		Targets:    WholeVendor,
+	}); err != nil {
+		t.Fatalf("SubscribeAlert again: %v", err)
+	}
+
+	if n := countRows(t, st, `
+		select count(*) from alert_channels
+		where subscription_id = (select id from alert_subscriptions where service_id = $1)
+		  and kind = 'slack'`, id); n != 1 {
+		t.Errorf("slack channels = %d, want one", n)
+	}
+	if n := countRows(t, st, `
+		select count(*) from alert_channels
+		where token = 'token-slack-way' and address = $1`, second); n != 1 {
+		t.Error("the saved channel was replaced with a new token instead of updated")
+	}
+
+	view, err = st.UserAlert(ctx, user.ID, id)
+	if err != nil {
+		t.Fatalf("UserAlert after the change: %v", err)
+	}
+	if view.Slack != second {
+		t.Errorf("slack = %q, want %q", view.Slack, second)
+	}
+	if view.Email != email {
+		t.Errorf("saving the channel changed the email to %q", view.Email)
+	}
+
+	// A delivery waiting for the way carries the URL, because that is the whole of
+	// where it posts.
+	queueDeliveryFor(t, st, "token-slack-way", nil)
+	pending, err := st.PendingAlerts(ctx, 3, 50)
+	if err != nil {
+		t.Fatalf("PendingAlerts: %v", err)
+	}
+	carried := false
+	for _, alert := range pending {
+		if alert.Kind == ChannelSlack && alert.SlackURL == second {
+			carried = true
+		}
+	}
+	if !carried {
+		t.Error("a Slack delivery does not carry the webhook it posts to")
+	}
+
+	// An empty URL is the way being stopped, and the email beside it stays.
+	if err := st.SubscribeAlert(ctx, id, &user.ID, AlertChange{
+		Slack:   &AlertSlack{},
+		Targets: WholeVendor,
+	}); err != nil {
+		t.Fatalf("SubscribeAlert with no URL: %v", err)
+	}
+	if n := countRows(t, st, `
+		select count(*) from alert_channels
+		where token = 'token-slack-way' and unsubscribed_at is not null`); n != 1 {
+		t.Error("the stopped channel is not marked as stopped")
+	}
+
+	view, err = st.UserAlert(ctx, user.ID, id)
+	if err != nil {
+		t.Fatalf("UserAlert after stopping: %v", err)
+	}
+	if view.Slack != "" {
+		t.Errorf("slack = %q, want it empty once stopped", view.Slack)
+	}
+	if view.Email != email {
+		t.Errorf("stopping the channel changed the email to %q", view.Email)
+	}
+}
