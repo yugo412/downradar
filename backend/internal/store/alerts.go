@@ -1513,6 +1513,7 @@ func (s *Store) PendingAlerts(ctx context.Context, maxAttempts, limit int) ([]Pe
 		join services s on s.id = d.service_id
 		left join components cm on cm.id = d.component_id
 		where d.sent_at is null and d.attempts < $1
+		  and d.deliver_after <= now()
 		  and c.unsubscribed_at is null and c.paused_at is null
 		order by d.id
 		limit $2`, maxAttempts, limit)
@@ -1689,22 +1690,27 @@ func (s *Store) WebhookCalls(ctx context.Context, userID, serviceID int64, limit
 	return out, rows.Err()
 }
 
-// SentAlert marks one message as delivered.
-func (s *Store) SentAlert(ctx context.Context, id int64) error {
+// SentAlert marks one message as delivered. The status and time have to match
+// what was sent: a change that arrived while the call was in flight has replaced
+// the row and still needs its own message.
+func (s *Store) SentAlert(ctx context.Context, id int64, toStatus string, changedAt time.Time) error {
 	if _, err := s.pool.Exec(ctx, `
 		update alert_deliveries set sent_at = now(), error = null
-		where id = $1`, id); err != nil {
+		where id = $1 and to_status = $2 and changed_at = $3 and sent_at is null`,
+		id, toStatus, changedAt); err != nil {
 		return fmt.Errorf("alerts: mark sent: %w", err)
 	}
 	return nil
 }
 
 // FailedAlert records one failed attempt. The row keeps its error and its count,
-// which is what stops a dead address from being retried for ever.
-func (s *Store) FailedAlert(ctx context.Context, id int64, message string) error {
+// which is what stops a dead address from being retried for ever. A row that
+// changed while the attempt was in flight is left for its newer state.
+func (s *Store) FailedAlert(ctx context.Context, id int64, toStatus string, changedAt time.Time, message string) error {
 	if _, err := s.pool.Exec(ctx, `
-		update alert_deliveries set attempts = attempts + 1, error = $2
-		where id = $1`, id, message); err != nil {
+		update alert_deliveries set attempts = attempts + 1, error = $4
+		where id = $1 and to_status = $2 and changed_at = $3 and sent_at is null`,
+		id, toStatus, changedAt, message); err != nil {
 		return fmt.Errorf("alerts: mark failed: %w", err)
 	}
 	return nil

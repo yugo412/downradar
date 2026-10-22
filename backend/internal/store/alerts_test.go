@@ -47,6 +47,8 @@ func queuedFor(t *testing.T, st *Store, serviceID int64) int {
 func reportWith(status adapters.Health) adapters.Report {
 	rep := testReport("")
 	rep.Global = status
+	// Old enough that a queued delivery has passed its settle window.
+	rep.FetchedAt = time.Now().UTC().Add(-time.Hour)
 	return rep
 }
 
@@ -246,7 +248,7 @@ func TestApplyReportQueuesOneAlertPerChange(t *testing.T) {
 
 	// Once it is marked sent it leaves the queue, and a failure is counted so a
 	// dead address cannot be retried for ever.
-	if err := st.SentAlert(ctx, alert.ID); err != nil {
+	if err := st.SentAlert(ctx, alert.ID, alert.ToStatus, alert.ChangedAt); err != nil {
 		t.Fatalf("SentAlert: %v", err)
 	}
 	pending, err = st.PendingAlerts(ctx, 3, 10)
@@ -255,6 +257,228 @@ func TestApplyReportQueuesOneAlertPerChange(t *testing.T) {
 	}
 	if len(pending) != 0 {
 		t.Errorf("pending after sending = %d, want none", len(pending))
+	}
+}
+
+func TestAChangeWaitsForItsSettleWindow(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	id := alertService(t, st, uniqueName("alert settle"))
+	if err := st.SubscribeAlert(ctx, id, nil, EmailOnly("jane@example.com", "token-jane", WholeVendor)); err != nil {
+		t.Fatalf("SubscribeAlert: %v", err)
+	}
+
+	rep := testReport("")
+	rep.FetchedAt = time.Now().UTC()
+	rep.Global = adapters.HealthOK
+	if _, err := st.ApplyReport(ctx, id, rep); err != nil {
+		t.Fatalf("first poll: %v", err)
+	}
+	rep.Global = adapters.HealthMajor
+	rep.FetchedAt = time.Now().UTC()
+	if _, err := st.ApplyReport(ctx, id, rep); err != nil {
+		t.Fatalf("second poll: %v", err)
+	}
+
+	var due time.Time
+	if err := st.pool.QueryRow(ctx, `
+		select deliver_after from alert_deliveries
+		where service_id = $1 and sent_at is null`, id).Scan(&due); err != nil {
+		t.Fatalf("read deliver_after: %v", err)
+	}
+	if wait := time.Until(due); wait < 4*time.Minute || wait > 6*time.Minute {
+		t.Errorf("delivery waits %v, want about the settle window", wait)
+	}
+
+	// A change that has not settled is not handed to the sender yet.
+	pending, err := st.PendingAlerts(ctx, 3, 100)
+	if err != nil {
+		t.Fatalf("PendingAlerts: %v", err)
+	}
+	for _, alert := range pending {
+		if alert.ServiceID == id {
+			t.Errorf("an unsettled change is already queued: %+v", alert)
+		}
+	}
+
+	if _, err := st.pool.Exec(ctx, `
+		update alert_deliveries set deliver_after = now() - interval '1 second'
+		where service_id = $1 and sent_at is null`, id); err != nil {
+		t.Fatalf("release the delivery: %v", err)
+	}
+	pending, err = st.PendingAlerts(ctx, 3, 100)
+	if err != nil {
+		t.Fatalf("PendingAlerts after the wait: %v", err)
+	}
+	for _, alert := range pending {
+		if alert.ServiceID == id {
+			if alert.FromStatus != string(adapters.HealthOK) || alert.ToStatus != string(adapters.HealthMajor) {
+				t.Errorf("alert says %s -> %s, want ok -> major", alert.FromStatus, alert.ToStatus)
+			}
+			return
+		}
+	}
+	t.Fatal("a settled change is not queued")
+}
+
+func TestAChangeBurstBecomesOneMessage(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	id := alertService(t, st, uniqueName("alert burst"))
+	if err := st.SubscribeAlert(ctx, id, nil, EmailOnly("kate@example.com", "token-kate", WholeVendor)); err != nil {
+		t.Fatalf("SubscribeAlert: %v", err)
+	}
+
+	rep := testReport("")
+	rep.FetchedAt = time.Now().UTC()
+	rep.Global = adapters.HealthOK
+	if _, err := st.ApplyReport(ctx, id, rep); err != nil {
+		t.Fatalf("first poll: %v", err)
+	}
+	for _, status := range []adapters.Health{adapters.HealthMajor, adapters.HealthDegraded} {
+		rep.Global = status
+		rep.FetchedAt = time.Now().UTC()
+		if _, err := st.ApplyReport(ctx, id, rep); err != nil {
+			t.Fatalf("poll to %s: %v", status, err)
+		}
+	}
+
+	if n := queuedFor(t, st, id); n != 1 {
+		t.Fatalf("waiting after a burst = %d, want one message", n)
+	}
+	var from, to string
+	if err := st.pool.QueryRow(ctx, `
+		select from_status, to_status from alert_deliveries
+		where service_id = $1 and sent_at is null`, id).Scan(&from, &to); err != nil {
+		t.Fatalf("read the burst delivery: %v", err)
+	}
+	if from != string(adapters.HealthOK) || to != string(adapters.HealthDegraded) {
+		t.Errorf("burst says %s -> %s, want ok -> degraded", from, to)
+	}
+
+	// Returning to where the burst started leaves nothing to announce.
+	rep.Global = adapters.HealthOK
+	rep.FetchedAt = time.Now().UTC()
+	if _, err := st.ApplyReport(ctx, id, rep); err != nil {
+		t.Fatalf("poll back to ok: %v", err)
+	}
+	if n := queuedFor(t, st, id); n != 0 {
+		t.Errorf("waiting after the burst returned = %d, want none", n)
+	}
+
+	// Holding the delivery does not drop any of the history: every transition is
+	// still an event on the vendor.
+	if n := countRows(t, st, `
+		select count(*) from status_events
+		where service_id = $1 and component_id is null`, id); n != 4 {
+		t.Errorf("vendor events = %d, want the baseline and every transition", n)
+	}
+}
+
+func TestAStaleSendLeavesTheNewerChangePending(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	id := alertService(t, st, uniqueName("alert stale send"))
+	if err := st.SubscribeAlert(ctx, id, nil, EmailOnly("mia@example.com", "token-mia", WholeVendor)); err != nil {
+		t.Fatalf("SubscribeAlert: %v", err)
+	}
+
+	rep := testReport("")
+	rep.FetchedAt = time.Now().UTC()
+	rep.Global = adapters.HealthOK
+	if _, err := st.ApplyReport(ctx, id, rep); err != nil {
+		t.Fatalf("first poll: %v", err)
+	}
+	rep.Global = adapters.HealthMajor
+	rep.FetchedAt = time.Now().UTC()
+	if _, err := st.ApplyReport(ctx, id, rep); err != nil {
+		t.Fatalf("second poll: %v", err)
+	}
+
+	var alertID int64
+	var sentAt *time.Time
+	var changedAt time.Time
+	if err := st.pool.QueryRow(ctx, `
+		select id, changed_at from alert_deliveries
+		where service_id = $1 and sent_at is null`, id).Scan(&alertID, &changedAt); err != nil {
+		t.Fatalf("read the first change: %v", err)
+	}
+
+	rep.Global = adapters.HealthDegraded
+	rep.FetchedAt = time.Now().UTC()
+	if _, err := st.ApplyReport(ctx, id, rep); err != nil {
+		t.Fatalf("third poll: %v", err)
+	}
+
+	// The sender had the first change in hand; its answer must not retire the
+	// change that replaced it.
+	if err := st.SentAlert(ctx, alertID, string(adapters.HealthMajor), changedAt); err != nil {
+		t.Fatalf("SentAlert: %v", err)
+	}
+	if err := st.pool.QueryRow(ctx, `
+		select sent_at from alert_deliveries where id = $1`, alertID).Scan(&sentAt); err != nil {
+		t.Fatalf("read sent_at: %v", err)
+	}
+	if sentAt != nil {
+		t.Error("a stale send marked the newer change as delivered")
+	}
+	if n := queuedFor(t, st, id); n != 1 {
+		t.Errorf("waiting after a stale send = %d, want the newer change", n)
+	}
+}
+
+func TestAComponentBurstBecomesOneMessage(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	id := alertService(t, st, uniqueName("alert component burst"))
+	report := func(status adapters.Health) adapters.Report {
+		rep := testReport("")
+		rep.FetchedAt = time.Now().UTC()
+		rep.Components[0].Status = status
+		return rep
+	}
+	if _, err := st.ApplyReport(ctx, id, report(adapters.HealthOK)); err != nil {
+		t.Fatalf("first poll: %v", err)
+	}
+
+	componentIDs, err := st.ComponentIDs(ctx, id, []string{"c1"})
+	if err != nil {
+		t.Fatalf("ComponentIDs: %v", err)
+	}
+	if err := st.SubscribeAlert(ctx, id, nil, EmailOnly("leo@example.com", "token-leo",
+		AlertTargets{Components: componentIDs})); err != nil {
+		t.Fatalf("SubscribeAlert: %v", err)
+	}
+
+	for _, status := range []adapters.Health{adapters.HealthDegraded, adapters.HealthMajor} {
+		if _, err := st.ApplyReport(ctx, id, report(status)); err != nil {
+			t.Fatalf("poll to %s: %v", status, err)
+		}
+	}
+
+	if n := queuedFor(t, st, id); n != 1 {
+		t.Fatalf("waiting after the component burst = %d, want one message", n)
+	}
+	var from, to string
+	if err := st.pool.QueryRow(ctx, `
+		select from_status, to_status from alert_deliveries
+		where service_id = $1 and component_id is not null and sent_at is null`, id).Scan(&from, &to); err != nil {
+		t.Fatalf("read the component burst: %v", err)
+	}
+	if from != string(adapters.HealthOK) || to != string(adapters.HealthMajor) {
+		t.Errorf("component burst says %s -> %s, want ok -> major", from, to)
+	}
+
+	// Returning to where it started leaves nothing to announce.
+	if _, err := st.ApplyReport(ctx, id, report(adapters.HealthOK)); err != nil {
+		t.Fatalf("poll back to ok: %v", err)
+	}
+	if n := queuedFor(t, st, id); n != 0 {
+		t.Errorf("waiting after the component returned = %d, want none", n)
 	}
 }
 
