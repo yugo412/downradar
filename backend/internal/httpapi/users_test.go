@@ -113,7 +113,7 @@ func testRouterWithOptions(t *testing.T, tune func(*Options)) (*store.Store, htt
 	}
 
 	ctx := context.Background()
-	st, err := store.New(ctx, dsn, store.Options{})
+	st, err := store.New(ctx, dsn, store.Options{AppKey: "test-app-key"})
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}

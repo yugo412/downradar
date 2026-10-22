@@ -52,11 +52,16 @@ func run() error {
 	log.Info("profiles loaded",
 		"profiles", len(cat.Profiles), "detect", len(cat.Detect), "file", cfg.ServicesFile)
 
+	if cfg.SMTPAddr != "" && cfg.AppKey == "" {
+		return errors.New("APP_KEY is required while alerts are enabled")
+	}
+
 	st, err := store.New(ctx, cfg.DatabaseURL, store.Options{
 		RawPayloadMinInterval: cfg.RawPayloadMinInterval,
 		DefaultLimits: map[string]int{
 			store.LimitAlert: cfg.AlertLimitPerSubscriber,
 		},
+		AppKey: cfg.AppKey,
 	})
 	if err != nil {
 		return err
@@ -67,6 +72,13 @@ func run() error {
 		return err
 	}
 	log.Info("migrations applied")
+
+	if cfg.AppKey != "" {
+		if err := st.SealLegacySettings(ctx); err != nil {
+			return err
+		}
+		log.Info("channel settings sealed")
+	}
 
 	p := poller.New(st, cat, cfg.PollConcurrency, cfg.PollTick, log)
 	go p.Run(ctx)

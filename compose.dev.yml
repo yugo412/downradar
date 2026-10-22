@@ -97,6 +97,10 @@ services:
       # them at http://localhost:8026. Without SMTP_ADDR the feature is off: the
       # API refuses subscriptions rather than taking them and sending nothing.
       SMTP_ADDR: ${SMTP_ADDR:-mailpit:1025}
+      # Seals the secrets the database keeps. Required while alerts are on; the
+      # same value has to survive a restart or the saved values cannot be read
+      # again.
+      APP_KEY: ${APP_KEY:-}
       # Mailpit takes mail without a login, so both stay empty locally. They are
       # here so a real server can be pointed at without touching this file.
       SMTP_USER: ${SMTP_USER:-}

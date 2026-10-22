@@ -5,17 +5,20 @@ import (
 	"fmt"
 	"io/fs"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"downradar.info/backend/db"
+	"downradar.info/backend/internal/secure"
 )
 
 type Store struct {
 	pool                  *pgxpool.Pool
 	rawPayloadMinInterval time.Duration
 	defaultLimits         map[string]int
+	secrets               *secure.Cipher
 }
 
 type Options struct {
@@ -24,6 +27,9 @@ type Options struct {
 	// of limit, keyed by the Limit* constants. The values come from the
 	// environment; what is read afterwards is the row.
 	DefaultLimits map[string]int
+	// AppKey seals the secrets the database keeps. It is a master value rather
+	// than a key: the key is derived from it and never stored.
+	AppKey string
 }
 
 func New(ctx context.Context, dsn string, opts Options) (*Store, error) {
@@ -49,10 +55,21 @@ func New(ctx context.Context, dsn string, opts Options) (*Store, error) {
 	if interval <= 0 {
 		interval = time.Hour
 	}
+
+	var secrets *secure.Cipher
+	if strings.TrimSpace(opts.AppKey) != "" {
+		secrets, err = secure.New(opts.AppKey)
+		if err != nil {
+			pool.Close()
+			return nil, fmt.Errorf("store: app key: %w", err)
+		}
+	}
+
 	return &Store{
 		pool:                  pool,
 		rawPayloadMinInterval: interval,
 		defaultLimits:         opts.DefaultLimits,
+		secrets:               secrets,
 	}, nil
 }
 

@@ -724,19 +724,19 @@ func (s *Store) subscribeAlert(ctx context.Context, serviceID int64, userID *int
 	}
 	secret := ""
 	if change.Webhook != nil {
-		secret, err = saveWebhookChannel(ctx, tx, subscriptionID, *change.Webhook,
+		secret, err = s.saveWebhookChannel(ctx, tx, subscriptionID, *change.Webhook,
 			change.WebhookToken, change.WebhookNewSecret)
 		if err != nil {
 			return "", fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
 		}
 	}
 	if change.Telegram != nil {
-		if err := saveTelegramChannel(ctx, tx, subscriptionID, *change.Telegram, change.TelegramToken); err != nil {
+		if err := s.saveTelegramChannel(ctx, tx, subscriptionID, *change.Telegram, change.TelegramToken); err != nil {
 			return "", fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
 		}
 	}
 	if change.Slack != nil {
-		if err := saveSlackChannel(ctx, tx, subscriptionID, *change.Slack, change.SlackToken); err != nil {
+		if err := s.saveSlackChannel(ctx, tx, subscriptionID, *change.Slack, change.SlackToken); err != nil {
 			return "", fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
 		}
 	}
@@ -858,7 +858,7 @@ func webhookChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64) (int64
 // Asking for a new one is the only way a secret is made, and what comes back is
 // the only time it can be read. The one it replaces keeps going out for a day, so
 // a receiver has time to move over.
-func saveWebhookChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, hook AlertWebhook, token string, newSecret bool) (string, error) {
+func (s *Store) saveWebhookChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, hook AlertWebhook, token string, newSecret bool) (string, error) {
 	if hook.URL == "" {
 		return "", stopChannels(ctx, tx, subscriptionID, ChannelWebhook)
 	}
@@ -871,7 +871,7 @@ func saveWebhookChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, ho
 		channelToken = token
 	}
 
-	current, err := parseWebhookSettings(settings, hook.URL)
+	current, err := s.parseWebhookSettings(settings, hook.URL)
 	if err != nil {
 		return "", err
 	}
@@ -903,12 +903,16 @@ func saveWebhookChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, ho
 	if err != nil {
 		return "", fmt.Errorf("write the webhook: %w", err)
 	}
+	sealed, err := s.sealSettings(encoded)
+	if err != nil {
+		return "", fmt.Errorf("seal the webhook: %w", err)
+	}
 
 	if channelID == 0 {
 		if _, err := tx.Exec(ctx, `
 			insert into alert_channels (subscription_id, kind, address, settings, token)
 			values ($1, 'webhook', $2, $3, $4)`,
-			subscriptionID, hook.URL, encoded, channelToken); err != nil {
+			subscriptionID, hook.URL, sealed, channelToken); err != nil {
 			return "", fmt.Errorf("add the webhook: %w", err)
 		}
 		return made, nil
@@ -917,7 +921,7 @@ func saveWebhookChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, ho
 	if _, err := tx.Exec(ctx, `
 		update alert_channels
 		set address = $2, settings = $3, unsubscribed_at = null, updated_at = now()
-		where id = $1`, channelID, hook.URL, encoded); err != nil {
+		where id = $1`, channelID, hook.URL, sealed); err != nil {
 		return "", fmt.Errorf("update the webhook: %w", err)
 	}
 	return made, dropChannelsApartFrom(ctx, tx, subscriptionID, ChannelWebhook, channelID)
@@ -1003,7 +1007,7 @@ func parseSlackSettings(raw []byte) (string, error) {
 //
 // One chat per subscription, like one address: a save is a person saying where
 // they want to be told, and what they name is what they get.
-func saveTelegramChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, way AlertTelegram, token string) error {
+func (s *Store) saveTelegramChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, way AlertTelegram, token string) error {
 	if way.ChatID == "" {
 		return stopChannels(ctx, tx, subscriptionID, ChannelTelegram)
 	}
@@ -1014,6 +1018,10 @@ func saveTelegramChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, w
 	settings, err := encodeTelegram(way)
 	if err != nil {
 		return fmt.Errorf("write the telegram way: %w", err)
+	}
+	settings, err = s.sealSettings(settings)
+	if err != nil {
+		return fmt.Errorf("seal the telegram way: %w", err)
 	}
 
 	var channelID int64
@@ -1062,7 +1070,7 @@ func saveTelegramChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, w
 //
 // One Slack way per subscription, like one address: a save is a person saying
 // where they want to be told, and what they name is what they get.
-func saveSlackChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, way AlertSlack, token string) error {
+func (s *Store) saveSlackChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, way AlertSlack, token string) error {
 	if way.URL == "" {
 		return stopChannels(ctx, tx, subscriptionID, ChannelSlack)
 	}
@@ -1085,7 +1093,7 @@ func saveSlackChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, way 
 	case err != nil:
 		return fmt.Errorf("read the slack way: %w", err)
 	case channel == "" && address == way.URL:
-		channel, err = parseSlackSettings(raw)
+		channel, err = s.parseSlackSettings(raw)
 		if err != nil {
 			return err
 		}
@@ -1094,6 +1102,10 @@ func saveSlackChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, way 
 	settings, err := encodeSlackSettings(slackSettings{Channel: channel})
 	if err != nil {
 		return fmt.Errorf("write the slack way: %w", err)
+	}
+	settings, err = s.sealSettings(settings)
+	if err != nil {
+		return fmt.Errorf("seal the slack way: %w", err)
 	}
 
 	// A row id is never zero, so nothing found means nothing is there yet.
@@ -1215,7 +1227,7 @@ func (s *Store) TelegramBot(ctx context.Context, userID, serviceID int64) (strin
 	if err != nil {
 		return "", fmt.Errorf("alerts: the telegram bot: %w", err)
 	}
-	return parseTelegramSettings(raw)
+	return s.parseTelegramSettings(raw)
 }
 
 // stopChannels ends every live channel of one kind on a subscription, and drops
@@ -1541,21 +1553,21 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 	}
 
 	if webhookAddress != "" {
-		hook, err := parseWebhookSettings(webhookSettings, webhookAddress)
+		hook, err := s.parseWebhookSettings(webhookSettings, webhookAddress)
 		if err != nil {
 			return nil, err
 		}
 		view.Webhook = &hook
 	}
 	if view.Telegram != "" {
-		bot, err := parseTelegramSettings(telegramSettings)
+		bot, err := s.parseTelegramSettings(telegramSettings)
 		if err != nil {
 			return nil, err
 		}
 		view.TelegramBot = bot
 	}
 	if view.Slack != "" {
-		channel, err := parseSlackSettings(slackRaw)
+		channel, err := s.parseSlackSettings(slackRaw)
 		if err != nil {
 			return nil, err
 		}
@@ -1654,14 +1666,14 @@ func (s *Store) PendingAlerts(ctx context.Context, maxAttempts, limit int) ([]Pe
 		// URL for Slack or Discord, and the URL for a webhook.
 		switch p.Kind {
 		case ChannelWebhook:
-			hook, err := parseWebhookSettings(settings, address)
+			hook, err := s.parseWebhookSettings(settings, address)
 			if err != nil {
 				return nil, err
 			}
 			p.Webhook = hook
 		case ChannelTelegram:
 			p.ChatID = address
-			bot, err := parseTelegramSettings(settings)
+			bot, err := s.parseTelegramSettings(settings)
 			if err != nil {
 				return nil, err
 			}
