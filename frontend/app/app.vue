@@ -336,6 +336,10 @@ async function resend() {
         <p class="flex flex-wrap items-center gap-x-2 gap-y-1">
           <NuxtLink to="/about" class="link">About</NuxtLink>
           <span aria-hidden="true">&middot;</span>
+          <NuxtLink to="/privacy" class="link">Privacy</NuxtLink>
+          <span aria-hidden="true">&middot;</span>
+          <NuxtLink to="/terms" class="link">Terms</NuxtLink>
+          <span aria-hidden="true">&middot;</span>
           <NuxtLink to="/api" class="link">Public API</NuxtLink>
           <span aria-hidden="true">&middot;</span>
           <a href="/sitemap.xml" class="link">Sitemap</a>
