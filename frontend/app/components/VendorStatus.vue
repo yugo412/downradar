@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { VendorDetail } from '~/types/api'
+import type { ComponentStatus, VendorDetail } from '~/types/api'
 
 const props = defineProps<{ vendor: VendorDetail }>()
 
@@ -28,9 +28,105 @@ const statusFilter = ref<string[]>([])
 const statusOptions = computed(() =>
   statusCounts(matched.value, (c) => c.status, statusFilter.value),
 )
+
+// A header sorts itself first in its own natural direction: names A to Z,
+// states worst first, and the newest change first. The query carries the sort so
+// a copied link opens the same view.
+type SortKey = 'name' | 'state' | 'since'
+
+const sortColumns: { key: SortKey; label: string }[] = [
+  { key: 'name', label: 'Component' },
+  { key: 'state', label: 'State' },
+  { key: 'since', label: 'Since' },
+]
+
+const naturalAsc: Record<SortKey, boolean> = {
+  name: true,
+  state: false,
+  since: false,
+}
+
+const route = useRoute()
+const router = useRouter()
+
+function isSortKey(value: string): value is SortKey {
+  return sortColumns.some((column) => column.key === value)
+}
+
+function requestedSort(): { key: SortKey; asc: boolean } {
+  const requested = String(route.query.sort ?? '')
+  const key = isSortKey(requested) ? requested : 'name'
+  return { key, asc: String(route.query.dir ?? '') !== 'desc' }
+}
+
+const initialSort = requestedSort()
+const sortKey = ref<SortKey>(initialSort.key)
+const sortAsc = ref(initialSort.asc)
+
+function sortBy(key: SortKey) {
+  if (sortKey.value === key) {
+    sortAsc.value = !sortAsc.value
+  } else {
+    sortKey.value = key
+    sortAsc.value = naturalAsc[key]
+  }
+  syncSortUrl()
+}
+
+function syncSortUrl() {
+  const query = { ...route.query, sort: sortKey.value }
+  if (sortAsc.value) {
+    delete query.dir
+  } else {
+    query.dir = 'desc'
+  }
+  router.replace({ query })
+}
+
+watch(
+  () => [route.query.sort, route.query.dir],
+  () => {
+    const next = requestedSort()
+    sortKey.value = next.key
+    sortAsc.value = next.asc
+  },
+)
+
+function sortState(key: SortKey): 'none' | 'ascending' | 'descending' {
+  if (sortKey.value !== key) return 'none'
+  return sortAsc.value ? 'ascending' : 'descending'
+}
+
+function changedAt(component: ComponentStatus): number | null {
+  if (!component.changedAt) return null
+  const time = Date.parse(component.changedAt)
+  return Number.isNaN(time) ? null : time
+}
+
+function compareComponents(a: ComponentStatus, b: ComponentStatus): number {
+  if (sortKey.value === 'name') {
+    return a.name.localeCompare(b.name) * (sortAsc.value ? 1 : -1)
+  }
+  if (sortKey.value === 'state') {
+    const rank = severity(a.status) - severity(b.status)
+    if (rank !== 0) return rank * (sortAsc.value ? 1 : -1)
+    return a.name.localeCompare(b.name)
+  }
+
+  const left = changedAt(a)
+  const right = changedAt(b)
+  if (left === null && right === null) return a.name.localeCompare(b.name)
+  if (left === null) return 1
+  if (right === null) return -1
+  if (left === right) return a.name.localeCompare(b.name)
+  return (left - right) * (sortAsc.value ? 1 : -1)
+}
+
 const shownComponents = computed(() => {
-  if (!statusFilter.value.length) return matched.value
-  return matched.value.filter((c) => statusFilter.value.includes(c.status))
+  const rows = statusFilter.value.length
+    ? matched.value.filter((c) => statusFilter.value.includes(c.status))
+    : matched.value
+  return [...rows].sort(compareComponents)
 })
 </script>
 
@@ -62,7 +158,7 @@ const shownComponents = computed(() => {
       <StatusFilter
         v-model="statusFilter"
         :statuses="statusOptions"
-        label="Filter components by status"
+        label="Filter components by state"
         class="mb-3"
       />
 
@@ -70,9 +166,26 @@ const shownComponents = computed(() => {
         <table class="table">
           <thead>
             <tr>
-              <th>Component</th>
-              <th>Status</th>
-              <th class="text-right">Since</th>
+              <th
+                v-for="col in sortColumns"
+                :key="col.key"
+                :aria-sort="sortState(col.key)"
+                :class="col.key === 'since' ? 'text-right' : ''"
+              >
+                <button
+                  type="button"
+                  class="inline-flex cursor-pointer select-none items-center gap-1 whitespace-nowrap"
+                  @click="sortBy(col.key)"
+                >
+                  {{ col.label }}
+                  <span
+                    aria-hidden="true"
+                    :class="sortKey === col.key ? '' : 'opacity-40'"
+                  >
+                    {{ sortKey === col.key ? (sortAsc ? '↑' : '↓') : '↕' }}
+                  </span>
+                </button>
+              </th>
             </tr>
           </thead>
           <tbody>
