@@ -35,6 +35,7 @@ export default defineNuxtConfig({
           // The management and account screens are per visitor, so a cached
           // shell would be handed to the wrong one. They also render on the
           // client only, which keeps any session out of the cached HTML.
+          '/ping': { swr: false, headers: { 'cache-control': 'no-store' } },
           '/services': { swr: false, headers: { 'cache-control': 'no-store' } },
           '/services/**': { swr: false, headers: { 'cache-control': 'no-store' } },
           '/account': { swr: false, headers: { 'cache-control': 'no-store' } },
