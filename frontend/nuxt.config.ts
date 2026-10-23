@@ -6,9 +6,24 @@ export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
   devtools: { enabled: false },
 
+  modules: ['nuxt-og-image'],
+
   css: ['~/assets/css/main.css'],
   vite: {
     plugins: [tailwindcss()],
+  },
+
+  ogImage: {
+    defaults: {
+      width: 1200,
+      height: 630,
+      cacheMaxAgeSeconds: 60 * 60 * 24 * 365,
+    },
+    // These cards are public by design and their props are only text, so there
+    // is nothing to sign and no extra secret for an install to carry.
+    security: {
+      secret: false,
+    },
   },
 
   // Rendered pages are cached for 60 seconds. The underlying data is polled

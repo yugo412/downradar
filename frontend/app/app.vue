@@ -1,6 +1,22 @@
 <script setup lang="ts">
-const { githubRepo } = useRuntimeConfig().public
+const { githubRepo, siteName, siteUrl } = useRuntimeConfig().public
 const { user, isAdmin, canManageServices, signOut } = useAuth()
+
+const siteHost = siteUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')
+
+// Every page starts with the site card. A vendor page replaces it with the
+// vendor's own, while the pages that are not a vendor keep one shared image.
+defineOgImage(
+  'Card.takumi',
+  {
+    eyebrow: 'Official status pages, aggregated',
+    name: siteName,
+    description:
+      'Know when the services you rely on go down, with status read from each official status page.',
+    address: siteHost,
+  },
+  { alt: `${siteName}, official status pages aggregated` },
+)
 
 const route = useRoute()
 const openMenu = ref<'service' | 'account' | 'nav' | null>(null)

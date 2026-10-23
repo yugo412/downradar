@@ -40,6 +40,18 @@ if (vendor.value) {
     ogDescription: `Live status of ${name}, straight from the official status page.`,
     ogType: 'website',
   })
+
+  defineOgImage(
+    'Card.takumi',
+    {
+      eyebrow: 'Service status',
+      name,
+      description:
+        'Live status, components and recent incidents, straight from the official status page.',
+      address: vendor.value.url || `downradar.info/${vendor.value.slug}`,
+    },
+    { alt: `${name} status on DownRadar` },
+  )
 }
 
 </script>
