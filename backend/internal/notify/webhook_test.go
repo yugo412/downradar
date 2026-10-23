@@ -478,6 +478,10 @@ func TestADrainWritesDownTheCallItMade(t *testing.T) {
 	if len(logged) != 1 {
 		t.Fatalf("calls written down = %d, want the one that went out", len(logged))
 	}
+	if agent := calls.last(t).headers.Get("User-Agent"); agent != "DownRadar (+https://downradar.info)" {
+		t.Errorf("User-Agent = %q, want the site's own", agent)
+	}
+
 	got := logged[0]
 	if got.Kind != store.CallDelivery || got.Method != http.MethodPost {
 		t.Errorf("call = %+v, want the delivery it was", got)

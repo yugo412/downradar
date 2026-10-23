@@ -236,6 +236,7 @@ func (n *Notifier) slackCall(ctx context.Context, webhookURL string, payload sla
 		return slackResult{Error: fmt.Sprintf("build the call: %v", err)}
 	}
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("User-Agent", n.userAgent())
 
 	response, err := n.client.Do(request)
 	if err != nil {

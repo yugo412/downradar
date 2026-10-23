@@ -1630,10 +1630,10 @@ type WebhookCall struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
-// webhookCallsKept is how many calls one alert keeps. The page shows the last few
-// of them, and older ones are dropped as new ones are written, so an alert that
+// WebhookCallsKept is how many calls one alert keeps. The page shows them twenty
+// at a time, and older ones are dropped as new ones are written, so an alert that
 // is called every day does not grow a table nobody reads.
-const webhookCallsKept = 50
+const WebhookCallsKept = 50
 
 // LogWebhookCall writes one call down. A subscription with no owner has nobody to
 // show a log to, so nothing is written for it rather than a row that no screen
@@ -1658,7 +1658,7 @@ func (s *Store) LogWebhookCall(ctx context.Context, userID *int64, serviceID int
 			select id from alert_webhook_calls
 			where user_id = $1 and service_id = $2
 			order by id desc
-			offset $3)`, *userID, serviceID, webhookCallsKept); err != nil {
+			offset $3)`, *userID, serviceID, WebhookCallsKept); err != nil {
 		return fmt.Errorf("alerts: trim webhook calls: %w", err)
 	}
 	return nil

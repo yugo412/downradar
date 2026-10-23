@@ -1607,7 +1607,7 @@ func TestWebhookCallsAreKept(t *testing.T) {
 		t.Fatalf("CreateUser: %v", err)
 	}
 
-	written := webhookCallsKept + 3
+	written := WebhookCallsKept + 3
 	for i := 0; i < written; i++ {
 		status := 200
 		if err := st.LogWebhookCall(ctx, &user.ID, id, nil, WebhookCall{
@@ -1624,8 +1624,8 @@ func TestWebhookCallsAreKept(t *testing.T) {
 	kept := countRows(t, st, `
 		select count(*) from alert_webhook_calls where user_id = $1 and service_id = $2`,
 		user.ID, id)
-	if kept != webhookCallsKept {
-		t.Errorf("calls kept = %d, want the newest %d", kept, webhookCallsKept)
+	if kept != WebhookCallsKept {
+		t.Errorf("calls kept = %d, want the newest %d", kept, WebhookCallsKept)
 	}
 
 	calls, err := st.WebhookCalls(ctx, user.ID, id, 10)
