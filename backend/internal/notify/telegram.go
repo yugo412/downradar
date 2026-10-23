@@ -192,6 +192,7 @@ func (n *Notifier) telegramRequest(ctx context.Context, botToken, method string,
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}
+	request.Header.Set("User-Agent", n.userAgent())
 
 	response, err := n.client.Do(request)
 	if err != nil {

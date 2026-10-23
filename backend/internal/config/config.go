@@ -44,6 +44,8 @@ type Config struct {
 	ContactEmail            string
 	AlertPerHour            int
 	AlertBurst              int
+	AlertTestPerHour        int
+	AlertTestBurst          int
 	AlertLimitPerSubscriber int
 	AppKey                  string
 	AccountPerHour          int
@@ -93,6 +95,8 @@ func Load() Config {
 		ContactEmail:            env("CONTACT_EMAIL", "support@downradar.info"),
 		AlertPerHour:            envInt("ALERT_RATE_LIMIT_PER_HOUR", 6),
 		AlertBurst:              envInt("ALERT_RATE_LIMIT_BURST", 5),
+		AlertTestPerHour:        envInt("ALERT_TEST_RATE_LIMIT_PER_HOUR", 60),
+		AlertTestBurst:          envInt("ALERT_TEST_RATE_LIMIT_BURST", 10),
 		AlertLimitPerSubscriber: envInt("ALERT_LIMIT_PER_SUBSCRIBER", 10),
 		AppKey:                  env("APP_KEY", ""),
 		AccountPerHour:          envInt("ACCOUNT_RATE_LIMIT_PER_HOUR", 5),

@@ -38,6 +38,7 @@ type handlers struct {
 	readLimiter     *ipLimiter
 	suggestLimiter  *ipLimiter
 	alertLimiter    *ipLimiter
+	testLimiter     *ipLimiter
 	accountLimiter  *ipLimiter
 	contactLimiter  *ipLimiter
 	loginLimiter    *ipLimiter
@@ -60,6 +61,8 @@ type Options struct {
 	SuggestBurst            int
 	AlertPerHour            int
 	AlertBurst              int
+	AlertTestPerHour        int
+	AlertTestBurst          int
 	AlertLimitPerSubscriber int
 	AccountPerHour          int
 	AccountBurst            int
@@ -106,6 +109,18 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	alertInterval := time.Hour
 	if opts.AlertPerHour > 0 {
 		alertInterval = time.Hour / time.Duration(opts.AlertPerHour)
+	}
+
+	// A setup screen is expected to be tried more than once. Tests still have a
+	// budget of their own, so a receiver cannot be used as a free relay, but it is
+	// generous enough for a few corrections in a row.
+	testInterval := time.Minute
+	if opts.AlertTestPerHour > 0 {
+		testInterval = time.Hour / time.Duration(opts.AlertTestPerHour)
+	}
+	testBurst := opts.AlertTestBurst
+	if testBurst <= 0 {
+		testBurst = 10
 	}
 
 	accountInterval := time.Hour
@@ -172,6 +187,7 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 		readLimiter:     newIPLimiter(readInterval, opts.RateLimitBurst),
 		suggestLimiter:  newIPLimiter(suggestInterval, opts.SuggestBurst),
 		alertLimiter:    newIPLimiter(alertInterval, opts.AlertBurst),
+		testLimiter:     newIPLimiter(testInterval, testBurst),
 		accountLimiter:  newIPLimiter(accountInterval, opts.AccountBurst),
 		contactLimiter:  newIPLimiter(contactInterval, opts.ContactBurst),
 		loginLimiter:    newIPLimiter(loginInterval, opts.LoginBurst),
@@ -218,30 +234,30 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	mux.HandleFunc("DELETE /api/v1/vendors/{slug}/alerts", h.requireAuth(h.deleteUserAlert))
 
 	// A webhook calls somebody else's end, so the page lets them try it with what
-	// the page holds rather than what was saved, and shows the answer. It is counted
-	// against the same budget as subscribing.
+	// the page holds rather than what was saved, and shows the answer. Tests have
+	// their own budget: a setup screen is expected to be tried more than once.
 	mux.HandleFunc("POST /api/v1/vendors/{slug}/alerts/test",
-		h.requireAuth(h.limited(h.alertLimiter, false,
+		h.requireAuth(h.limited(h.testLimiter, false,
 			"You have tried that webhook several times already, please try again later",
 			h.testWebhook)))
 
-	// A message to a chat is tried the same way, against the same budget: it is a
-	// message to somebody else's end either way.
+	// A message to a chat is tried the same way, against the same test budget: it
+	// is a message to somebody else's end either way.
 	mux.HandleFunc("POST /api/v1/vendors/{slug}/alerts/telegram/test",
-		h.requireAuth(h.limited(h.alertLimiter, false,
+		h.requireAuth(h.limited(h.testLimiter, false,
 			"You have tried that chat several times already, please try again later",
 			h.testTelegram)))
 
-	// A message to a Slack channel is tried the same way, against the same budget:
-	// it is a message to somebody else's end either way.
+	// A message to a Slack channel is tried against the same test budget: it is a
+	// message to somebody else's end either way.
 	mux.HandleFunc("POST /api/v1/vendors/{slug}/alerts/slack/test",
-		h.requireAuth(h.limited(h.alertLimiter, false,
+		h.requireAuth(h.limited(h.testLimiter, false,
 			"You have tried that Slack channel several times already, please try again later",
 			h.testSlack)))
 
-	// A message to a Discord channel is tried and counted the same way.
+	// A message to a Discord channel is tried against the same test budget.
 	mux.HandleFunc("POST /api/v1/vendors/{slug}/alerts/discord/test",
-		h.requireAuth(h.limited(h.alertLimiter, false,
+		h.requireAuth(h.limited(h.testLimiter, false,
 			"You have tried that Discord channel several times already, please try again later",
 			h.testDiscord)))
 

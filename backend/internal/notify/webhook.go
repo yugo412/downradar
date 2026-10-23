@@ -183,6 +183,9 @@ func (n *Notifier) webhookCall(ctx context.Context, hook store.AlertWebhook, bod
 	if request.Header.Get("Content-Type") == "" {
 		request.Header.Set("Content-Type", "application/json")
 	}
+	if request.Header.Get("User-Agent") == "" {
+		request.Header.Set("User-Agent", n.userAgent())
+	}
 
 	response, err := n.client.Do(request)
 	if err != nil {

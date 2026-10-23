@@ -138,6 +138,8 @@ func run() error {
 			SuggestBurst:            cfg.SuggestBurst,
 			AlertPerHour:            cfg.AlertPerHour,
 			AlertBurst:              cfg.AlertBurst,
+			AlertTestPerHour:        cfg.AlertTestPerHour,
+			AlertTestBurst:          cfg.AlertTestBurst,
 			AlertLimitPerSubscriber: cfg.AlertLimitPerSubscriber,
 			AccountPerHour:          cfg.AccountPerHour,
 			AccountBurst:            cfg.AccountBurst,

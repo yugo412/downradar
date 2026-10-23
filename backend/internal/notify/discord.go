@@ -177,7 +177,7 @@ func (n *Notifier) discordCall(ctx context.Context, webhookURL string, payload d
 		return discordResult{Error: fmt.Sprintf("build the call: %v", err)}
 	}
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("User-Agent", "downradar.info")
+	request.Header.Set("User-Agent", n.userAgent())
 
 	response, err := n.client.Do(request)
 	if err != nil {

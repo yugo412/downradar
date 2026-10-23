@@ -1082,8 +1082,9 @@ func (h *handlers) getUserAlert(w http.ResponseWriter, r *http.Request) {
 
 	// The calls are read whether or not there is an alert: a webhook can be tried
 	// from the page before anything is saved, and what it answered is worth
-	// showing the next time the page opens.
-	calls, err := h.store.WebhookCalls(r.Context(), h.user(r).ID, serviceID, 10)
+	// showing the next time the page opens. The page shows them twenty at a time,
+	// so it reads everything the store keeps.
+	calls, err := h.store.WebhookCalls(r.Context(), h.user(r).ID, serviceID, store.WebhookCallsKept)
 	if err != nil {
 		h.fail(w, r, err)
 		return

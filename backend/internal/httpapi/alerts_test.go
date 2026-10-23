@@ -1177,6 +1177,30 @@ func TestTryingAWebhookFromThePage(t *testing.T) {
 	}
 }
 
+// Trying the setup is not the same act as subscribing, and a few corrections in a
+// row are expected. The test budget is therefore its own, even when the much
+// smaller subscription budget is already spent.
+func TestTryingAWebhookHasItsOwnBudget(t *testing.T) {
+	st, router, _ := testRouterWithOptions(t, func(opts *Options) {
+		opts.AlertBurst = 1
+		opts.AlertTestBurst = 3
+	})
+	slug, _ := alertVendorWithComponents(t, st, 1)
+
+	subscriber := testUser(t, st, auth.RoleSubscriber)
+	cookie := sessionFor(t, st, subscriber)
+
+	server, _ := hookServer(t, http.StatusOK, "ok")
+	try := `{"url":"` + server.URL + `"}`
+
+	for i := 0; i < 3; i++ {
+		rec := call(t, router, http.MethodPost, "/api/v1/vendors/"+slug+"/alerts/test", try, cookie)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("try %d = %d, want 200: %s", i+1, rec.Code, rec.Body.String())
+		}
+	}
+}
+
 // Either way of an alert can be made quiet on its own without taking away what it
 // was told; stopping a way for good is clearing its field and saving. Both quiet is
 // a paused alert on the account screen, whose button starts every way at once.

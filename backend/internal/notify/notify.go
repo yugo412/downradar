@@ -66,6 +66,16 @@ func (n *Notifier) WithTelegram(apiBase string) *Notifier {
 	return n
 }
 
+// userAgent names this sender on an outbound call, so a receiver sees the site
+// rather than the Go client's default. A webhook that sets its own User-Agent
+// keeps it.
+func (n *Notifier) userAgent() string {
+	if n.publicURL == "" {
+		return "DownRadar"
+	}
+	return "DownRadar (+" + n.publicURL + ")"
+}
+
 func (n *Notifier) Run(ctx context.Context) {
 	n.log.Info("alert sender started", "interval", n.interval, "public_url", n.publicURL)
 
