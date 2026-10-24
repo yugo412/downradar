@@ -2,6 +2,13 @@
 // both themes are set up in app/assets/css/main.css.
 export type Theme = 'cmyk' | 'dark'
 
+// Optional in the DOM typings, so this cast keeps the file compiling.
+type ViewTransitionDocument = Document & {
+  startViewTransition?: (
+    update: () => void | Promise<void>,
+  ) => { finished: Promise<void> }
+}
+
 // The theme is a cookie, and it is applied by the inline script in
 // nuxt.config.ts before the first paint.
 //
@@ -49,9 +56,51 @@ export function useTheme() {
     }
   }
 
-  function setTheme(next: Theme) {
+  // Both halves of a switch happen together, so the toggle's icon lands in the
+  // same view transition snapshot.
+  function commit(next: Theme) {
     cookie.value = next
     apply(next)
+  }
+
+  // One view transition instead of each widget's own colour transition.
+  // daisyUI times those separately (100ms on a toggle knob, 300ms on a modal)
+  // and surfaces without a transition property snapped outright; a snapshot of
+  // the page before and after blends them on one clock. A switch already
+  // running, or a browser without the API, sets the theme immediately.
+  let transitioning = false
+
+  function setTheme(next: Theme) {
+    if (!import.meta.client) {
+      commit(next)
+      return
+    }
+
+    const root = document.documentElement
+    const startViewTransition = (document as ViewTransitionDocument)
+      .startViewTransition
+    if (!startViewTransition || transitioning) {
+      commit(next)
+      return
+    }
+
+    transitioning = true
+
+    // Zero the per-widget transitions while the snapshots are blended, so
+    // nothing is still moving when the fade ends.
+    root.classList.add('theme-switching')
+
+    const transition = startViewTransition.call(document, async () => {
+      commit(next)
+      // Vue patches the toggle's icon in a microtask; waiting for it keeps the
+      // new snapshot from showing the icon of the old theme.
+      await nextTick()
+    })
+
+    transition.finished.finally(() => {
+      root.classList.remove('theme-switching')
+      transitioning = false
+    })
   }
 
   function toggleTheme() {
