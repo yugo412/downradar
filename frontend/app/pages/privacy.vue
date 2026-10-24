@@ -25,8 +25,9 @@ useSeoMeta({
         </li>
         <li>
           <strong>Alert details:</strong> the address or webhook a message goes
-          to, Telegram chat and bot details, Slack or Discord webhook URLs, the
-          vendor and components you watch, pause state, and delivery attempts.
+          to, Telegram chat and bot details, Slack, Discord or Lark webhook URLs
+          and signing secrets, the vendor and components you watch, pause state,
+          and delivery attempts.
         </li>
         <li>
           <strong>Messages:</strong> the name, address, subject and message you
@@ -67,8 +68,8 @@ useSeoMeta({
         infrastructure that hosts it. If you sign in with GitHub or Google, those
         providers take part in the sign-in. If you add an alert channel, the
         address or webhook you give is used to deliver through Telegram, Slack,
-        Discord or your own endpoint. We do not sell or rent personal data, and we
-        disclose it to anyone else only when the law requires it.
+        Discord, Lark or your own endpoint. We do not sell or rent personal data,
+        and we disclose it to anyone else only when the law requires it.
       </p>
     </section>
 

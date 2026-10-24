@@ -54,6 +54,13 @@ type discordRequest struct {
 	URL string `json:"url"`
 }
 
+// larkRequest is a Lark custom bot webhook and the secret it signs with when the
+// group requires a signature. An empty URL stops the messages.
+type larkRequest struct {
+	URL    string `json:"url"`
+	Secret string `json:"secret"`
+}
+
 type alertRequest struct {
 	// Email is the address the alert should go to. An empty one stops the emails;
 	// a request that says nothing about it, which is what the bell sends, leaves
@@ -76,6 +83,10 @@ type alertRequest struct {
 
 	// Discord is the fifth way: a Discord channel's incoming webhook URL.
 	Discord *discordRequest `json:"discord"`
+
+	// Lark is the sixth way: a custom bot webhook, and the secret that signs a
+	// request when the group requires it.
+	Lark *larkRequest `json:"lark"`
 
 	// What the email reports on: WholeService is the vendor's own status, Components
 	// names the ones the vendor page shows. Naming neither is the old shape and means
@@ -182,13 +193,26 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		discord = &store.AlertDiscord{URL: webhookURL}
 	}
 
+	// A Lark group is named by its custom bot webhook. The secret is optional,
+	// but when it is present every call is signed with it.
+	var lark *store.AlertLark
+	saveLark := body.Lark != nil
+	if body.Lark != nil {
+		webhookURL, secret, problem := parseLark(body.Lark.URL, body.Lark.Secret)
+		if problem != "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": problem})
+			return
+		}
+		lark = &store.AlertLark{URL: webhookURL, Secret: secret}
+	}
+
 	// A request that names no way at all would write a subscription with nothing
 	// to send, which is not an alert. Clearing a way is naming it: an empty
 	// address is how somebody stops the emails.
 	if body.Email == nil && body.Webhook == nil && body.Telegram == nil && body.Slack == nil &&
-		body.Discord == nil {
+		body.Discord == nil && body.Lark == nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "An email address, a webhook, a chat, a Slack channel or a Discord channel is required",
+			"error": "An email address, a webhook, a chat, a Slack channel, a Discord channel or a Lark group is required",
 		})
 		return
 	}
@@ -236,7 +260,8 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 	// A way that reports on a pick needs one; a webhook hears about the vendor
 	// itself.
 	watchesByPick := (saveEmail && address != "") || (telegram != nil && telegram.ChatID != "") ||
-		(slack != nil && slack.URL != "") || (discord != nil && discord.URL != "")
+		(slack != nil && slack.URL != "") || (discord != nil && discord.URL != "") ||
+		(lark != nil && lark.URL != "")
 	if watchesByPick && !whole && len(componentIDs) == 0 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "Pick at least one thing to be told about",
@@ -297,6 +322,12 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		if saveDiscord {
 			writeJSON(w, http.StatusConflict, map[string]string{
 				"error": "Discord is for subscribers. Sign in to add one.",
+			})
+			return
+		}
+		if saveLark {
+			writeJSON(w, http.StatusConflict, map[string]string{
+				"error": "Lark is for subscribers. Sign in to add one.",
 			})
 			return
 		}
@@ -404,6 +435,14 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		}
 		change.Discord, change.DiscordToken = discord, token
 	}
+	if lark != nil {
+		token, err := auth.NewToken()
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		change.Lark, change.LarkToken = lark, token
+	}
 
 	secret := ""
 	var saveErr error
@@ -445,6 +484,7 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		"webhook", calls, "telegram", telegram != nil && telegram.ChatID != "",
 		"slack", slack != nil && slack.URL != "",
 		"discord", discord != nil && discord.URL != "",
+		"lark", lark != nil && lark.URL != "",
 		"signed_in", userID != nil, "webhook_secret", secret != "",
 		"whole", whole, "components", len(componentIDs))
 	writeJSON(w, http.StatusCreated, answer)
@@ -542,6 +582,28 @@ func parseDiscord(raw string) (string, string) {
 		return "", "That does not look like a Discord webhook URL"
 	}
 	return rawURL, ""
+}
+
+// parseLark reads a custom bot webhook and the optional signing secret. The page
+// checks the Lark host and path; here it only has to be an http(s) address.
+func parseLark(rawURL, rawSecret string) (string, string, string) {
+	webhookURL := strings.TrimSpace(rawURL)
+	secret := strings.TrimSpace(rawSecret)
+	if webhookURL == "" {
+		return "", secret, ""
+	}
+	if len(webhookURL) > 1024 {
+		return "", "", "That Lark webhook URL is too long"
+	}
+	if len(secret) > 512 {
+		return "", "", "That Lark signing secret is too long"
+	}
+
+	parsed, err := url.Parse(webhookURL)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return "", "", "That does not look like a Lark webhook URL"
+	}
+	return webhookURL, secret, ""
 }
 
 // parseFields reads a list of names and values, and drops the empty rows a screen
@@ -828,6 +890,69 @@ func (h *handlers) testDiscord(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": result.OK, "error": result.Error})
 }
 
+// testLark posts through the held webhook or the saved one, so a group can be
+// checked before it is relied on. Lark's code is handed back with its answer.
+func (h *handlers) testLark(w http.ResponseWriter, r *http.Request) {
+	if !h.alertsEnabled || h.notifier == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "Alerts are not available right now",
+		})
+		return
+	}
+
+	var body larkRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
+		return
+	}
+
+	webhookURL, secret, problem := parseLark(body.URL, body.Secret)
+	if problem != "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": problem})
+		return
+	}
+
+	serviceID, name, err := h.store.PublicService(r.Context(), r.PathValue("slug"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Vendor not found"})
+		return
+	}
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	// A saved URL and its secret are tried when the fields are empty, so the page
+	// does not have to hand back what it shows masked.
+	if webhookURL == "" {
+		webhookURL, secret, err = h.store.LarkWebhook(r.Context(), h.user(r).ID, serviceID)
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		if webhookURL == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "A Lark webhook URL is required",
+			})
+			return
+		}
+	}
+
+	result, err := h.notifier.TestLark(r.Context(), serviceID, webhookURL, secret)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	h.log.Info("lark tried from the alert page", "vendor", name,
+		"user", h.user(r).Email, "ok", result.OK, "code", result.Code, "error", result.Error)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":    result.OK,
+		"code":  result.Code,
+		"error": result.Error,
+	})
+}
+
 // statusOrNil writes "no answer" as a null rather than a zero, so a call that was
 // never answered does not read as one that got a 0.
 func statusOrNil(status int) *int {
@@ -855,9 +980,9 @@ func (h *handlers) setAlertChannelPaused(w http.ResponseWriter, r *http.Request)
 	}
 	if body.Kind != store.ChannelEmail && body.Kind != store.ChannelWebhook &&
 		body.Kind != store.ChannelTelegram && body.Kind != store.ChannelSlack &&
-		body.Kind != store.ChannelDiscord {
+		body.Kind != store.ChannelDiscord && body.Kind != store.ChannelLark {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "Kind must be email, webhook, telegram, slack or discord",
+			"error": "Kind must be email, webhook, telegram, slack, discord or lark",
 		})
 		return
 	}
@@ -1089,12 +1214,18 @@ func (h *handlers) getUserAlert(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
+	channelStatus, err := h.store.ChannelDeliveryStatuses(r.Context(), h.user(r).ID, serviceID)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
 
 	view, err := h.store.UserAlert(r.Context(), h.user(r).ID, serviceID)
 	if errors.Is(err, store.ErrNotFound) {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"subscribed":      false,
 			"calls":           calls,
+			"channelStatus":   channelStatus,
 			"telegramEnabled": h.telegramEnabled,
 			"telegramBot":     "",
 			"slackEnabled":    h.slack != nil && h.alertsEnabled,
@@ -1115,6 +1246,7 @@ func (h *handlers) getUserAlert(w http.ResponseWriter, r *http.Request) {
 		"telegramPaused":  view.TelegramPaused,
 		"slackPaused":     view.SlackPaused,
 		"discordPaused":   view.DiscordPaused,
+		"larkPaused":      view.LarkPaused,
 		"wholeService":    view.WholeService,
 		"components":      view.ComponentIDs,
 		"webhook":         view.Webhook,
@@ -1122,12 +1254,15 @@ func (h *handlers) getUserAlert(w http.ResponseWriter, r *http.Request) {
 		"slack":           view.Slack,
 		"slackChannel":    view.SlackChannel,
 		"discord":         view.Discord,
+		"lark":            view.Lark,
+		"larkSecret":      view.LarkSecret,
 		"telegramEnabled": h.telegramEnabled,
 		"slackEnabled":    h.slack != nil && h.alertsEnabled,
 		// The bot is the owner's own, and the page shows it masked with a switch to
 		// reveal it, so it can be seen and replaced rather than only pasted again.
-		"telegramBot": view.TelegramBot,
-		"calls":       calls,
+		"telegramBot":   view.TelegramBot,
+		"calls":         calls,
+		"channelStatus": channelStatus,
 	})
 }
 

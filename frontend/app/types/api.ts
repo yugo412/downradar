@@ -198,6 +198,13 @@ export interface WebhookCall {
   createdAt: string
 }
 
+export interface ChannelDeliveryStatus {
+  kind: string
+  attemptAt?: string | null
+  successAt?: string | null
+  error?: string
+}
+
 export interface AlertState {
   subscribed: boolean
   email?: string
@@ -209,6 +216,7 @@ export interface AlertState {
   telegramPaused?: boolean
   slackPaused?: boolean
   discordPaused?: boolean
+  larkPaused?: boolean
   wholeService?: boolean
   components?: string[]
   webhook?: AlertWebhook | null
@@ -229,7 +237,13 @@ export interface AlertState {
   // The incoming webhook URL of the Discord channel, shown masked like the Slack
   // one. A Discord channel is set up by hand, so there is no install to name.
   discord?: string
+  // The custom bot webhook of a Lark group and the secret that signs its calls
+  // when the group requires a signature. Both are shown masked on the page.
+  lark?: string
+  larkSecret?: string
   calls?: WebhookCall[]
+  // The last real delivery of each channel, not a history. Tests do not move it.
+  channelStatus?: ChannelDeliveryStatus[]
 }
 
 // One row on the account's alerts screen. A row watches the vendor's own status,

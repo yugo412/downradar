@@ -2197,3 +2197,61 @@ func TestADiscordChannelIsAFifthWayForOneAlert(t *testing.T) {
 		t.Errorf("stopping the channel changed the email to %q", view.Email)
 	}
 }
+
+// A Lark way keeps its webhook and signing secret, and the last real delivery
+// result lives beside the channel rather than in a log of its own.
+func TestLarkWayAndLastDelivery(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+	serviceID := alertService(t, st, fmt.Sprintf("zz-lark-%d", time.Now().UnixNano()))
+	user := testStoreUser(t, st)
+
+	webhook := "https://open.larksuite.com/open-apis/bot/v2/hook/abc"
+	if err := st.SubscribeAlert(ctx, serviceID, &user.ID, AlertChange{
+		Lark:      &AlertLark{URL: webhook, Secret: "a-secret"},
+		LarkToken: "lark-token",
+		Targets:   WholeVendor,
+	}); err != nil {
+		t.Fatalf("SubscribeAlert: %v", err)
+	}
+
+	view, err := st.UserAlert(ctx, user.ID, serviceID)
+	if err != nil {
+		t.Fatalf("UserAlert: %v", err)
+	}
+	if view.Lark != webhook || view.LarkSecret != "a-secret" || view.LarkPaused {
+		t.Errorf("lark view = %q, %q, paused %v", view.Lark, view.LarkSecret, view.LarkPaused)
+	}
+
+	var channelID int64
+	if err := st.pool.QueryRow(ctx, `
+		select id from alert_channels
+		where subscription_id = $1 and kind = 'lark'`, view.ID).Scan(&channelID); err != nil {
+		t.Fatalf("read the lark channel: %v", err)
+	}
+
+	if err := st.RecordChannelAttempt(ctx, channelID, "lark answered code 19021: sign match fail"); err != nil {
+		t.Fatalf("RecordChannelAttempt: %v", err)
+	}
+	statuses, err := st.ChannelDeliveryStatuses(ctx, user.ID, serviceID)
+	if err != nil {
+		t.Fatalf("ChannelDeliveryStatuses: %v", err)
+	}
+	if len(statuses) != 1 || statuses[0].Kind != ChannelLark {
+		t.Fatalf("statuses = %+v, want the lark channel", statuses)
+	}
+	if statuses[0].AttemptAt == nil || statuses[0].Error == "" {
+		t.Errorf("failed attempt = %+v, want a time and the error", statuses[0])
+	}
+
+	if err := st.RecordChannelAttempt(ctx, channelID, ""); err != nil {
+		t.Fatalf("RecordChannelAttempt success: %v", err)
+	}
+	statuses, err = st.ChannelDeliveryStatuses(ctx, user.ID, serviceID)
+	if err != nil {
+		t.Fatalf("ChannelDeliveryStatuses after success: %v", err)
+	}
+	if statuses[0].SuccessAt == nil || statuses[0].Error != "" {
+		t.Errorf("successful attempt = %+v, want a success time and no error", statuses[0])
+	}
+}

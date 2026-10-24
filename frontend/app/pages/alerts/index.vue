@@ -101,7 +101,7 @@ function watches(alert: AccountAlert) {
 
 // What a row arrives by, which is what the list says about where an alert goes:
 // a row can use an address, a webhook, a chat, a Slack channel, a Discord
-// channel, or several of them, and a row that is quiet or ended still says how
+// channel, a Lark group, or several of them, and a row that is quiet or ended still says how
 // it used to arrive. The destination itself is on the page for its service,
 // beside the field that holds it.
 const CHANNEL_LABELS: Record<string, string> = {
@@ -110,6 +110,7 @@ const CHANNEL_LABELS: Record<string, string> = {
   telegram: 'Telegram',
   slack: 'Slack',
   discord: 'Discord',
+  lark: 'Lark',
 }
 
 function channelNames(alert: AccountAlert) {
@@ -368,12 +369,12 @@ watch(
     <header class="mb-6">
       <h1 class="text-2xl font-bold tracking-tight">Alerts</h1>
       <p class="mt-1 text-sm opacity-70">
-        You get an email, a webhook call, a Telegram message, a Slack message or
-        a Discord post each time one of these changes status. An email, a chat, a
-        Slack channel and a Discord channel report on what you picked; a call
-        carries the whole service, its own status and every component under it.
-        Emails, chats, Slack messages and Discord posts carry a link that stops
-        them as well.
+        You get an email, a webhook call, a Telegram message, a Slack message, a
+        Discord post or a Lark card each time one of these changes status. An
+        email, a chat, a Slack channel, a Discord channel and a Lark group report
+        on what you picked; a call carries the whole service, its own status and
+        every component under it. Emails, chats, Slack messages, Discord posts and
+        Lark cards carry a link that stops them as well.
       </p>
     </header>
 
