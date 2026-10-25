@@ -57,7 +57,7 @@ const example = `{
 useSeoMeta({
   title: 'Public API',
   description:
-    'A free, read-only JSON endpoint with the current status of every monitored service.',
+    'A free, read-only JSON API and MCP server with the current status of every monitored service.',
 })
 </script>
 
@@ -66,8 +66,8 @@ useSeoMeta({
     <div class="rounded-box border border-base-300 bg-base-100 p-5 md:p-8">
       <h1 class="text-3xl font-bold tracking-tight">Public API</h1>
       <p class="mt-2 opacity-70">
-        Free, read-only JSON endpoints with the current status of every monitored
-        service. No key, no signup.
+        Free, read-only JSON endpoints and an MCP server with the current status
+        of every monitored service. No key, no signup.
       </p>
 
       <section class="mt-8">
@@ -83,6 +83,28 @@ useSeoMeta({
           and incidents. The third returns the newest status changes across every
           service, newest first, with <code class="font-mono">?limit=</code> to ask
           for fewer than the fifty it gives, up to a hundred.
+        </p>
+      </section>
+
+      <section id="mcp" class="mt-8 scroll-mt-8">
+        <h2 class="text-lg font-semibold">MCP server</h2>
+        <p class="mt-3 text-sm opacity-70">
+          Assistants that speak the Model Context Protocol can read the same
+          catalogue through a read-only connector. Configure the client for
+          Streamable HTTP with this address; the endpoint is stateless and answers
+          with JSON.
+        </p>
+        <div class="mt-3 mockup-code bg-base-300 text-base-content">
+          <pre data-prefix="POST"><code>{{ base }}/api/v1/mcp</code></pre>
+        </div>
+        <p class="mt-3 text-sm opacity-70">
+          The connector offers four tools: <code class="font-mono">list_vendors</code>
+          returns every service, <code class="font-mono">search_vendors</code> finds
+          one by name or current status, <code class="font-mono">get_vendor</code>
+          reads a service with its components and incidents, and
+          <code class="font-mono">recent_changes</code> follows the public change
+          feed. They read the same public data as the JSON endpoints and share the
+          read rate limit below.
         </p>
       </section>
 
@@ -105,7 +127,7 @@ useSeoMeta({
       <section class="mt-8">
         <h2 class="text-lg font-semibold">Example</h2>
         <div class="mt-3 mockup-code bg-base-300 text-base-content">
-          <pre data-prefix="$"><code>curl -s {{ base }}/api/v1/vendors</code></pre>
+          <pre data-prefix="$" class="prompt"><code>curl -s {{ base }}/api/v1/vendors</code></pre>
         </div>
         <pre class="mt-3 overflow-x-auto rounded-box border border-base-300 bg-base-100 p-4 text-xs leading-relaxed">{{ example }}</pre>
       </section>
@@ -167,8 +189,12 @@ useSeoMeta({
             body.
           </li>
           <li>
-            Because responses are cacheable for a minute, caching on your side is
-            the easiest way to stay well inside the limit.
+            The MCP endpoint uses the same read budget, counted for each caller IP
+            even when it reaches the API through the site's own proxy.
+          </li>
+          <li>
+            Because API responses are cacheable for a minute, caching on your side
+            is the easiest way to stay well inside the limit.
           </li>
         </ul>
       </section>
