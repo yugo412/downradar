@@ -2,6 +2,14 @@ export default defineEventHandler((event) => {
   if (!event.path.startsWith('/api/v1/')) return
 
   const config = useRuntimeConfig()
+  const pathname = event.path.split('?')[0]
+
+  // MCP asks the client to accept JSON and SSE even when the server answers
+  // JSON. The API's other routes take a plain JSON Accept, but the MCP endpoint
+  // refuses that, so it needs both here rather than the override below.
+  const accept = pathname === '/api/v1/mcp'
+    ? 'application/json, text/event-stream'
+    : 'application/json'
 
   // The client IP is taken from the header Caddy sets, and passed through
   // explicitly: proxyRequest replaces the forwarded headers rather than
@@ -18,7 +26,7 @@ export default defineEventHandler((event) => {
   return proxyRequest(event, `${config.apiBase}${event.path}`, {
     headers: {
       'x-internal-token': config.internalToken,
-      accept: 'application/json',
+      accept,
       ...(host ? { 'x-forwarded-host': host } : {}),
       ...(forwardedFor ? { 'x-forwarded-for': forwardedFor } : {}),
     },

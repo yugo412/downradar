@@ -359,6 +359,8 @@ async function resend() {
           <span aria-hidden="true">&middot;</span>
           <NuxtLink to="/api" class="link">Public API</NuxtLink>
           <span aria-hidden="true">&middot;</span>
+          <NuxtLink to="/api#mcp" class="link">MCP server</NuxtLink>
+          <span aria-hidden="true">&middot;</span>
           <a href="/sitemap.xml" class="link">Sitemap</a>
           <template v-if="githubRepo">
             <span aria-hidden="true">&middot;</span>

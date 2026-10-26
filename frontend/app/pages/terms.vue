@@ -65,8 +65,8 @@ useSeoMeta({
       <p class="mt-3">
         The site's design, code and written content belong to DownRadar or the
         people who provided them. Status data belongs to the service that
-        published it. You may use the public API and feeds as offered; they do
-        not transfer ownership of the data.
+        published it. You may use the public API, feeds and MCP server as offered;
+        they do not transfer ownership of the data.
       </p>
     </section>
 
