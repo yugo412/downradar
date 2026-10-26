@@ -19,6 +19,7 @@ import (
 	"downradar.info/backend/internal/catalog"
 	"downradar.info/backend/internal/contact"
 	"downradar.info/backend/internal/detect"
+	statusmcp "downradar.info/backend/internal/mcp"
 	"downradar.info/backend/internal/notify"
 	"downradar.info/backend/internal/oauth"
 	"downradar.info/backend/internal/store"
@@ -206,6 +207,11 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", h.health)
 	mux.HandleFunc("GET /api/v1/stats", h.stats)
+
+	// MCP is the public catalogue under another shape. It shares the read budget
+	// and is deliberately not exempted for the site's own proxy: the caller's
+	// address travels with the request, so each connector gets its own bucket.
+	mux.HandleFunc("/api/v1/mcp", h.mcpEndpoint(statusmcp.NewHTTPHandler(st, log)))
 	mux.HandleFunc("GET /api/v1/vendors", h.publicRead(h.listVendors))
 	mux.HandleFunc("OPTIONS /api/v1/vendors", h.publicRead(h.listVendors))
 	mux.HandleFunc("GET /api/v1/vendors/{slug}", h.publicRead(h.getVendor))
@@ -296,6 +302,17 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 		h.authEndpoint(h.limited(h.accountLimiter, false,
 			"Too many sign in attempts, please try again later", h.oauthCallback)))
 
+	// A signed in account can see what is linked, connect another provider, or
+	// remove one. Linking starts the same provider flow as signing in, but the
+	// callback attaches it to this account instead of looking for one.
+	mux.HandleFunc("GET /api/v1/auth/logins", h.requireAuth(h.listLogins))
+	mux.HandleFunc("GET /api/v1/auth/{provider}/link",
+		h.requireAuth(h.limited(h.accountLimiter, false,
+			"Too many attempts, please try again later", h.startOAuthLink)))
+	mux.HandleFunc("DELETE /api/v1/auth/logins/{provider}",
+		h.requireAuth(h.limited(h.accountLimiter, false,
+			"Too many attempts, please try again later", h.unlinkLogin)))
+
 	// Accounts made from the site email an address somebody typed, so they get their
 	// own budget. A sign in link has its own, separate budget: it puts a message into
 	// any inbox somebody types, so it is the one that costs something to abuse.
@@ -333,6 +350,9 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	mux.HandleFunc("POST /api/v1/auth/password",
 		h.requireAuth(h.limited(h.passwordLimiter, false,
 			"Too many attempts, please try again later", h.changePassword)))
+	mux.HandleFunc("DELETE /api/v1/auth/account",
+		h.requireAuth(h.limited(h.passwordLimiter, false,
+			"Too many attempts, please try again later", h.deleteAccount)))
 
 	mux.HandleFunc("GET /api/v1/profiles", h.requireAuth(h.listProfiles))
 	mux.HandleFunc("POST /api/v1/profiles/detect",
@@ -370,6 +390,19 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 func (h *handlers) publicRead(next http.HandlerFunc) http.HandlerFunc {
 	return h.publicEndpoint(h.readLimiter, true,
 		"Rate limit exceeded, please try again in a moment", next)
+}
+
+// mcpEndpoint answers every method because the MCP handler owns the protocol
+// details, including refusing GET and DELETE in stateless mode. The read budget
+// is enforced for proxied callers too, so the site's internal token does not
+// turn one connector into an unmetered one.
+func (h *handlers) mcpEndpoint(next http.Handler) http.HandlerFunc {
+	limited := h.limited(h.readLimiter, false,
+		"too many MCP requests, please try again in a moment", next.ServeHTTP)
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		limited(w, r)
+	}
 }
 
 func (h *handlers) publicWrite(next http.HandlerFunc) http.HandlerFunc {

@@ -3,12 +3,14 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
+	"downradar.info/backend/internal/auth"
 	"downradar.info/backend/internal/store"
 )
 
@@ -389,5 +391,134 @@ func TestRememberMeDecidesWhetherTheCookieOutlivesTheBrowser(t *testing.T) {
 					cookie.Expires, cookie.MaxAge, tc.persistent)
 			}
 		})
+	}
+}
+
+func testUserWithPassword(t *testing.T, st *store.Store, role, password string) *store.User {
+	t.Helper()
+
+	user := testUser(t, st, role)
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		t.Fatalf("HashPassword: %v", err)
+	}
+	if err := st.SetUserPassword(context.Background(), user.ID, hash); err != nil {
+		t.Fatalf("SetUserPassword: %v", err)
+	}
+	return user
+}
+
+func TestASubscriberCanDeleteTheirAccount(t *testing.T) {
+	st, router, spy := testRouterWithMail(t)
+	ctx := context.Background()
+
+	user := testUserWithPassword(t, st, auth.RoleSubscriber, "a good password")
+	cookie := sessionFor(t, st, user)
+	token := strings.TrimPrefix(cookie, "dr_session=")
+
+	rec := call(t, router, http.MethodDelete, "/api/v1/auth/account",
+		`{"password":"a good password"}`, cookie)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete = %d, want 200: %s", rec.Code, strings.TrimSpace(rec.Body.String()))
+	}
+
+	if _, err := st.UserByID(ctx, user.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("UserByID = %v, want the account gone", err)
+	}
+	if _, err := st.SessionUser(ctx, auth.HashToken(token)); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("SessionUser = %v, want the session gone with the account", err)
+	}
+
+	var cleared *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == "dr_session" {
+			cleared = c
+		}
+	}
+	if cleared == nil || cleared.Value != "" || cleared.MaxAge >= 0 {
+		t.Errorf("the session cookie was not cleared: %+v", cleared)
+	}
+
+	sent := spy.sent()
+	if len(sent) != 1 {
+		t.Fatalf("sent = %d messages, want one farewell", len(sent))
+	}
+	farewell := sent[0]
+	if farewell.to != user.Email {
+		t.Errorf("the farewell went to %q, want %q", farewell.to, user.Email)
+	}
+	if !strings.Contains(strings.ToLower(farewell.subject), "deleted") {
+		t.Errorf("subject = %q, want it to say the account is gone", farewell.subject)
+	}
+	for _, want := range []string{"cannot be undone", "cannot be restored"} {
+		if !strings.Contains(farewell.body, want) {
+			t.Errorf("the farewell does not contain %q:\n%s", want, farewell.body)
+		}
+	}
+}
+
+func TestDeletingAnAccountRefusesAWrongPassword(t *testing.T) {
+	st, router := testRouter(t)
+	ctx := context.Background()
+
+	user := testUserWithPassword(t, st, auth.RoleSubscriber, "a good password")
+	cookie := sessionFor(t, st, user)
+
+	rec := call(t, router, http.MethodDelete, "/api/v1/auth/account",
+		`{"password":"not the password"}`, cookie)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("delete = %d, want 403: %s", rec.Code, strings.TrimSpace(rec.Body.String()))
+	}
+	if _, err := st.UserByID(ctx, user.ID); err != nil {
+		t.Errorf("the account was removed anyway: %v", err)
+	}
+}
+
+func TestStaffCannotDeleteTheirOwnAccount(t *testing.T) {
+	st, router := testRouter(t)
+
+	for _, role := range []string{auth.RoleAdmin, auth.RoleModerator} {
+		t.Run(role, func(t *testing.T) {
+			user := testUserWithPassword(t, st, role, "a good password")
+			cookie := sessionFor(t, st, user)
+
+			rec := call(t, router, http.MethodDelete, "/api/v1/auth/account",
+				`{"password":"a good password"}`, cookie)
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("delete = %d, want 403: %s", rec.Code, strings.TrimSpace(rec.Body.String()))
+			}
+			if _, err := st.UserByID(context.Background(), user.ID); err != nil {
+				t.Errorf("the staff account was removed anyway: %v", err)
+			}
+		})
+	}
+}
+
+func TestAProviderAccountSetsAPasswordBeforeDeleting(t *testing.T) {
+	st, router := testRouter(t)
+	ctx := context.Background()
+
+	user := testUser(t, st, auth.RoleSubscriber)
+	if err := st.SetUserPassword(ctx, user.ID, ""); err != nil {
+		t.Fatalf("SetUserPassword: %v", err)
+	}
+	cookie := sessionFor(t, st, user)
+
+	rec := call(t, router, http.MethodDelete, "/api/v1/auth/account", `{"password":""}`, cookie)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("delete = %d, want 400: %s", rec.Code, strings.TrimSpace(rec.Body.String()))
+	}
+	if _, err := st.UserByID(ctx, user.ID); err != nil {
+		t.Errorf("the account was removed anyway: %v", err)
+	}
+}
+
+func TestDeletingAnAccountNeedsASession(t *testing.T) {
+	_, router := testRouter(t)
+
+	rec := call(t, router, http.MethodDelete, "/api/v1/auth/account",
+		`{"password":"a good password"}`, "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("delete = %d, want 401: %s", rec.Code, strings.TrimSpace(rec.Body.String()))
 	}
 }

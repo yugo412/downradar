@@ -62,6 +62,37 @@ func TestVerifyAndResetCarryTheirOwnLinks(t *testing.T) {
 	}
 }
 
+func TestTheDeletedAccountMessageSaysItCannotBeRestored(t *testing.T) {
+	s := &spy{}
+	m := New(s, "https://downradar.info/")
+
+	ctx := context.Background()
+	if err := m.Deleted(ctx, "ann@example.com", "Ann"); err != nil {
+		t.Fatalf("Deleted: %v", err)
+	}
+
+	if len(s.messages) != 1 {
+		t.Fatalf("messages = %d, want one", len(s.messages))
+	}
+	msg := s.messages[0]
+	if msg.to != "ann@example.com" {
+		t.Errorf("message went to %q", msg.to)
+	}
+	if msg.subject != "Your DownRadar account has been deleted" {
+		t.Errorf("subject = %q", msg.subject)
+	}
+	for _, want := range []string{
+		"Ann",
+		"cannot be undone",
+		"cannot be restored",
+		"https://downradar.info/contact",
+	} {
+		if !strings.Contains(msg.body, want) {
+			t.Errorf("the message does not contain %q:\n%s", want, msg.body)
+		}
+	}
+}
+
 func TestTheSignInLinkCarriesThePageToOpen(t *testing.T) {
 	s := &spy{}
 	m := New(s, "https://downradar.info/")

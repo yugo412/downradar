@@ -132,6 +132,26 @@
   color: var(--color-base-content);
 }
 
+/* daisyUI sizes the method column for a three-letter verb and leaves the row
+   without left padding, so "POST" overflows the column and its first letter touches
+   the card. Keep the column at three characters so every method starts at the same
+   inset, let the four-letter one overflow into the gap, and inset the row a little. */
+.mockup-code pre[data-prefix] {
+  padding-left: 0.5rem;
+}
+
+.mockup-code pre[data-prefix]::before {
+  width: 3ch;
+}
+
+/* The shell prompt is one character, not a method, and the shared column would leave
+   a wide gap before the command. A narrower column and margin keep the dollar sign
+   at the same left edge as the methods, with a single space after it. */
+.mockup-code pre.prompt[data-prefix]::before {
+  width: 1ch;
+  margin-right: 1ch;
+}
+
 /* The new snapshot fades in over the old one, which stays opaque, so every
    surface changes on one clock and the page never washes out halfway. */
 ::view-transition-old(root) {

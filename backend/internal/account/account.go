@@ -1,6 +1,7 @@
 // Package account sends the emails an account needs on its own: confirming an
-// address, signing somebody in from their inbox, and letting a forgotten password
-// back in. It is not queued like alert mail, and it is about people, not vendors.
+// address, signing somebody in from their inbox, letting a forgotten password
+// back in, and saying goodbye when the account is gone. It is not queued like
+// alert mail, and it is about people, not vendors.
 package account
 
 import (
@@ -62,6 +63,16 @@ func (m *Mailer) Reset(ctx context.Context, to, name, token string) error {
 	return m.send(ctx, to, "Reset your password", "reset", letter{
 		Name: name,
 		URL:  fmt.Sprintf("%s/reset?token=%s", m.publicURL, token),
+	})
+}
+
+// Deleted tells somebody their account is gone. It is sent after the row has
+// been removed, so it is the last message the address will get from the account
+// and it has to say plainly that nothing can be brought back.
+func (m *Mailer) Deleted(ctx context.Context, to, name string) error {
+	return m.send(ctx, to, "Your DownRadar account has been deleted", "deleted", letter{
+		Name: name,
+		URL:  m.publicURL + "/contact",
 	})
 }
 

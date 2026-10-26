@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -92,6 +93,81 @@ func finishSignIn(t *testing.T, router http.Handler, state, code, cookie string)
 
 	path := "/api/v1/auth/zz/callback?state=" + url.QueryEscape(state) + "&code=" + url.QueryEscape(code)
 	return call(t, router, http.MethodGet, path, "", cookie).Result()
+}
+
+// startLink follows the first half of connecting a provider to a signed in
+// account, keeping the session and the state the browser would hold.
+func startLink(t *testing.T, router http.Handler, session string) (state, cookie string) {
+	t.Helper()
+
+	rec := call(t, router, http.MethodGet, "/api/v1/auth/zz/link", "", session)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("start link = %d, want a redirect: %s", rec.Code, rec.Body.String())
+	}
+
+	location, err := url.Parse(rec.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("parse the provider url: %v", err)
+	}
+	if location.Host != "provider.invalid" {
+		t.Errorf("start link sent the browser to %s, not the provider", location)
+	}
+	state = location.Query().Get("state")
+	if state == "" {
+		t.Fatal("no state in the provider url")
+	}
+
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == oauthStateCookie {
+			cookie = c.Name + "=" + c.Value
+		}
+	}
+	if cookie == "" {
+		t.Fatal("no state cookie was set")
+	}
+	return state, cookie
+}
+
+// finishLink sends what the provider would send back to the link callback.
+func finishLink(t *testing.T, router http.Handler, state, code, session, stateCookie string) *http.Response {
+	t.Helper()
+
+	path := "/api/v1/auth/zz/callback?state=" + url.QueryEscape(state) + "&code=" + url.QueryEscape(code)
+	return call(t, router, http.MethodGet, path, "", session+"; "+stateCookie).Result()
+}
+
+func wantLinkSuccess(t *testing.T, res *http.Response) {
+	t.Helper()
+
+	location, err := url.Parse(res.Header.Get("Location"))
+	if err != nil {
+		t.Fatalf("parse the redirect: %v", err)
+	}
+	if res.StatusCode != http.StatusFound || location.Path != "/account/logins" ||
+		location.Query().Get("linked") != "zz" {
+		t.Errorf("link callback = %d %q, want the account logins screen",
+			res.StatusCode, res.Header.Get("Location"))
+	}
+}
+
+func wantLinkFailure(t *testing.T, res *http.Response, reason string) {
+	t.Helper()
+
+	location, err := url.Parse(res.Header.Get("Location"))
+	if err != nil {
+		t.Fatalf("parse the redirect: %v", err)
+	}
+	if res.StatusCode != http.StatusFound || location.Path != "/account/logins" {
+		t.Errorf("link callback = %d %q, want the account logins screen",
+			res.StatusCode, res.Header.Get("Location"))
+		return
+	}
+	if got := location.Query().Get("oauth"); got != reason {
+		t.Errorf("reason = %q, want %q", got, reason)
+	}
+	if got := location.Query().Get("provider"); got != "zz" {
+		t.Errorf("provider = %q, want the one that was used", got)
+	}
 }
 
 // wantSignInFailure checks that the callback sent the browser back to the sign in
@@ -367,5 +443,198 @@ func TestAnUnconfiguredProviderCannotBeUsed(t *testing.T) {
 	rec := call(t, router, http.MethodGet, "/api/v1/auth/github", "", "")
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("start = %d, want 404", rec.Code)
+	}
+}
+
+func TestLinkingAProviderAttachesItToTheSignedInAccount(t *testing.T) {
+	email := uniqueEmail()
+	subject := fmt.Sprintf("subject-%d", time.Now().UnixNano())
+	st, router := testProviderRouter(t, &fakeProvider{identity: oauth.Identity{
+		Subject: subject, Email: email, Name: "Linked Person", Username: "linked-person",
+	}})
+	t.Cleanup(func() { dropUser(t, st, email) })
+
+	current := testUser(t, st, "subscriber")
+	session := sessionFor(t, st, current)
+
+	var list struct {
+		HasPassword bool `json:"hasPassword"`
+		Providers   []struct {
+			Name      string `json:"name"`
+			Label     string `json:"label"`
+			Connected bool   `json:"connected"`
+			Email     string `json:"email"`
+			Username  string `json:"username"`
+		} `json:"providers"`
+	}
+	rec := call(t, router, http.MethodGet, "/api/v1/auth/logins", "", session)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("logins = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !list.HasPassword || len(list.Providers) != 1 || list.Providers[0].Connected {
+		t.Fatalf("logins = %+v, want one provider that is not connected", list)
+	}
+
+	state, stateCookie := startLink(t, router, session)
+	res := finishLink(t, router, state, "the-code", session, stateCookie)
+	wantLinkSuccess(t, res)
+	for _, c := range res.Cookies() {
+		if c.Name == "dr_session" && c.Value != "" {
+			t.Error("linking a provider started a session")
+		}
+	}
+
+	linked, err := st.UserByProvider(context.Background(), "zz", subject)
+	if err != nil {
+		t.Fatalf("UserByProvider: %v", err)
+	}
+	if linked.ID != current.ID {
+		t.Errorf("linked account = %d, want the signed in account (%d)", linked.ID, current.ID)
+	}
+	if linked.Email != current.Email {
+		t.Errorf("account address = %q, want it left at %q", linked.Email, current.Email)
+	}
+
+	list.Providers = nil
+	rec = call(t, router, http.MethodGet, "/api/v1/auth/logins", "", session)
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(list.Providers) != 1 {
+		t.Fatalf("logins = %+v, want the configured provider", list.Providers)
+	}
+	got := list.Providers[0]
+	if !got.Connected || got.Name != "zz" || got.Label != "Zed" ||
+		got.Email != email || got.Username != "linked-person" {
+		t.Errorf("provider = %+v, want the identity just linked", got)
+	}
+}
+
+func TestLinkingRefusesAProviderThatBelongsToAnotherAccount(t *testing.T) {
+	subject := fmt.Sprintf("subject-%d", time.Now().UnixNano())
+	provider := &fakeProvider{}
+	st, router := testProviderRouter(t, provider)
+	ctx := context.Background()
+
+	current := testUser(t, st, "subscriber")
+	other := testUser(t, st, "subscriber")
+	session := sessionFor(t, st, current)
+
+	// The provider proves an address that already belongs to another account.
+	// Connecting it here would merge two accounts, so it is refused instead.
+	provider.identity = oauth.Identity{
+		Subject: subject, Email: other.Email, Name: "Other Person", Username: "other",
+	}
+	state, stateCookie := startLink(t, router, session)
+	res := finishLink(t, router, state, "the-code", session, stateCookie)
+	wantLinkFailure(t, res, "taken")
+	if _, err := st.UserByProvider(ctx, "zz", subject); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("a refused link attached the identity anyway: %v", err)
+	}
+	if links, err := st.UserProviders(ctx, current.ID); err != nil || len(links) != 0 {
+		t.Errorf("links = %+v, err = %v, want the signed in account untouched", links, err)
+	}
+
+	// An identity already attached elsewhere is refused for the same reason.
+	linkedSubject := fmt.Sprintf("subject-%d", time.Now().UnixNano())
+	if err := st.LinkProvider(ctx, other.ID, "zz", linkedSubject,
+		"linked@example.com", "other"); err != nil {
+		t.Fatalf("LinkProvider other: %v", err)
+	}
+	provider.identity = oauth.Identity{
+		Subject: linkedSubject, Email: uniqueEmail(), Name: "Other Person", Username: "other",
+	}
+	state, stateCookie = startLink(t, router, session)
+	res = finishLink(t, router, state, "the-code", session, stateCookie)
+	wantLinkFailure(t, res, "taken")
+	if links, err := st.UserProviders(ctx, current.ID); err != nil || len(links) != 0 {
+		t.Errorf("links = %+v, err = %v, want no link on the signed in account", links, err)
+	}
+	linked, err := st.UserByProvider(ctx, "zz", linkedSubject)
+	if err != nil {
+		t.Fatalf("the other account lost its link: %v", err)
+	}
+	if linked.ID != other.ID {
+		t.Errorf("linked account = %d, want %d", linked.ID, other.ID)
+	}
+}
+
+func TestTheLastLoginCannotBeRemovedWithoutAPassword(t *testing.T) {
+	st, router := testProviderRouter(t, &fakeProvider{})
+	ctx := context.Background()
+
+	email := uniqueEmail()
+	t.Cleanup(func() { dropUser(t, st, email) })
+	account, err := st.CreateUser(ctx, email, "No Password", "subscriber", "")
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	if err := st.LinkProvider(ctx, account.ID, "zz", "the-subject", "zz@example.com", "login"); err != nil {
+		t.Fatalf("LinkProvider: %v", err)
+	}
+	session := sessionFor(t, st, account)
+
+	for _, tc := range []struct {
+		label  string
+		method string
+		path   string
+	}{
+		{"list without a session", http.MethodGet, "/api/v1/auth/logins"},
+		{"remove without a session", http.MethodDelete, "/api/v1/auth/logins/zz"},
+		{"link without a session", http.MethodGet, "/api/v1/auth/zz/link"},
+	} {
+		t.Run(tc.label, func(t *testing.T) {
+			if rec := call(t, router, tc.method, tc.path, "", ""); rec.Code != http.StatusUnauthorized {
+				t.Errorf("status = %d, want 401", rec.Code)
+			}
+		})
+	}
+
+	var list struct {
+		HasPassword bool `json:"hasPassword"`
+		Providers   []struct {
+			Connected bool `json:"connected"`
+		} `json:"providers"`
+	}
+	rec := call(t, router, http.MethodGet, "/api/v1/auth/logins", "", session)
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if list.HasPassword || len(list.Providers) != 1 || !list.Providers[0].Connected {
+		t.Fatalf("logins = %+v, want the only login connected on an account with no password", list)
+	}
+
+	rec = call(t, router, http.MethodDelete, "/api/v1/auth/logins/zz", "", session)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("remove the only login = %d, want 409: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "set a password") {
+		t.Errorf("answer = %s, want it to ask for a password", rec.Body.String())
+	}
+	if links, err := st.UserProviders(ctx, account.ID); err != nil || len(links) != 1 {
+		t.Errorf("links = %+v, err = %v, want the login left alone", links, err)
+	}
+
+	if err := st.SetUserPassword(ctx, account.ID, "a-hash"); err != nil {
+		t.Fatalf("SetUserPassword: %v", err)
+	}
+	rec = call(t, router, http.MethodDelete, "/api/v1/auth/logins/zz", "", session)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("remove after setting a password = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if rec := call(t, router, http.MethodDelete, "/api/v1/auth/logins/zz", "", session); rec.Code != http.StatusNotFound {
+		t.Errorf("remove it twice = %d, want 404", rec.Code)
+	}
+
+	list.Providers = nil
+	rec = call(t, router, http.MethodGet, "/api/v1/auth/logins", "", session)
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !list.HasPassword || len(list.Providers) != 1 || list.Providers[0].Connected {
+		t.Errorf("logins = %+v, want the provider no longer connected", list)
 	}
 }
