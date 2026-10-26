@@ -11,6 +11,7 @@ func TestEveryMessageIsSetInTheShell(t *testing.T) {
 	cases := map[string]any{
 		"verify":  map[string]string{"Name": "Ann", "URL": "https://downradar.info/verify?token=tok"},
 		"reset":   map[string]string{"Name": "Ann", "URL": "https://downradar.info/reset?token=tok"},
+		"deleted": map[string]string{"Name": "Ann", "URL": "https://downradar.info/contact"},
 		"contact": map[string]string{"Name": "Ann", "Email": "ann@example.com", "Subject": "Hello", "Body": "line one\nline two"},
 		"alert": map[string]any{
 			"VendorName": "Example", "ComponentName": "Search",

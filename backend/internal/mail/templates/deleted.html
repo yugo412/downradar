@@ -1,0 +1,18 @@
+{{/* The last message an account gets, sent after the row and everything that
+     hung from it are gone. It has to be plain about that: there is nothing left
+     to sign in to, and none of it can be brought back. */}}
+{{define "deleted"}}
+<p style="margin:0 0 16px;">Hello {{.Name}},</p>
+<p style="margin:0 0 20px;">
+  Your DownRadar account has been deleted. Its alerts, channels, delivery records, limits,
+  sessions and sign-in links are gone with it. This cannot be undone. The data
+  cannot be restored.
+</p>
+<p style="margin:0 0 20px;">
+  Services you added stay in the catalogue without your name attached.
+</p>
+<p style="margin:0 0 16px;font-size:13px;color:#6f6f6f;">
+  If you did not ask for this, tell us through the
+  <a href="{{.URL}}" style="color:#161616;">contact form</a>.
+</p>
+{{end}}

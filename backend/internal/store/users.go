@@ -42,6 +42,9 @@ func (u *User) Verified() bool {
 // own columns count.
 type UserView struct {
 	User
+	// Services is how many catalogue rows point at this account as their owner.
+	// They are attribution, so deleting the account clears the owner rather than
+	// removing the rows.
 	Services int `json:"services"`
 	// Alerts is what the account is watching, counted the way the per-account
 	// limit counts it: one per vendor watched, by any channel that can still
@@ -214,6 +217,8 @@ func (s *Store) SetUserDisabled(ctx context.Context, id int64, disabled bool) er
 	return nil
 }
 
+// DeleteUser removes the account. Its alerts go with it, while any service it
+// added stays in the catalogue with the owner cleared.
 func (s *Store) DeleteUser(ctx context.Context, id int64) error {
 	tag, err := s.pool.Exec(ctx, `delete from users where id = $1`, id)
 	if err != nil {
@@ -238,8 +243,8 @@ func (s *Store) UserByID(ctx context.Context, id int64) (*User, error) {
 }
 
 // ListUsers is the admin screen. role narrows it to one role and search matches
-// name or email. It counts owned services, since deleting an account deletes them
-// too, and held alerts, since that is the other thing a row says.
+// name or email. It counts services the account is credited for and alerts it
+// still holds, since those are the two things a row says.
 func (s *Store) ListUsers(ctx context.Context, role, search string) ([]UserView, error) {
 	rows, err := s.pool.Query(ctx, `
 		select `+userColumns+`,

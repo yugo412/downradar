@@ -366,12 +366,27 @@ func TestDisablingAnAccountEndsItsAccess(t *testing.T) {
 	}
 }
 
-func TestDeletingAnAccountTakesItsPrivateServices(t *testing.T) {
+func TestDeletingAnAccountLeavesItsServicesInTheCatalogue(t *testing.T) {
 	st := integrationStore(t)
 	ctx := context.Background()
 
 	owner := newTestUser(t, st, "subscriber")
-	slug := newPrivateService(t, st, owner)
+	privateSlug := newPrivateService(t, st, owner)
+
+	publicName := uniqueName("public")
+	publicSlug, err := st.CreateService(ctx, NewService{
+		Name:                  publicName,
+		URL:                   "https://status.example.com",
+		Profile:               "statuspage-v2",
+		PollIntervalSeconds:   300,
+		ActiveIntervalSeconds: 60,
+		Visibility:            VisibilityPublic,
+		OwnerID:               &owner.ID,
+	})
+	if err != nil {
+		t.Fatalf("CreateService: %v", err)
+	}
+	t.Cleanup(func() { dropServices(context.Background(), st, publicSlug) })
 
 	if err := st.DeleteUser(ctx, owner.ID); err != nil {
 		t.Fatalf("DeleteUser: %v", err)
@@ -379,8 +394,96 @@ func TestDeletingAnAccountTakesItsPrivateServices(t *testing.T) {
 	if _, err := st.UserByID(ctx, owner.ID); !errors.Is(err, ErrNotFound) {
 		t.Errorf("err = %v, want the account gone", err)
 	}
-	if _, err := st.AdminGetService(ctx, slug); !errors.Is(err, ErrNotFound) {
-		t.Errorf("err = %v, want the private service to go with its owner", err)
+
+	for slug, visibility := range map[string]string{
+		privateSlug: VisibilityPrivate,
+		publicSlug:  VisibilityPublic,
+	} {
+		row, err := st.AdminGetService(ctx, slug)
+		if err != nil {
+			t.Errorf("AdminGetService(%s): %v", slug, err)
+			continue
+		}
+		if row.OwnerID != nil {
+			t.Errorf("owner of %s = %d, want it cleared", slug, *row.OwnerID)
+		}
+		if row.OwnerName != "" || row.OwnerEmail != "" {
+			t.Errorf("owner of %s still shows %q <%s>", slug, row.OwnerName, row.OwnerEmail)
+		}
+		if row.Visibility != visibility {
+			t.Errorf("visibility of %s = %q, want %q", slug, row.Visibility, visibility)
+		}
+	}
+}
+
+func TestDeletingAnAccountTakesItsAlertsButNotAGuestSubscription(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	owner := newTestUser(t, st, "subscriber")
+	id := alertService(t, st, uniqueName("delete alerts"))
+
+	ownerToken := uniqueName("owner-token")
+	guestToken := uniqueName("guest-token")
+	if err := st.SubscribeAlert(ctx, id, &owner.ID,
+		EmailOnly("owner@example.com", ownerToken, WholeVendor)); err != nil {
+		t.Fatalf("SubscribeAlert owner: %v", err)
+	}
+	if err := st.SubscribeAlert(ctx, id, nil,
+		EmailOnly("guest@example.com", guestToken, WholeVendor)); err != nil {
+		t.Fatalf("SubscribeAlert guest: %v", err)
+	}
+
+	if _, err := st.AlertByToken(ctx, ownerToken); err != nil {
+		t.Fatalf("AlertByToken owner: %v", err)
+	}
+	if _, err := st.AlertByToken(ctx, guestToken); err != nil {
+		t.Fatalf("AlertByToken guest: %v", err)
+	}
+	var ownerSubscription, guestSubscription int64
+	if err := st.pool.QueryRow(ctx,
+		`select subscription_id from alert_channels where token = $1`, ownerToken,
+	).Scan(&ownerSubscription); err != nil {
+		t.Fatalf("subscription of owner alert: %v", err)
+	}
+	if err := st.pool.QueryRow(ctx,
+		`select subscription_id from alert_channels where token = $1`, guestToken,
+	).Scan(&guestSubscription); err != nil {
+		t.Fatalf("subscription of guest alert: %v", err)
+	}
+	queueDeliveryFor(t, st, ownerToken, nil)
+	queueDeliveryFor(t, st, guestToken, nil)
+
+	if err := st.DeleteUser(ctx, owner.ID); err != nil {
+		t.Fatalf("DeleteUser: %v", err)
+	}
+
+	if n := countRows(t, st, `select count(*) from alert_subscriptions where user_id = $1`, owner.ID); n != 0 {
+		t.Errorf("subscriptions = %d, want the account's gone", n)
+	}
+	if n := countRows(t, st, `select count(*) from alert_targets where subscription_id = $1`, ownerSubscription); n != 0 {
+		t.Errorf("targets = %d, want them gone with the subscription", n)
+	}
+	if n := countRows(t, st, `select count(*) from alert_channels where token = $1`, ownerToken); n != 0 {
+		t.Errorf("channels = %d, want them gone with the subscription", n)
+	}
+	if n := queuedForToken(t, st, ownerToken); n != 0 {
+		t.Errorf("deliveries = %d, want them gone with the channel", n)
+	}
+
+	// A subscription made without an account has its own unsubscribe link and
+	// nobody to delete it, so it stays.
+	if n := countRows(t, st, `select count(*) from alert_subscriptions where id = $1`, guestSubscription); n != 1 {
+		t.Errorf("guest subscription = %d, want it left alone", n)
+	}
+	if n := countRows(t, st, `select count(*) from alert_targets where subscription_id = $1`, guestSubscription); n != 1 {
+		t.Errorf("guest targets = %d, want the target left alone", n)
+	}
+	if n := countRows(t, st, `select count(*) from alert_channels where token = $1`, guestToken); n != 1 {
+		t.Errorf("guest channels = %d, want the channel left alone", n)
+	}
+	if n := queuedForToken(t, st, guestToken); n != 1 {
+		t.Errorf("guest deliveries = %d, want the delivery left alone", n)
 	}
 }
 
