@@ -392,3 +392,58 @@ func (h *handlers) changePassword(w http.ResponseWriter, r *http.Request) {
 	h.log.Info("password changed", "user", current.Email, "other_sessions_ended", ended)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "otherSessionsEnded": ended})
 }
+
+type deleteAccountRequest struct {
+	Password string `json:"password"`
+}
+
+// deleteAccount removes the account and everything the cascade takes with it.
+// Staff are refused because the site needs somebody to manage it, and a provider
+// account has no password to confirm with until it sets one.
+func (h *handlers) deleteAccount(w http.ResponseWriter, r *http.Request) {
+	current := h.user(r)
+	if auth.CanManageServices(current.Role) {
+		writeJSON(w, http.StatusForbidden, map[string]string{
+			"error": "staff accounts cannot delete themselves",
+		})
+		return
+	}
+
+	var body deleteAccountRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
+		return
+	}
+	if current.PasswordHash == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "set a password before deleting this account",
+		})
+		return
+	}
+	if !auth.CheckPassword(current.PasswordHash, body.Password) {
+		h.log.Warn("account deletion refused", "user", current.Email, "ip", h.clientIP(r))
+		writeJSON(w, http.StatusForbidden, map[string]string{
+			"error": "the password is not correct",
+		})
+		return
+	}
+
+	if err := h.store.DeleteUser(r.Context(), current.ID); err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	h.clearSessionCookie(w)
+	h.log.Info("account deleted", "id", current.ID, "user", current.Email)
+
+	// The account is already gone, so a mail server that refuses the last
+	// message cannot undo the deletion. Tell the log and let the answer stand.
+	if h.accountMailer != nil {
+		ctx := context.WithoutCancel(r.Context())
+		if err := h.accountMailer.Deleted(ctx, current.Email, current.Name); err != nil {
+			h.log.Error("could not send the account deletion email", "user", current.Email, "error", err)
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const updated = '22 October 2026, 06:57 UTC'
+const updated = '26 October 2026, 09:55 UTC'
 
 useSeoMeta({
   title: 'Privacy Policy',
@@ -76,9 +76,12 @@ useSeoMeta({
       <h2 class="text-lg font-semibold">How long it is kept</h2>
       <p class="mt-3">
         An account and the alerts attached to it are kept until you remove them
-        or ask us to delete the account. Delivery records and server logs are kept
-        for as long as they are useful for troubleshooting and security, then
-        discarded. Copies in backups may take a little longer to disappear.
+        or delete the account from
+        <NuxtLink to="/account/profile" class="link">your profile</NuxtLink>.
+        Deleting the account removes its alerts, channels and delivery records
+        with it. Server logs are kept for as long as they are useful for
+        troubleshooting and security, then discarded. Copies in backups may take
+        a little longer to disappear.
       </p>
     </section>
 
@@ -91,8 +94,10 @@ useSeoMeta({
         <NuxtLink to="/account/password" class="link">the password page</NuxtLink>,
         pause or remove alerts from
         <NuxtLink to="/alerts" class="link">the alerts page</NuxtLink>, and stop
-        any alert from the link in one of its messages. To ask for a copy,
-        correction or deletion of your account data, write through the
+        any alert from the link in one of its messages. You can delete your
+        account for good from your profile page. Services you added stay in the
+        catalogue without your name attached. To ask for a copy, correction or
+        other help with your account data, write through the
         <NuxtLink to="/contact" class="link">contact form</NuxtLink>.
       </p>
     </section>

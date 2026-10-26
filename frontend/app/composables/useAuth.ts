@@ -96,6 +96,16 @@ export function useAuth() {
     return res
   }
 
+  // The account and everything it holds go away, including the session in this
+  // browser, so there is no signed in state left to keep.
+  async function deleteAccount(password: string) {
+    await $fetch('/api/v1/auth/account', {
+      method: 'DELETE',
+      body: { password },
+    })
+    user.value = null
+  }
+
   return {
     user,
     loaded,
@@ -109,5 +119,6 @@ export function useAuth() {
     signOut,
     updateProfile,
     changePassword,
+    deleteAccount,
   }
 }

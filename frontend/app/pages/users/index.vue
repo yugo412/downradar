@@ -205,8 +205,8 @@ async function setDisabled(target: AdminUser, disabled: boolean) {
   }
 }
 
-// Deleting takes the services they own with them, because owner_id cascades, so
-// the warning has to say so.
+// Deleting leaves the services they added behind, with owner_id cleared, so the
+// warning has to say that rather than promising a tidy removal.
 function removalMessage(target: AdminUser | null) {
   if (!target) return ''
 
@@ -214,7 +214,7 @@ function removalMessage(target: AdminUser | null) {
   if (target.services === 0) return base
 
   const many = target.services > 1
-  return `${base} The ${target.services} service${many ? 's' : ''} they own ${many ? 'are' : 'is'} deleted with them, history included.`
+  return `${base} The ${target.services} service${many ? 's' : ''} they added ${many ? 'stay' : 'stays'} in the catalogue, with the owner cleared.`
 }
 
 async function confirmRemove() {
@@ -437,8 +437,9 @@ async function onSaved() {
     </template>
 
     <p class="mt-4 text-xs opacity-60">
-      Disabling keeps everything and can be undone. Deleting cannot: it also removes the private
-      services that account owns. Neither is offered for your own account.
+      Disabling keeps everything and can be undone. Deleting cannot: it removes the account and
+      its alerts, while the services they added stay in the catalogue without an owner. Neither
+      is offered for your own account here.
     </p>
 
     <UserEditor v-if="editing" :user="editing" @close="editing = null" @saved="onSaved" />

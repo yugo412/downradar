@@ -333,6 +333,9 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	mux.HandleFunc("POST /api/v1/auth/password",
 		h.requireAuth(h.limited(h.passwordLimiter, false,
 			"Too many attempts, please try again later", h.changePassword)))
+	mux.HandleFunc("DELETE /api/v1/auth/account",
+		h.requireAuth(h.limited(h.passwordLimiter, false,
+			"Too many attempts, please try again later", h.deleteAccount)))
 
 	mux.HandleFunc("GET /api/v1/profiles", h.requireAuth(h.listProfiles))
 	mux.HandleFunc("POST /api/v1/profiles/detect",
