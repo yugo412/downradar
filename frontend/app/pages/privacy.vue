@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const updated = '26 October 2026, 09:55 UTC'
+const updated = '26 October 2026, 10:47 UTC'
 
 useSeoMeta({
   title: 'Privacy Policy',
@@ -21,7 +21,7 @@ useSeoMeta({
         <li>
           <strong>Account details:</strong> your name, email address, password
           hash, whether the address is confirmed, your role, and the provider
-          account linked when you sign in with GitHub or Google.
+          accounts linked to it, such as GitHub or Google.
         </li>
         <li>
           <strong>Alert details:</strong> the address or webhook a message goes
@@ -44,9 +44,9 @@ useSeoMeta({
       <h2 class="text-lg font-semibold">Cookies</h2>
       <p class="mt-3">
         The site uses a session cookie to keep you signed in, short-lived state
-        cookies while signing in with a provider or connecting Slack, and a theme
-        cookie that remembers your colour preference. There are no advertising or
-        analytics cookies.
+        cookies while signing in with a provider, connecting one from your
+        account, or connecting Slack, and a theme cookie that remembers your
+        colour preference. There are no advertising or analytics cookies.
       </p>
     </section>
 
@@ -64,11 +64,12 @@ useSeoMeta({
       <h2 class="text-lg font-semibold">Sharing</h2>
       <p class="mt-3">
         Data reaches the mail provider that sends the site's email and the
-        infrastructure that hosts it. If you sign in with GitHub or Google, those
-        providers take part in the sign-in. If you add an alert channel, the
-        address or webhook you give is used to deliver through Telegram, Slack,
-        Discord or your own endpoint. We do not sell or rent personal data, and we
-        disclose it to anyone else only when the law requires it.
+        infrastructure that hosts it. If you sign in with or connect GitHub or
+        Google, those providers take part in that flow. If you add an alert
+        channel, the address or webhook you give is used to deliver through
+        Telegram, Slack, Discord or your own endpoint. We do not sell or rent
+        personal data, and we disclose it to anyone else only when the law
+        requires it.
       </p>
     </section>
 

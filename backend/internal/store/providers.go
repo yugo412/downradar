@@ -13,6 +13,18 @@ import (
 // account with another identity of the same provider or to somebody else.
 var ErrProviderTaken = errors.New("store: that provider account is already linked")
 
+// ErrLastSignIn is a provider that cannot be removed because it is the only way
+// into an account that has no password.
+var ErrLastSignIn = errors.New("store: the last way to sign in cannot be removed")
+
+// LinkedProvider is one provider identity attached to an account, with what the
+// provider said about it when it was linked.
+type LinkedProvider struct {
+	Provider string
+	Email    string
+	Username string
+}
+
 const (
 	providerIdentityKey = "user_providers_provider_key"
 	providerUserKey     = "user_providers_user_key"
@@ -38,6 +50,82 @@ func (s *Store) UserByProvider(ctx context.Context, provider, subject string) (*
 		return nil, fmt.Errorf("store: user by %s identity: %w", provider, err)
 	}
 	return u, nil
+}
+
+// UserProviders lists the identities attached to one account. It is what the
+// account screen reads to say which providers can sign in.
+func (s *Store) UserProviders(ctx context.Context, userID int64) ([]LinkedProvider, error) {
+	rows, err := s.pool.Query(ctx, `
+		select provider, email, username
+		from user_providers
+		where user_id = $1
+		order by provider`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("store: providers of user %d: %w", userID, err)
+	}
+	defer rows.Close()
+
+	var out []LinkedProvider
+	for rows.Next() {
+		var p LinkedProvider
+		if err := rows.Scan(&p.Provider, &p.Email, &p.Username); err != nil {
+			return nil, fmt.Errorf("store: scan a provider of user %d: %w", userID, err)
+		}
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: providers of user %d: %w", userID, err)
+	}
+	return out, nil
+}
+
+// UnlinkProvider removes one identity from an account. An account with no
+// password cannot lose its last provider, or nobody could sign in to it again.
+func (s *Store) UnlinkProvider(ctx context.Context, userID int64, provider string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("store: unlink a %s identity begin: %w", provider, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var passwordHash string
+	err = tx.QueryRow(ctx, `
+		select password_hash from users where id = $1 for update`, userID).Scan(&passwordHash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("store: lock user %d before unlinking: %w", userID, err)
+	}
+
+	var linked int
+	if err := tx.QueryRow(ctx,
+		`select count(*) from user_providers where user_id = $1`, userID).Scan(&linked); err != nil {
+		return fmt.Errorf("store: count the providers of user %d: %w", userID, err)
+	}
+
+	var exists bool
+	if err := tx.QueryRow(ctx, `
+		select exists (
+			select 1 from user_providers where user_id = $1 and provider = $2
+		)`, userID, provider).Scan(&exists); err != nil {
+		return fmt.Errorf("store: look for a %s identity of user %d: %w", provider, userID, err)
+	}
+	if !exists {
+		return ErrNotFound
+	}
+	if passwordHash == "" && linked <= 1 {
+		return ErrLastSignIn
+	}
+
+	if _, err := tx.Exec(ctx,
+		`delete from user_providers where user_id = $1 and provider = $2`, userID, provider); err != nil {
+		return fmt.Errorf("store: unlink a %s identity from user %d: %w", provider, userID, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("store: unlink a %s identity commit: %w", provider, err)
+	}
+	return nil
 }
 
 // LinkProvider records a provider identity against an account that already
