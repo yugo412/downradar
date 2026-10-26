@@ -296,6 +296,17 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 		h.authEndpoint(h.limited(h.accountLimiter, false,
 			"Too many sign in attempts, please try again later", h.oauthCallback)))
 
+	// A signed in account can see what is linked, connect another provider, or
+	// remove one. Linking starts the same provider flow as signing in, but the
+	// callback attaches it to this account instead of looking for one.
+	mux.HandleFunc("GET /api/v1/auth/logins", h.requireAuth(h.listLogins))
+	mux.HandleFunc("GET /api/v1/auth/{provider}/link",
+		h.requireAuth(h.limited(h.accountLimiter, false,
+			"Too many attempts, please try again later", h.startOAuthLink)))
+	mux.HandleFunc("DELETE /api/v1/auth/logins/{provider}",
+		h.requireAuth(h.limited(h.accountLimiter, false,
+			"Too many attempts, please try again later", h.unlinkLogin)))
+
 	// Accounts made from the site email an address somebody typed, so they get their
 	// own budget. A sign in link has its own, separate budget: it puts a message into
 	// any inbox somebody types, so it is the one that costs something to abuse.
