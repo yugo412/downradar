@@ -61,12 +61,24 @@ type IncidentView struct {
 	URL        string     `json:"url,omitempty"`
 }
 
+// GeneratedSummary is the short, machine-written description kept beside the
+// official state. InputHash is how the writer knows the state it summarised is
+// still the state on the page; neither it nor the model is part of the public
+// answer.
+type GeneratedSummary struct {
+	Text        string    `json:"text"`
+	GeneratedAt time.Time `json:"generatedAt"`
+	Model       string    `json:"-"`
+	InputHash   string    `json:"-"`
+}
+
 type VendorDetail struct {
 	VendorSummary
-	Aliases        []string        `json:"aliases,omitempty"`
-	ComponentsList []ComponentView `json:"componentsList"`
-	RecentEvents   []EventView     `json:"recentEvents"`
-	Incidents      []IncidentView  `json:"incidents"`
+	Aliases          []string          `json:"aliases,omitempty"`
+	ComponentsList   []ComponentView   `json:"componentsList"`
+	RecentEvents     []EventView       `json:"recentEvents"`
+	Incidents        []IncidentView    `json:"incidents"`
+	GeneratedSummary *GeneratedSummary `json:"generatedSummary,omitempty"`
 }
 
 func (s *Store) ListVendors(ctx context.Context) ([]VendorSummary, error) {
@@ -153,22 +165,36 @@ func (s *Store) OwnedVendors(ctx context.Context, userID int64) ([]VendorSummary
 func (s *Store) GetVendor(ctx context.Context, slug string, viewer Viewer) (*VendorDetail, error) {
 	var v VendorDetail
 	var serviceID int64
+	var summaryText, summaryModel, summaryHash string
+	var summaryAt *time.Time
 
 	err := s.pool.QueryRow(ctx, `
 		select s.id, s.slug, s.name, coalesce(s.url, ''), coalesce(s.category, ''), coalesce(s.logo_url, ''),
-		       coalesce(ss.status, 'unknown'), ss.changed_at, s.last_polled_at
+		       coalesce(ss.status, 'unknown'), ss.changed_at, s.last_polled_at,
+		       coalesce(sm.summary, ''), sm.generated_at,
+		       coalesce(sm.model, ''), coalesce(sm.input_hash, '')
 		from services s
 		left join service_state ss on ss.service_id = s.id
+		left join service_summaries sm on sm.service_id = s.id
 		where s.slug = $1 and s.active and s.status = 'published'
 		  and (s.visibility = 'public'
 		       or ($2::bigint > 0 and s.owner_id = $2)
 		       or $3::boolean)`, slug, viewer.UserID, viewer.IsStaff,
-	).Scan(&serviceID, &v.Slug, &v.Name, &v.URL, &v.Category, &v.LogoURL, &v.Status, &v.ChangedAt, &v.LastPolledAt)
+	).Scan(&serviceID, &v.Slug, &v.Name, &v.URL, &v.Category, &v.LogoURL, &v.Status, &v.ChangedAt, &v.LastPolledAt,
+		&summaryText, &summaryAt, &summaryModel, &summaryHash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read: get vendor %s: %w", slug, err)
+	}
+	if summaryText != "" && summaryAt != nil {
+		v.GeneratedSummary = &GeneratedSummary{
+			Text:        summaryText,
+			GeneratedAt: *summaryAt,
+			Model:       summaryModel,
+			InputHash:   summaryHash,
+		}
 	}
 
 	v.ComponentsList = []ComponentView{}
@@ -246,7 +272,26 @@ func (s *Store) GetVendor(ctx context.Context, slug string, viewer Viewer) (*Ven
 		v.Incidents = append(v.Incidents, i)
 	}
 	incRows.Close()
-	return &v, incRows.Err()
+	if err := incRows.Err(); err != nil {
+		return nil, err
+	}
+
+	// A recovery is stored and its summary is removed by the worker a moment
+	// later. Do not let that small gap put a sentence about an outage above a
+	// vendor that the official data now calls healthy.
+	if v.GeneratedSummary != nil && v.Status == "ok" && v.Degraded == 0 {
+		open := false
+		for _, i := range v.Incidents {
+			if i.ResolvedAt == nil {
+				open = true
+				break
+			}
+		}
+		if !open {
+			v.GeneratedSummary = nil
+		}
+	}
+	return &v, nil
 }
 
 func (s *Store) FindVendor(ctx context.Context, nameOrSlug string) (string, error) {

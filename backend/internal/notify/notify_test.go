@@ -230,6 +230,64 @@ func TestDrainSendsWhatChanged(t *testing.T) {
 	}
 }
 
+func TestDrainOpensWithTheStoredSummary(t *testing.T) {
+	st := testStore(t)
+	slug := changedVendor(t, st, "sum@example.com")
+
+	id, _, err := st.PublicService(context.Background(), slug)
+	if err != nil {
+		t.Fatalf("PublicService: %v", err)
+	}
+	summary := "The API has been degraded since 01:40 UTC while an incident is open."
+	if err := st.SaveGeneratedSummary(context.Background(), id, summary, "gpt-6-luna", "hash", time.Now().UTC()); err != nil {
+		t.Fatalf("SaveGeneratedSummary: %v", err)
+	}
+	t.Cleanup(func() { _ = st.ClearGeneratedSummary(context.Background(), id) })
+
+	sender := &fakeSender{}
+	n := New(st, sender, "https://downradar.info", time.Second, quietLogger())
+	if err := n.drain(context.Background()); err != nil {
+		t.Fatalf("drain: %v", err)
+	}
+
+	sent := sender.sent()
+	if len(sent) != 1 {
+		t.Fatalf("sent = %d messages, want 1", len(sent))
+	}
+	if !strings.Contains(sent[0].body, summary) {
+		t.Errorf("body does not contain the stored summary:\n%s", sent[0].body)
+	}
+}
+
+func TestDrainLeavesOutASummaryOlderThanTheChange(t *testing.T) {
+	st := testStore(t)
+	slug := changedVendor(t, st, "stale@example.com")
+
+	id, _, err := st.PublicService(context.Background(), slug)
+	if err != nil {
+		t.Fatalf("PublicService: %v", err)
+	}
+	summary := "This sentence describes an older state."
+	if err := st.SaveGeneratedSummary(context.Background(), id, summary, "gpt-6-luna", "hash", time.Now().Add(-2*time.Hour)); err != nil {
+		t.Fatalf("SaveGeneratedSummary: %v", err)
+	}
+	t.Cleanup(func() { _ = st.ClearGeneratedSummary(context.Background(), id) })
+
+	sender := &fakeSender{}
+	n := New(st, sender, "https://downradar.info", time.Second, quietLogger())
+	if err := n.drain(context.Background()); err != nil {
+		t.Fatalf("drain: %v", err)
+	}
+
+	sent := sender.sent()
+	if len(sent) != 1 {
+		t.Fatalf("sent = %d messages, want 1", len(sent))
+	}
+	if strings.Contains(sent[0].body, summary) {
+		t.Errorf("body contains a summary from before the change:\n%s", sent[0].body)
+	}
+}
+
 // An alert about a component says which one, because the reader is being told
 // about one part of a page rather than about the vendor as a whole.
 func TestDrainSaysWhichComponentMoved(t *testing.T) {

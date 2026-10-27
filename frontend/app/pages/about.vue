@@ -42,7 +42,8 @@ useSeoMeta({
           <li>
             <strong>Look a service up.</strong> Search the list, narrow it by state, or put whatever is
             having problems at the top. Each service has a page of its own with its components, when
-            its status last changed, and its recent incidents.
+            its status last changed, its recent incidents, and a generated summary above them when
+            there is something to explain.
           </li>
           <li>
             <strong>Be emailed when it changes.</strong> The bell on a service page takes an address and
@@ -74,6 +75,11 @@ useSeoMeta({
           Straight from the source: each service's official status page and nothing else. There are no
           crowd-sourced reports and no user-submitted downtime, so a status here is what the service
           itself says rather than what a sample of its users is guessing.
+        </p>
+        <p class="mt-3 text-sm leading-relaxed opacity-80">
+          The short summary above a vendor's incidents is generated from that same stored state and
+          labelled as generated, with the time it was written. It never replaces the official list of
+          components and incidents underneath it.
         </p>
         <p class="mt-3 text-sm leading-relaxed opacity-80">
           That also sets the limit. A page that cannot be reached, or that words its status in a way we

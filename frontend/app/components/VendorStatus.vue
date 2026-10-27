@@ -132,16 +132,59 @@ const shownComponents = computed(() => {
 
 <template>
   <div>
-    <div v-if="openIncidents.length" role="alert" class="alert alert-warning mb-8">
-      <div>
-        <h2 class="font-semibold">
-          {{ openIncidents.length }} open incident{{ openIncidents.length > 1 ? 's' : '' }}
-        </h2>
-        <ul class="mt-1 text-sm list-disc list-inside">
+    <section
+      v-if="vendor.generatedSummary?.text"
+      class="mb-8 rounded-box border border-primary/20 border-l-4 border-l-primary bg-base-100 p-5 shadow-sm"
+    >
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <span
+            class="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-content shadow-sm"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="size-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path
+                d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z"
+              />
+            </svg>
+          </span>
+          <div>
+            <h2 class="text-sm font-semibold">Generated summary</h2>
+            <p class="text-xs opacity-60">Written from the official status data</p>
+          </div>
+        </div>
+        <span class="text-xs tabular-nums opacity-50">
+          Generated {{ formatDate(vendor.generatedSummary.generatedAt) }}
+        </span>
+      </div>
+      <p class="mt-4 text-[15px] leading-7 text-base-content/85">
+        {{ vendor.generatedSummary.text }}
+      </p>
+    </section>
+
+    <details
+      v-if="openIncidents.length"
+      class="collapse collapse-arrow mb-8 rounded-box border border-base-300 bg-base-100 shadow-sm"
+    >
+      <summary class="collapse-title flex items-center gap-2 font-semibold">
+        <span class="badge badge-warning badge-sm">{{ openIncidents.length }}</span>
+        <span>Open incident{{ openIncidents.length > 1 ? 's' : '' }}</span>
+      </summary>
+      <div class="collapse-content">
+        <ul class="list-disc list-inside text-sm">
           <li v-for="i in openIncidents" :key="i.sourceId">{{ i.name }}</li>
         </ul>
       </div>
-    </div>
+    </details>
 
     <section class="mb-8">
       <h2 class="mb-3 text-lg font-semibold">Components</h2>

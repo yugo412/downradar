@@ -66,8 +66,8 @@ func NewServer(reader Reader, log *slog.Logger) *sdk.Server {
 	}, &sdk.ServerOptions{
 		Instructions: "DownRadar collects the current status of public services " +
 			"from their official status pages. Use list_vendors or search_vendors " +
-			"to find a service, get_vendor for its components, recent events and " +
-			"incidents, and recent_changes for the public change feed.",
+			"to find a service, get_vendor for its generated summary, components, " +
+			"recent events and incidents, and recent_changes for the public change feed.",
 	})
 
 	sdk.AddTool(server, &sdk.Tool{
@@ -89,7 +89,7 @@ func NewServer(reader Reader, log *slog.Logger) *sdk.Server {
 	sdk.AddTool(server, &sdk.Tool{
 		Name:        "get_vendor",
 		Title:       "Get vendor status",
-		Description: "Read one public vendor's current status, components, recent status events and incidents. Use a slug from list_vendors or search_vendors.",
+		Description: "Read one public vendor's current status, generated summary, components, recent status events and incidents. Use a slug from list_vendors or search_vendors.",
 		Annotations: readOnly("Get vendor status"),
 	}, t.getVendor)
 
