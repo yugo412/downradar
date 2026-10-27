@@ -24,7 +24,7 @@ if (vendorError.value?.statusCode === 404) {
 // feed is the last one: it is not an alert the site keeps, so nothing about it
 // is saved, but it is offered beside the others because that is where somebody
 // looking for it will look.
-type Way = 'email' | 'webhook' | 'telegram' | 'slack' | 'discord' | 'rss'
+type Way = 'email' | 'webhook' | 'telegram' | 'slack' | 'discord' | 'lark' | 'rss'
 
 function blankWebhook(): AlertWebhook {
   return { url: '', method: 'POST', headers: [], auth: 'standard', signed: false }
@@ -75,8 +75,8 @@ const webhookTab = ref<WebhookTab>('alert')
 
 // The panel that is open is part of the address, so a link to one opens it. The
 // hash is the way's own name: #email, #webhook, #telegram, #slack, #discord,
-// #rss.
-const ways = ['email', 'webhook', 'telegram', 'slack', 'discord', 'rss'] as const
+// #lark, #rss.
+const ways = ['email', 'webhook', 'telegram', 'slack', 'discord', 'lark', 'rss'] as const
 
 function isWay(value: string): value is Way {
   return (ways as readonly string[]).includes(value)
@@ -112,6 +112,11 @@ const slackURL = ref('')
 // for a channel, kept masked like the Slack one.
 const discordURL = ref('')
 
+// Lark is the custom bot webhook of a group and, when the group requires it, the
+// secret that signs each call.
+const larkURL = ref('')
+const larkSecret = ref('')
+
 // Trying the chat, and what the chat service answered. It is a message like a
 // delivery, so what comes back is whether it arrived rather than a body.
 const trying = ref(false)
@@ -124,6 +129,10 @@ const slackAnswer = ref<{ ok: boolean; error: string } | null>(null)
 // Trying the Discord channel, which answers the same way.
 const discordTrying = ref(false)
 const discordAnswer = ref<{ ok: boolean; error: string } | null>(null)
+
+// Trying the Lark group, whose answer includes its own code when it refuses.
+const larkTrying = ref(false)
+const larkAnswer = ref<{ ok: boolean; code: number; error: string } | null>(null)
 
 // Disconnecting is a save of its own: it stops the Slack way and leaves the
 // other ways and what the alert watches exactly as they were.
@@ -144,8 +153,15 @@ const callsOn = computed(() => hook.value.url.trim() !== '')
 const chatsOn = computed(() => chat.value.trim() !== '')
 const slackOn = computed(() => slackURL.value.trim() !== '')
 const discordOn = computed(() => discordURL.value.trim() !== '')
+const larkOn = computed(() => larkURL.value.trim() !== '')
 const anyWay = computed(
-  () => emailsOn.value || callsOn.value || chatsOn.value || slackOn.value || discordOn.value,
+  () =>
+    emailsOn.value ||
+    callsOn.value ||
+    chatsOn.value ||
+    slackOn.value ||
+    discordOn.value ||
+    larkOn.value,
 )
 
 // What is wrong with the webhook URL as it stands. An empty one is not wrong:
@@ -224,12 +240,36 @@ const discordProblem = computed(() => {
   return ''
 })
 
-// An address, a chat, a Slack channel or a Discord channel with nothing picked
+// What is wrong with the Lark webhook as it stands. Lark and Feishu use their own
+// hosts, so a URL that is only an address is not enough to look like a bot.
+const larkProblem = computed(() => {
+  const url = larkURL.value.trim()
+  if (url === '') return ''
+  if (url.length > 1024) return 'That Lark webhook URL is too long.'
+  if (larkSecret.value.trim().length > 512) return 'That Lark signing secret is too long.'
+
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return 'That does not look like a Lark webhook URL.'
+  }
+  if (
+    parsed.protocol !== 'https:' ||
+    (parsed.hostname !== 'open.larksuite.com' && parsed.hostname !== 'open.feishu.cn') ||
+    !parsed.pathname.startsWith('/open-apis/bot/v2/hook/')
+  ) {
+    return 'Paste the custom bot webhook from Lark, starting with https://open.larksuite.com/open-apis/bot/v2/hook/.'
+  }
+  return ''
+})
+
+// An address, a chat, a Slack channel, a Discord channel or a Lark group with nothing picked
 // beside it would be a way of being told nothing, since each reports on what was
 // picked.
 const nothingToTellAbout = computed(
   () =>
-    (emailsOn.value || chatsOn.value || slackOn.value || discordOn.value) &&
+    (emailsOn.value || chatsOn.value || slackOn.value || discordOn.value || larkOn.value) &&
     !whole.value &&
     picked.value.length === 0,
 )
@@ -243,11 +283,16 @@ const savedTelegram = computed(() => String(state.value?.telegram ?? ''))
 const savedSlack = computed(() => String(state.value?.slack ?? ''))
 const slackChannel = computed(() => String(state.value?.slackChannel ?? ''))
 const savedDiscord = computed(() => String(state.value?.discord ?? ''))
+const savedLark = computed(() => String(state.value?.lark ?? ''))
 const emailPaused = computed(() => state.value?.emailPaused === true)
 const webhookPaused = computed(() => state.value?.webhookPaused === true)
 const telegramPaused = computed(() => state.value?.telegramPaused === true)
 const slackPaused = computed(() => state.value?.slackPaused === true)
 const discordPaused = computed(() => state.value?.discordPaused === true)
+const larkPaused = computed(() => state.value?.larkPaused === true)
+const larkDelivery = computed(() =>
+  (state.value?.channelStatus ?? []).find((status) => status.kind === 'lark'),
+)
 
 // Whether the site has a Slack app to install in one click. Without one the
 // panel keeps the manual webhook path and says why the button is not offered.
@@ -269,6 +314,7 @@ const nothingArriving = computed(() => {
     { set: savedTelegram.value !== '', paused: telegramPaused.value },
     { set: savedSlack.value !== '', paused: slackPaused.value },
     { set: savedDiscord.value !== '', paused: discordPaused.value },
+    { set: savedLark.value !== '', paused: larkPaused.value },
   ].filter((way) => way.set)
   return state.value?.subscribed === true && ways.length > 0 && ways.every((way) => way.paused)
 })
@@ -385,9 +431,12 @@ async function load() {
     botToken.value = res.subscribed ? res.telegramBot ?? '' : ''
     slackURL.value = res.subscribed ? res.slack ?? '' : ''
     discordURL.value = res.subscribed ? res.discord ?? '' : ''
+    larkURL.value = res.subscribed ? res.lark ?? '' : ''
+    larkSecret.value = res.subscribed ? res.larkSecret ?? '' : ''
     testAnswer.value = null
     slackAnswer.value = null
     discordAnswer.value = null
+    larkAnswer.value = null
 
     whole.value = res.subscribed ? res.wholeService ?? true : true
     picked.value = res.subscribed ? res.components ?? [] : []
@@ -426,9 +475,20 @@ async function load() {
       !res.webhook &&
       !res.telegram &&
       !res.slack &&
-      res.discord
+      res.discord &&
+      !res.lark
     ) {
       way.value = 'discord'
+    } else if (
+      res.subscribed &&
+      !res.email &&
+      !res.webhook &&
+      !res.telegram &&
+      !res.slack &&
+      !res.discord &&
+      res.lark
+    ) {
+      way.value = 'lark'
     }
   } catch (err) {
     error.value = apiError(err, 'Could not load this alert.')
@@ -488,7 +548,7 @@ function showSlackResult() {
 // writes the channel with the picks below.
 async function connectSlack() {
   if (!slackEnabled.value || slackNothingToPost.value || busy.value) return
-  if (hookProblem.value || slackProblem.value || discordProblem.value) return
+  if (hookProblem.value || slackProblem.value || discordProblem.value || larkProblem.value) return
 
   if (anyWay.value) {
     await save()
@@ -536,7 +596,7 @@ async function disconnectSlack() {
 }
 
 // What a save sends: the whole alert every time, so what is off stays off. An
-// empty URL is a webhook, a Slack channel or a Discord channel being stopped
+// empty URL is a webhook, a Slack channel, a Discord channel or a Lark group being stopped
 // rather than one being left as it was, and the same goes for the chat.
 // generateSecret asks for a fresh signing secret in the same save, which is the
 // only way one is made.
@@ -555,6 +615,7 @@ function alertBody(generateSecret = false) {
     telegram: { chatId: chat.value.trim(), botToken: botToken.value.trim() },
     slack: { url: slackURL.value.trim() },
     discord: { url: discordURL.value.trim() },
+    lark: { url: larkURL.value.trim(), secret: larkSecret.value.trim() },
     wholeService: whole.value,
     components: picked.value,
   }
@@ -563,7 +624,7 @@ function alertBody(generateSecret = false) {
 type SaveAnswer = { status: string; webhookSecret?: string }
 
 async function save() {
-  if (hookProblem.value || slackProblem.value || discordProblem.value) return
+  if (hookProblem.value || slackProblem.value || discordProblem.value || larkProblem.value) return
 
   // A signed webhook needs a secret before it can be saved. The dialog is opened
   // instead of refusing at the banner: making the secret is the same save, and
@@ -607,7 +668,7 @@ function closeSecret() {
 }
 
 async function generateSecret() {
-  if (hookProblem.value || slackProblem.value || discordProblem.value || !callsOn.value) return
+  if (hookProblem.value || slackProblem.value || discordProblem.value || larkProblem.value || !callsOn.value) return
 
   secretBusy.value = true
   secretError.value = ''
@@ -655,6 +716,7 @@ async function setPaused(way: Way, event: Event) {
     else if (way === 'telegram') current.telegramPaused = !on
     else if (way === 'slack') current.slackPaused = !on
     else if (way === 'discord') current.discordPaused = !on
+    else if (way === 'lark') current.larkPaused = !on
   } catch (err) {
     error.value = apiError(err)
     box.checked = !on
@@ -781,6 +843,35 @@ async function tryDiscord() {
   }
 }
 
+// A message is sent to the Lark group the page is holding, saved or not, so a
+// group can be checked before it is relied on. Lark answers with its own code
+// when it refuses.
+async function tryLark() {
+  if (!larkOn.value && !savedLark.value) return
+
+  larkTrying.value = true
+  larkAnswer.value = null
+  error.value = ''
+
+  try {
+    larkAnswer.value = await $fetch<{ ok: boolean; code: number; error: string }>(
+      `/api/v1/vendors/${slug.value}/alerts/lark/test`,
+      {
+        method: 'POST',
+        body: { url: larkURL.value.trim(), secret: larkSecret.value.trim() },
+      },
+    )
+  } catch (err) {
+    larkAnswer.value = {
+      ok: false,
+      code: 0,
+      error: apiError(err, 'The message could not be sent.'),
+    }
+  } finally {
+    larkTrying.value = false
+  }
+}
+
 // The sample body is meant to be pasted somewhere else, so the page hands it
 // over as it is. The button says it was copied for a moment, then goes back to
 // being pressable.
@@ -830,8 +921,8 @@ async function refreshCalls() {
         </h1>
         <p class="mt-1 text-sm opacity-70">
           One alert per service, delivered by email, webhook, Telegram, Slack,
-          Discord or a mix of them. Email, Telegram, Slack and Discord report on
-          what you pick. A webhook always carries the whole service.
+          Discord, Lark or a mix of them. Email, Telegram, Slack, Discord and
+          Lark report on what you pick. A webhook always carries the whole service.
         </p>
       </header>
 
@@ -904,6 +995,16 @@ async function refreshCalls() {
                   :busy="pausing === 'discord'"
                   @select="selectWay('discord')"
                   @pause="setPaused('discord', $event)"
+                />
+                <AlertWayRow
+                  label="Lark"
+                  icon="lark"
+                  :active="way === 'lark'"
+                  :on="savedLark !== ''"
+                  :paused="larkPaused"
+                  :busy="pausing === 'lark'"
+                  @select="selectWay('lark')"
+                  @pause="setPaused('lark', $event)"
                 />
                 <li>
                   <button
@@ -1733,6 +1834,143 @@ async function refreshCalls() {
 
             </div>
 
+            <div v-show="way === 'lark'">
+              <h3 class="font-semibold">Lark</h3>
+              <p class="mt-1 text-sm opacity-70">
+                A card in a Lark group each time one of the things you pick below
+                changes, in either direction. The card links to the status page
+                and to a page that stops these messages.
+              </p>
+
+              <details class="mt-3 min-w-0 rounded-box border border-base-300">
+                <summary class="cursor-pointer px-4 py-3 text-sm font-medium">
+                  How to make a custom bot
+                </summary>
+                <div class="min-w-0 border-t border-base-300 px-4 py-3">
+                  <ol class="list-decimal space-y-1 pl-5 text-sm opacity-70">
+                    <li>
+                      In the Lark group, open Settings, then Bots, and add a
+                      <span class="font-medium">Custom Bot</span>.
+                    </li>
+                    <li>
+                      Copy the webhook URL the bot gives you and paste it here.
+                    </li>
+                    <li>
+                      If the bot uses signature verification, copy its secret too.
+                    </li>
+                  </ol>
+                </div>
+              </details>
+
+              <!-- The webhook and its secret are both credentials, so the fields
+                   mask them and offer to show them, like the other channels. -->
+              <div class="mt-3">
+                <PasswordInput
+                  v-model="larkURL"
+                  label="Webhook URL"
+                  secret="webhook URL"
+                  autocomplete="off"
+                  placeholder="https://open.larksuite.com/open-apis/bot/v2/hook/..."
+                >
+                  <p v-if="larkProblem" class="mt-2 text-sm text-error">{{ larkProblem }}</p>
+                  <p class="mt-2 text-sm opacity-70">
+                    The URL is kept with this alert and shown masked. Leave it
+                    empty to stop the messages for good.
+                  </p>
+                </PasswordInput>
+              </div>
+
+              <div class="mt-3">
+                <PasswordInput
+                  v-model="larkSecret"
+                  label="Signing secret"
+                  secret="signing secret"
+                  autocomplete="off"
+                  placeholder="Only if the bot requires a signed request"
+                >
+                  <p class="mt-2 text-sm opacity-70">
+                    Optional. Paste the secret from the bot's signature
+                    verification setting. It is kept with this alert and shown
+                    masked.
+                  </p>
+                </PasswordInput>
+              </div>
+
+              <div class="mt-4 rounded-box border border-base-300">
+                <div class="flex items-center justify-between border-b border-base-300 px-5 py-3">
+                  <span class="text-sm font-medium">What to post about</span>
+                  <StatusBadge :status="vendor.status" size="xs" />
+                </div>
+                <AlertTargets
+                  v-model:whole="whole"
+                  v-model:picked="picked"
+                  :slug="slug"
+                  :name="vendor.name"
+                  :status="vendor.status"
+                  :components="vendor.componentsList ?? []"
+                />
+              </div>
+
+              <div class="mt-3 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  class="btn btn-outline btn-sm"
+                  :disabled="larkTrying || (!larkOn && !savedLark) || !!larkProblem"
+                  @click="tryLark"
+                >
+                  <span v-if="larkTrying" class="loading loading-spinner loading-xs" />
+                  Send a test message
+                </button>
+                <span v-if="!larkAnswer" class="text-xs opacity-70">
+                  A message goes to this group now, saved or not.
+                </span>
+              </div>
+
+              <div
+                v-if="larkAnswer"
+                class="mt-3 rounded-box border border-base-300 bg-base-200 p-3"
+              >
+                <p class="flex flex-wrap items-center gap-2 text-sm">
+                  <span class="font-medium">What Lark answered</span>
+                  <span
+                    class="badge badge-sm"
+                    :class="larkAnswer.ok ? 'badge-success' : 'badge-error'"
+                  >
+                    {{ larkAnswer.ok ? 'delivered' : 'refused' }}
+                  </span>
+                  <span v-if="larkAnswer.code" class="badge badge-sm badge-ghost">
+                    code {{ larkAnswer.code }}
+                  </span>
+                </p>
+                <p v-if="larkAnswer.error" class="mt-2 text-sm text-error">
+                  {{ larkAnswer.error }}
+                </p>
+                <p v-else class="mt-2 text-sm opacity-70">
+                  The message arrived in that group.
+                </p>
+              </div>
+
+              <div
+                v-if="larkDelivery?.attemptAt"
+                class="mt-3 rounded-box border border-base-300 bg-base-200 p-3"
+              >
+                <template v-if="larkDelivery.error">
+                  <p class="text-sm font-medium text-error">
+                    Last delivery failed
+                    <LiveAgo :at="larkDelivery.attemptAt" />
+                  </p>
+                  <p class="mt-1 break-words text-xs text-error">
+                    {{ larkDelivery.error }}
+                  </p>
+                </template>
+                <p v-else class="text-sm">
+                  <span class="font-medium text-success">Last delivered</span>
+                  <LiveAgo :at="larkDelivery.successAt ?? larkDelivery.attemptAt" />
+                </p>
+              </div>
+
+            </div>
+
             <!-- The feed is the one way here that nothing is kept for, so it has
                  no field to save: what it is, is an address. It sits last
                  because it is the way with nothing to set up. -->
@@ -1751,7 +1989,7 @@ async function refreshCalls() {
               <button
                 type="button"
                 class="btn btn-primary btn-sm"
-                :disabled="busy || nothingToTellAbout || (!anyWay && !state?.subscribed) || !!hookProblem || !!slackProblem || !!discordProblem"
+                :disabled="busy || nothingToTellAbout || (!anyWay && !state?.subscribed) || !!hookProblem || !!slackProblem || !!discordProblem || !!larkProblem"
                 @click="save"
               >
                 <span v-if="busy" class="loading loading-spinner loading-xs" />
@@ -1763,8 +2001,8 @@ async function refreshCalls() {
               Pick at least one thing to be told about.
             </p>
             <p v-else-if="!anyWay && !state?.subscribed" class="mt-2 text-sm opacity-70">
-              An alert needs an address, a webhook, a chat, a Slack channel or a
-              Discord channel to arrive on.
+              An alert needs an address, a webhook, a chat, a Slack channel, a
+              Discord channel or a Lark group to arrive on.
             </p>
           </div>
         </div>

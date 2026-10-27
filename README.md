@@ -114,7 +114,7 @@ Alerts need `SMTP_ADDR`, `MAIL_FROM`, `PUBLIC_URL` and `APP_KEY` in `.env`.
 `PUBLIC_URL` has to be the public address, or every unsubscribe link points at
 localhost. `APP_KEY` seals the secrets kept in alert channel settings; generate
 it with `openssl rand -hex 32` and keep it with the rest of `.env`, because
-losing it makes saved webhook headers and bot tokens unreadable. Without
+losing it makes saved webhook headers, bot tokens and Lark signing secrets unreadable. Without
 `SMTP_ADDR` the API starts with alerts off and refuses subscriptions rather than
 accepting them and sending nothing. The relay must accept the host's address; a
 relay that filters by IP rejects the SMTP login with a plain authentication
@@ -220,8 +220,8 @@ A signed out visitor can ask for an email alert on a whole vendor from the bell.
 Signed in subscribers get the same bell plus a page per service and `/alerts`,
 where they choose what to watch and how it arrives.
 
-- **Ways:** email, webhook, Telegram, Slack, Discord, or a mix. Each is set on the page; an empty field turns it off, and one Save writes the whole alert.
-- **Targets:** email, Telegram, Slack and Discord report on what is ticked: the vendor's status, components, or both. A webhook always carries the whole vendor. A change in either direction is sent; a first sighting is a baseline, not a change.
+- **Ways:** email, webhook, Telegram, Slack, Discord, Lark, or a mix. Each is set on the page; an empty field turns it off, and one Save writes the whole alert.
+- **Targets:** email, Telegram, Slack, Discord and Lark report on what is ticked: the vendor's status, components, or both. A webhook always carries the whole vendor. A change in either direction is sent; a first sighting is a baseline, not a change.
 - **Pause:** each way has a switch in its row in the way list. Pausing keeps its address, URL or chat and stops only that way. `/alerts` can pause, resume or delete the whole subscription. A pending delivery for a paused or ended way is dropped.
 - **Limits:** signed out gets one alert, tied to the address. A subscriber uses the limit in `user_limits`, counted per vendor rather than per target; staff are uncapped. The alert address need not be the account's.
 - **Channels and tokens:** each channel has its own token, so an unsubscribe link stops only the channel it came from. An alert holds at most one of each way.
@@ -229,10 +229,11 @@ where they choose what to watch and how it arrives.
 - **Webhook:** the subscriber sets the URL, method and headers; the body is fixed JSON with the vendor, the change, the time, a ready-to-send sentence and every component. Statuses use stored values such as `major`.
 - **Webhook methods:** POST, PUT and PATCH only; GET is refused. Header values can use `{{service}}`, `{{slug}}`, `{{component}}`, `{{from}}`, `{{to}}`, `{{at}}`, `{{url}}` and `{{text}}`; unknown placeholders stay as written, and a value cannot contain a line break.
 - **Webhook auth:** Standard Webhooks is the default and signs every call. The secret is shown once; a rotation keeps the old one valid for a day. Older webhooks keep custom headers, and subscriber headers are sent either way.
-- **Webhook test:** the page can send a made-up change with the current URL, method and headers. The last ten calls are kept, without the sent body or header list.
+- **Webhook test:** the page can send a made-up change with the current URL, method and headers. The last fifty calls are kept, without the sent body or header list, and the log shows twenty at a time.
 - **Telegram:** use the subscriber's own bot from BotFather, press Start, then enter the chat id from @userinfobot. The token stays masked and can be revealed, tested or replaced.
 - **Slack:** use an incoming webhook URL, or Add to Slack for the site's app. Messages use Block Kit; the URL stays masked, the channel name is shown, and the channel can be tested before saving.
 - **Discord:** use the channel's incoming webhook URL. The post is an embed with the status, a link to the vendor page and a link that stops that channel.
+- **Lark:** use a custom bot's webhook from the group, plus its signing secret when signature verification is on. The card carries the status, a link to the vendor page and a link that stops the channel. The page shows the last real delivery result; tests do not replace it.
 - **Delivery:** a status change writes one delivery per channel in the same transaction; a loop drains them and retries failures. A slow endpoint cannot hold up polling, and a restart loses nothing.
 - **SMTP:** alerts are off without `SMTP_ADDR`, and the API refuses subscriptions while off. Port 465 uses TLS from the first byte; other ports use STARTTLS when offered. Email wording lives in `internal/mail/templates`.
 

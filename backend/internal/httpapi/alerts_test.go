@@ -193,15 +193,19 @@ func alertVendorWithComponents(t *testing.T, st *store.Store, count int) (string
 
 // bellState is what the modal reads before it draws its boxes.
 type bellState struct {
-	Subscribed    bool                `json:"subscribed"`
-	Email         string              `json:"email"`
-	Paused        bool                `json:"paused"`
-	EmailPaused   bool                `json:"emailPaused"`
-	WebhookPaused bool                `json:"webhookPaused"`
-	WholeService  bool                `json:"wholeService"`
-	Components    []string            `json:"components"`
-	Webhook       *store.AlertWebhook `json:"webhook"`
-	Calls         []store.WebhookCall `json:"calls"`
+	Subscribed    bool                          `json:"subscribed"`
+	Email         string                        `json:"email"`
+	Paused        bool                          `json:"paused"`
+	EmailPaused   bool                          `json:"emailPaused"`
+	WebhookPaused bool                          `json:"webhookPaused"`
+	WholeService  bool                          `json:"wholeService"`
+	Components    []string                      `json:"components"`
+	Webhook       *store.AlertWebhook           `json:"webhook"`
+	Lark          string                        `json:"lark"`
+	LarkSecret    string                        `json:"larkSecret"`
+	LarkPaused    bool                          `json:"larkPaused"`
+	Calls         []store.WebhookCall           `json:"calls"`
+	ChannelStatus []store.ChannelDeliveryStatus `json:"channelStatus"`
 }
 
 func readBell(t *testing.T, router http.Handler, slug, cookie string) bellState {
@@ -216,6 +220,40 @@ func readBell(t *testing.T, router http.Handler, slug, cookie string) bellState 
 		t.Fatalf("decode: %v", err)
 	}
 	return state
+}
+
+// A Lark group is saved like the other subscriber ways: its webhook and signing
+// secret come back masked on the owner's page, and its switch pauses only it.
+func TestLarkWaySavesAndPauses(t *testing.T) {
+	st, router := testRouter(t)
+	slug := alertVendor(t, st)
+
+	subscriber := testUser(t, st, auth.RoleSubscriber)
+	cookie := sessionFor(t, st, subscriber)
+
+	webhook := "https://open.larksuite.com/open-apis/bot/v2/hook/abc"
+	rec := call(t, router, http.MethodPost, "/api/v1/vendors/"+slug+"/alerts",
+		`{"lark":{"url":"`+webhook+`","secret":"a-secret"},"wholeService":true}`, cookie)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("saving a Lark way = %d, want 201: %s", rec.Code, rec.Body.String())
+	}
+
+	state := readBell(t, router, slug, cookie)
+	if state.Lark != webhook || state.LarkSecret != "a-secret" {
+		t.Errorf("lark = %q, %q, want the saved webhook and secret", state.Lark, state.LarkSecret)
+	}
+	if state.LarkPaused {
+		t.Error("a new Lark way is paused")
+	}
+
+	rec = call(t, router, http.MethodPost, "/api/v1/vendors/"+slug+"/alerts/pause",
+		`{"kind":"lark","paused":true}`, cookie)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("pausing the Lark way = %d, want 204: %s", rec.Code, rec.Body.String())
+	}
+	if state = readBell(t, router, slug, cookie); !state.LarkPaused {
+		t.Error("the Lark way did not pause")
+	}
 }
 
 // A subscriber picks what the emails are about: the vendor's own status, or

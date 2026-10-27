@@ -267,6 +267,12 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 			"You have tried that Discord channel several times already, please try again later",
 			h.testDiscord)))
 
+	// A message to a Lark group is tried against the same test budget.
+	mux.HandleFunc("POST /api/v1/vendors/{slug}/alerts/lark/test",
+		h.requireAuth(h.limited(h.testLimiter, false,
+			"You have tried that Lark group several times already, please try again later",
+			h.testLark)))
+
 	// Installing the site's Slack app is a navigation, not a call: the browser
 	// leaves for Slack and comes back to a fixed address the app has registered.
 	// The alert travels in a cookie beside the state, so the callback need not name a vendor.

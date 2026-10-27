@@ -110,6 +110,8 @@ func (n *Notifier) drain(ctx context.Context) error {
 			err = n.sendSlack(ctx, alert)
 		case store.ChannelDiscord:
 			err = n.sendDiscord(ctx, alert)
+		case store.ChannelLark:
+			err = n.sendLark(ctx, alert)
 		default:
 			err = n.sendEmail(ctx, alert)
 		}
@@ -119,12 +121,14 @@ func (n *Notifier) drain(ctx context.Context) error {
 			}
 			n.log.Warn("alert delivery failed", "kind", alert.Kind, "vendor", alert.VendorSlug,
 				"attempt", alert.Attempts+1, "error", err)
+			n.recordChannelAttempt(ctx, alert.ChannelID, err)
 			if recErr := n.store.FailedAlert(ctx, alert.ID, alert.ToStatus, alert.ChangedAt, err.Error()); recErr != nil {
 				n.log.Error("failed to record the alert failure", "id", alert.ID, "error", recErr)
 			}
 			continue
 		}
 
+		n.recordChannelAttempt(ctx, alert.ChannelID, nil)
 		if err := n.store.SentAlert(ctx, alert.ID, alert.ToStatus, alert.ChangedAt); err != nil {
 			n.log.Error("failed to mark the alert sent", "id", alert.ID, "error", err)
 			continue
@@ -133,6 +137,18 @@ func (n *Notifier) drain(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// recordChannelAttempt keeps the last real delivery result beside the channel,
+// so its page can say whether the last message arrived without keeping a log.
+func (n *Notifier) recordChannelAttempt(ctx context.Context, channelID int64, deliveryErr error) {
+	message := ""
+	if deliveryErr != nil {
+		message = deliveryErr.Error()
+	}
+	if err := n.store.RecordChannelAttempt(ctx, channelID, message); err != nil {
+		n.log.Error("failed to record the channel attempt", "channel", channelID, "error", err)
+	}
 }
 
 // sendEmail writes the message and hands it to the mailer. A message that cannot

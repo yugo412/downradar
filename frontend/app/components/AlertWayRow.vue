@@ -1,5 +1,5 @@
 <script setup lang="ts">
-type Channel = 'email' | 'webhook' | 'telegram' | 'slack' | 'discord' | 'rss'
+type Channel = 'email' | 'webhook' | 'telegram' | 'slack' | 'discord' | 'lark' | 'rss'
 
 defineProps<{
   label: string

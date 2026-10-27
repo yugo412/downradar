@@ -22,14 +22,15 @@ const (
 )
 
 // The ways an alert can arrive, as the channel's kind column holds them. Email,
-// Telegram, Slack and Discord report on what was picked; a webhook hears about
-// the whole vendor.
+// Telegram, Slack, Discord and Lark report on what was picked; a webhook hears
+// about the whole vendor.
 const (
 	ChannelEmail    = "email"
 	ChannelWebhook  = "webhook"
 	ChannelTelegram = "telegram"
 	ChannelSlack    = "slack"
 	ChannelDiscord  = "discord"
+	ChannelLark     = "lark"
 )
 
 // The two kinds of webhook call that are written down: one the sender made for a
@@ -91,15 +92,19 @@ type AlertView struct {
 	TelegramPaused bool `json:"telegramPaused"`
 	SlackPaused    bool `json:"slackPaused"`
 	DiscordPaused  bool `json:"discordPaused"`
+	LarkPaused     bool `json:"larkPaused"`
 
 	// Telegram is the chat a message goes to and Kind the channel a view is about.
-	// TelegramBot is the subscriber's own bot, never handed back. Slack and
-	// Discord are the webhook URLs those messages go to.
+	// TelegramBot is the subscriber's own bot, never handed back. Slack, Discord
+	// and Lark are the webhook URLs those messages go to; LarkSecret signs them
+	// when the bot requires it.
 	Telegram     string `json:"-"`
 	TelegramBot  string `json:"-"`
 	Slack        string `json:"-"`
 	SlackChannel string `json:"-"`
 	Discord      string `json:"-"`
+	Lark         string `json:"-"`
+	LarkSecret   string `json:"-"`
 	Kind         string `json:"-"`
 
 	// The kinds of channel the subscription arrives by, in a stable order; an
@@ -316,6 +321,58 @@ func (s *Store) SetChannelPaused(ctx context.Context, userID, serviceID int64, k
 	return nil
 }
 
+// ChannelDeliveryStatus is how the last real delivery of one channel went. A test
+// from the page is not a delivery and does not move it.
+type ChannelDeliveryStatus struct {
+	Kind      string     `json:"kind"`
+	AttemptAt *time.Time `json:"attemptAt,omitempty"`
+	SuccessAt *time.Time `json:"successAt,omitempty"`
+	Error     string     `json:"error,omitempty"`
+}
+
+// RecordChannelAttempt writes down how the last real delivery of a channel went.
+// The error is capped because a far end can answer with something enormous.
+func (s *Store) RecordChannelAttempt(ctx context.Context, channelID int64, message string) error {
+	const limit = 1000
+	if len(message) > limit {
+		message = message[:limit]
+	}
+	if _, err := s.pool.Exec(ctx, `
+		update alert_channels
+		set last_attempt_at = now(),
+		    last_success_at = case when $2 = '' then now() else last_success_at end,
+		    last_error = nullif($2, '')
+		where id = $1`, channelID, message); err != nil {
+		return fmt.Errorf("alerts: record the channel attempt: %w", err)
+	}
+	return nil
+}
+
+// ChannelDeliveryStatuses reads the last result of every live channel of one
+// alert, so the page can show it beside the channel that sent it.
+func (s *Store) ChannelDeliveryStatuses(ctx context.Context, userID, serviceID int64) ([]ChannelDeliveryStatus, error) {
+	rows, err := s.pool.Query(ctx, `
+		select c.kind, c.last_attempt_at, c.last_success_at, coalesce(c.last_error, '')
+		from alert_channels c
+		join alert_subscriptions a on a.id = c.subscription_id
+		where a.user_id = $1 and a.service_id = $2 and c.unsubscribed_at is null
+		order by c.kind`, userID, serviceID)
+	if err != nil {
+		return nil, fmt.Errorf("alerts: channel status for user %d: %w", userID, err)
+	}
+	defer rows.Close()
+
+	out := []ChannelDeliveryStatus{}
+	for rows.Next() {
+		var status ChannelDeliveryStatus
+		if err := rows.Scan(&status.Kind, &status.AttemptAt, &status.SuccessAt, &status.Error); err != nil {
+			return nil, fmt.Errorf("alerts: scan channel status: %w", err)
+		}
+		out = append(out, status)
+	}
+	return out, rows.Err()
+}
+
 // PendingAlert is one message waiting to go out, carrying the change it is about
 // so it describes the moment it happened even if status has moved on. ComponentName
 // names the watched component, empty for the vendor; Kind says how it goes.
@@ -327,6 +384,8 @@ type PendingAlert struct {
 	TelegramBot string
 	SlackURL    string
 	DiscordURL  string
+	LarkURL     string
+	LarkSecret  string
 	Webhook     AlertWebhook
 	ServiceID   int64
 	ChannelID   int64
@@ -508,6 +567,11 @@ type AlertChange struct {
 	Discord      *AlertDiscord
 	DiscordToken string
 
+	// Lark is the sixth way: a custom bot's webhook URL and the secret that
+	// signs a request when the group requires one.
+	Lark      *AlertLark
+	LarkToken string
+
 	// Targets is what the ways that report on a pick send about: the vendor's own
 	// status, the components of it that were picked, or both.
 	Targets AlertTargets
@@ -667,6 +731,11 @@ func (s *Store) subscribeAlert(ctx context.Context, serviceID int64, userID *int
 	}
 	if change.Discord != nil {
 		if err := saveDiscordChannel(ctx, tx, subscriptionID, *change.Discord, change.DiscordToken); err != nil {
+			return "", fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
+		}
+	}
+	if change.Lark != nil {
+		if err := s.saveLarkChannel(ctx, tx, subscriptionID, *change.Lark, change.LarkToken); err != nil {
 			return "", fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
 		}
 	}
@@ -859,6 +928,33 @@ type AlertSlack struct {
 // AlertDiscord is the fifth way: the incoming webhook URL of a Discord channel.
 type AlertDiscord struct {
 	URL string
+}
+
+// AlertLark is the sixth way: the custom bot webhook of a Lark group, and the
+// secret the bot uses to sign a request when the group requires it.
+type AlertLark struct {
+	URL    string
+	Secret string
+}
+
+type larkSettings struct {
+	Secret string `json:"secret,omitempty"`
+}
+
+func encodeLarkSettings(settings larkSettings) ([]byte, error) {
+	return json.Marshal(settings)
+}
+
+func parseLarkSettings(raw []byte) (string, error) {
+	if len(raw) == 0 {
+		return "", nil
+	}
+
+	var settings larkSettings
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		return "", fmt.Errorf("alerts: read lark settings: %w", err)
+	}
+	return settings.Secret, nil
 }
 
 type telegramSettings struct {
@@ -1065,6 +1161,66 @@ func saveDiscordChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, wa
 	return dropChannelsApartFrom(ctx, tx, subscriptionID, ChannelDiscord, channelID)
 }
 
+// saveLarkChannel makes the subscription's Lark way say what this save asked for.
+// An empty URL stops it, and a save of the same URL without a secret keeps the
+// one the group already uses. A different URL starts that group's own secret, so
+// the old bot's secret cannot be sent to a new one.
+func (s *Store) saveLarkChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, way AlertLark, token string) error {
+	if way.URL == "" {
+		return stopChannels(ctx, tx, subscriptionID, ChannelLark)
+	}
+
+	var channelID int64
+	var channelToken string
+	var address string
+	var raw []byte
+	err := tx.QueryRow(ctx, `
+		select id, token, address, coalesce(settings, '{}'::jsonb)
+		from alert_channels
+		where subscription_id = $1 and kind = 'lark'
+		order by (unsubscribed_at is null) desc, id
+		limit 1`, subscriptionID).Scan(&channelID, &channelToken, &address, &raw)
+
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		channelToken = token
+	case err != nil:
+		return fmt.Errorf("read the lark way: %w", err)
+	case way.Secret == "" && address == way.URL:
+		way.Secret, err = s.parseLarkSettings(raw)
+		if err != nil {
+			return err
+		}
+	}
+
+	settings, err := encodeLarkSettings(larkSettings{Secret: way.Secret})
+	if err != nil {
+		return fmt.Errorf("write the lark way: %w", err)
+	}
+	settings, err = s.sealSettings(settings)
+	if err != nil {
+		return fmt.Errorf("seal the lark way: %w", err)
+	}
+
+	// A row id is never zero, so nothing found means nothing is there yet.
+	if channelID == 0 {
+		if _, err := tx.Exec(ctx, `
+			insert into alert_channels (subscription_id, kind, address, settings, token)
+			values ($1, 'lark', $2, $3, $4)`, subscriptionID, way.URL, settings, channelToken); err != nil {
+			return fmt.Errorf("add the lark way: %w", err)
+		}
+		return nil
+	}
+
+	if _, err := tx.Exec(ctx, `
+		update alert_channels
+		set address = $2, settings = $3, unsubscribed_at = null, updated_at = now()
+		where id = $1`, channelID, way.URL, settings); err != nil {
+		return fmt.Errorf("update the lark way: %w", err)
+	}
+	return dropChannelsApartFrom(ctx, tx, subscriptionID, ChannelLark, channelID)
+}
+
 // SlackWebhook returns the incoming webhook URL a Slack way on this vendor is set
 // up with, for a message tried from the page that does not ask for the URL again.
 // It is empty when there is no Slack way to send to.
@@ -1104,6 +1260,31 @@ func (s *Store) DiscordWebhook(ctx context.Context, userID, serviceID int64) (st
 		return "", fmt.Errorf("alerts: the discord webhook: %w", err)
 	}
 	return webhook, nil
+}
+
+// LarkWebhook returns the saved URL and signing secret of a Lark way, for a
+// message tried from the page after it has been saved.
+func (s *Store) LarkWebhook(ctx context.Context, userID, serviceID int64) (string, string, error) {
+	var address string
+	var raw []byte
+	err := s.pool.QueryRow(ctx, `
+		select c.address, coalesce(c.settings, '{}'::jsonb)
+		from alert_channels c
+		join alert_subscriptions a on a.id = c.subscription_id
+		where a.user_id = $1 and a.service_id = $2 and c.kind = 'lark'
+		order by (c.unsubscribed_at is null) desc, c.id
+		limit 1`, userID, serviceID).Scan(&address, &raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", nil
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("alerts: the lark webhook: %w", err)
+	}
+	secret, err := s.parseLarkSettings(raw)
+	if err != nil {
+		return "", "", err
+	}
+	return address, secret, nil
 }
 
 // TelegramBot returns the bot a chat on this vendor is set up with, for a message
@@ -1345,6 +1526,7 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 	var webhookSettings []byte
 	var telegramSettings []byte
 	var slackRaw []byte
+	var larkRaw []byte
 	err := s.pool.QueryRow(ctx, `
 		select a.id, v.slug, v.name, coalesce(ch.address, ''), a.created_at,
 		       case when ch.total > 0 and ch.ended < ch.total and ch.live = 0
@@ -1356,8 +1538,9 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 		       coalesce(ch.telegram_address, ''), coalesce(ch.telegram_settings, '{}'::jsonb),
 		       coalesce(ch.slack_address, ''), coalesce(ch.slack_settings, '{}'::jsonb),
 		       coalesce(ch.discord_address, ''),
+		       coalesce(ch.lark_address, ''), coalesce(ch.lark_settings, '{}'::jsonb),
 		       ch.email_paused, ch.webhook_paused, ch.telegram_paused, ch.slack_paused,
-		       ch.discord_paused
+		       ch.discord_paused, ch.lark_paused
 		from alert_subscriptions a
 		join services v on v.id = a.service_id
 		left join lateral (
@@ -1385,6 +1568,10 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 			        filter (where c.kind = 'slack' and c.unsubscribed_at is null))[1] as slack_settings,
 			       (array_agg(c.address order by c.id)
 			        filter (where c.kind = 'discord' and c.unsubscribed_at is null))[1] as discord_address,
+			       (array_agg(c.address order by c.id)
+			        filter (where c.kind = 'lark' and c.unsubscribed_at is null))[1] as lark_address,
+			       (array_agg(c.settings order by c.id)
+			        filter (where c.kind = 'lark' and c.unsubscribed_at is null))[1] as lark_settings,
 			       count(*) as total,
 			       count(*) filter (where c.unsubscribed_at is not null) as ended,
 			       count(*) filter (where c.unsubscribed_at is null and c.paused_at is null) as live,
@@ -1399,7 +1586,9 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 			       count(*) filter (where c.kind = 'slack' and c.unsubscribed_at is null
 			                          and c.paused_at is not null) > 0 as slack_paused,
 			       count(*) filter (where c.kind = 'discord' and c.unsubscribed_at is null
-			                          and c.paused_at is not null) > 0 as discord_paused
+			                          and c.paused_at is not null) > 0 as discord_paused,
+			       count(*) filter (where c.kind = 'lark' and c.unsubscribed_at is null
+			                          and c.paused_at is not null) > 0 as lark_paused
 			from alert_channels c
 			where c.subscription_id = a.id
 		) ch on true
@@ -1418,8 +1607,9 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 		&view.Telegram, &telegramSettings,
 		&view.Slack, &slackRaw,
 		&view.Discord,
+		&view.Lark, &larkRaw,
 		&view.EmailPaused, &view.WebhookPaused, &view.TelegramPaused, &view.SlackPaused,
-		&view.DiscordPaused)
+		&view.DiscordPaused, &view.LarkPaused)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -1447,6 +1637,13 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 			return nil, err
 		}
 		view.SlackChannel = channel
+	}
+	if view.Lark != "" {
+		secret, err := s.parseLarkSettings(larkRaw)
+		if err != nil {
+			return nil, err
+		}
+		view.LarkSecret = secret
 	}
 	return &view, nil
 }
@@ -1561,6 +1758,13 @@ func (s *Store) PendingAlerts(ctx context.Context, maxAttempts, limit int) ([]Pe
 			p.SlackURL = address
 		case ChannelDiscord:
 			p.DiscordURL = address
+		case ChannelLark:
+			p.LarkURL = address
+			secret, err := s.parseLarkSettings(settings)
+			if err != nil {
+				return nil, err
+			}
+			p.LarkSecret = secret
 		default:
 			p.Email = address
 		}
