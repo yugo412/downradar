@@ -129,6 +129,15 @@ until it is removed. The signing secret is unused because the site does not take
 Slack events. Without the two values the button is off and the manual webhook
 field is still there.
 
+Generated summaries need `OPENAI_API_KEY` in `.env`; the key is never committed.
+When it is empty no new sentence is written, and rows already stored are left
+alone. `OPENAI_MODEL` defaults to `gpt-6-luna`,
+and `OPENAI_BASE_URL` can point at a compatible endpoint. A vendor's sentence is
+written after a successful poll when the stored state changed, then read from the
+database by the page and by alert emails. A healthy vendor keeps no sentence, and
+a model failure leaves the page with the official lists rather than a summary
+that describes the wrong state.
+
 Things that are easy to get wrong:
 
 - **Never read secrets in `nuxt.config.ts`.** Nuxt inlines them into the bundle at
@@ -397,6 +406,7 @@ backend/                  Go: poller, adapters, store, API
   internal/seed/          seed/vendors.yaml -> targets, with validation
   internal/poller/        reads the table each cycle, scheduling, worker pool
   internal/store/         the only package that speaks SQL
+  internal/summary/       writes and stores the sentence above a vendor's incidents
   db/migrations/          embedded .sql migrations
 
 frontend/                 Nuxt 4 + Vue 3 + TypeScript + DaisyUI

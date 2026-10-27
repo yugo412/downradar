@@ -19,6 +19,11 @@
     >{{.ComponentName}}</span
   >{{end}}
 </p>
+{{if .Summary}}
+<p style="margin:0 0 14px;font-size:15px;line-height:1.45;">
+  {{.Summary}}
+</p>
+{{end}}
 <p style="margin:0 0 4px;">
   {{template "statusChip" .From}}
   <span style="color:#6f6f6f;">&rarr;</span>

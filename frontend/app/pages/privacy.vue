@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const updated = '26 October 2026, 10:47 UTC'
+const updated = '27 October 2026, 02:29 UTC'
 
 useSeoMeta({
   title: 'Privacy Policy',
@@ -62,15 +62,27 @@ useSeoMeta({
     </section>
 
     <section>
+      <h2 class="text-lg font-semibold">Generated summaries</h2>
+      <p class="mt-3">
+        A vendor page may show a short summary above its official incidents. It
+        is written from the same public status data the page shows, and the page
+        labels it as generated with the time it was written. To draft it, that
+        status data is sent to an AI provider. It contains vendor and component
+        names and incident text from the public status page, not your account
+        details, alert address or any other information about you.
+      </p>
+    </section>
+
+    <section>
       <h2 class="text-lg font-semibold">Sharing</h2>
       <p class="mt-3">
-        Data reaches the mail provider that sends the site's email and the
-        infrastructure that hosts it. If you sign in with or connect GitHub or
-        Google, those providers take part in that flow. If you add an alert
-        channel, the address or webhook you give is used to deliver through
-        Telegram, Slack, Discord, Lark or your own endpoint. We do not sell or
-        rent personal data, and we disclose it to anyone else only when the law
-        requires it.
+        Data reaches the mail provider that sends the site's email, the AI
+        provider that drafts generated summaries, and the infrastructure that
+        hosts it. If you sign in with or connect GitHub or Google, those
+        providers take part in that flow. If you add an alert channel, the
+        address or webhook you give is used to deliver through Telegram, Slack,
+        Discord, Lark or your own endpoint. We do not sell or rent personal
+        data, and we disclose it to anyone else only when the law requires it.
       </p>
     </section>
 

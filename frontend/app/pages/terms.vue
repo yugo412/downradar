@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const updated = '22 October 2026, 06:57 UTC'
+const updated = '27 October 2026, 02:42 UTC'
 
 useSeoMeta({
   title: 'Terms of Service',
@@ -22,7 +22,9 @@ useSeoMeta({
         presents it in one place. It is not affiliated with those services, and
         their names and trademarks belong to their owners. Status data can be
         delayed, incomplete or wrong, so it is a convenience rather than a
-        guarantee.
+        guarantee. A generated summary is written from that data by an AI
+        provider; it can be wrong too, and the official list underneath it is the
+        record.
       </p>
       <p class="mt-3">
         The site is provided as it is and may change, pause or stop at any time.

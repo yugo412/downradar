@@ -23,6 +23,7 @@ import (
 	"downradar.info/backend/internal/poller"
 	"downradar.info/backend/internal/slack"
 	"downradar.info/backend/internal/store"
+	"downradar.info/backend/internal/summary"
 )
 
 func main() {
@@ -81,6 +82,19 @@ func run() error {
 	}
 
 	p := poller.New(st, cat, cfg.PollConcurrency, cfg.PollTick, log)
+	if cfg.OpenAIAPIKey != "" {
+		summaries := summary.New(st, summary.Config{
+			APIKey:  cfg.OpenAIAPIKey,
+			BaseURL: cfg.OpenAIBaseURL,
+			Model:   cfg.OpenAIModel,
+			Timeout: cfg.OpenAITimeout,
+		}, log)
+		p.WithSummarizer(summaries)
+		go summaries.Run(ctx)
+		log.Info("generated summaries are on", "model", cfg.OpenAIModel)
+	} else {
+		log.Warn("generated summaries are off: OPENAI_API_KEY is not set")
+	}
 	go p.Run(ctx)
 
 	var accountMailer *account.Mailer

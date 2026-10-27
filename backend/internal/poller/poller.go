@@ -19,10 +19,18 @@ import (
 // in minutes, so the page is left alone in between.
 const detectionRetry = time.Hour
 
+// Summarizer queues a refresh of the generated sentence beside a vendor's stored
+// state. The poller asks it only after a successful poll, never while a page is
+// being rendered, and never waits for the model.
+type Summarizer interface {
+	Enqueue(serviceID int64, slug string)
+}
+
 type Poller struct {
 	store       *store.Store
 	profiles    catalog.Profiles
 	detector    *detect.Detector
+	summarizer  Summarizer
 	concurrency int
 	tick        time.Duration
 	log         *slog.Logger
@@ -43,6 +51,13 @@ func New(st *store.Store, cat catalog.Catalog, concurrency int, tick time.Durati
 		tick:        tick,
 		log:         log,
 	}
+}
+
+// WithSummarizer turns on the generated summary written after a poll. Without
+// one, the page and the alerts keep their existing wording.
+func (p *Poller) WithSummarizer(s Summarizer) *Poller {
+	p.summarizer = s
+	return p
 }
 
 func (p *Poller) Run(ctx context.Context) {
@@ -162,7 +177,9 @@ func (p *Poller) detectOne(ctx context.Context, row store.DetectRow) {
 	if _, err := p.store.ApplyReport(ctx, row.ID, match.Report); err != nil {
 		p.log.Warn("the detected profile could not store its first report",
 			"vendor", row.Slug, "profile", match.Profile, "error", err)
+		return
 	}
+	p.refreshSummary(row.ID, row.Slug)
 }
 
 // resolve turns rows into targets. A row naming a profile that services.yaml no
@@ -281,6 +298,8 @@ func (p *Poller) pollOne(ctx context.Context, j job) {
 		return
 	}
 
+	p.refreshSummary(j.row.ID, j.target.Slug)
+
 	if changed {
 		p.log.Info("status changed",
 			"vendor", j.target.Slug,
@@ -288,4 +307,14 @@ func (p *Poller) pollOne(ctx context.Context, j job) {
 			"components", len(rep.Components),
 			"duration", elapsed.Round(time.Millisecond))
 	}
+}
+
+// refreshSummary is best effort: the worker refreshes the sentence in the
+// background, so a model that is slow or down never turns a successful poll into
+// a failure or delays the next vendor.
+func (p *Poller) refreshSummary(serviceID int64, slug string) {
+	if p.summarizer == nil {
+		return
+	}
+	p.summarizer.Enqueue(serviceID, slug)
 }

@@ -36,11 +36,17 @@ export interface Incident {
   url?: string
 }
 
+export interface GeneratedSummary {
+  text: string
+  generatedAt: string
+}
+
 export interface VendorDetail extends Vendor {
   aliases?: string[]
   componentsList: ComponentStatus[]
   recentEvents: StatusEvent[]
   incidents: Incident[]
+  generatedSummary?: GeneratedSummary | null
 }
 
 export interface PollRun {

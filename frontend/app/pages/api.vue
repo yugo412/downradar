@@ -79,10 +79,12 @@ useSeoMeta({
         </div>
         <p class="mt-3 text-sm opacity-70">
           The first returns every monitored service, around 25 KB for 71 services.
-          The second returns one service with its components, recent status changes
-          and incidents. The third returns the newest status changes across every
-          service, newest first, with <code class="font-mono">?limit=</code> to ask
-          for fewer than the fifty it gives, up to a hundred.
+          The second returns one service with its generated summary, components,
+          recent status changes and incidents. The summary is present only while
+          there is something to explain, and carries the time it was written. The
+          third returns the newest status changes across every service, newest
+          first, with <code class="font-mono">?limit=</code> to ask for fewer than
+          the fifty it gives, up to a hundred.
         </p>
       </section>
 
@@ -101,7 +103,7 @@ useSeoMeta({
           The connector offers four tools: <code class="font-mono">list_vendors</code>
           returns every service, <code class="font-mono">search_vendors</code> finds
           one by name or current status, <code class="font-mono">get_vendor</code>
-          reads a service with its components and incidents, and
+          reads a service with its generated summary, components and incidents, and
           <code class="font-mono">recent_changes</code> follows the public change
           feed. They read the same public data as the JSON endpoints and share the
           read rate limit below.

@@ -53,6 +53,10 @@ type Config struct {
 	ContactPerHour          int
 	ContactBurst            int
 	AlertSendInterval       time.Duration
+	OpenAIAPIKey            string
+	OpenAIModel             string
+	OpenAIBaseURL           string
+	OpenAITimeout           time.Duration
 	LogLevel                string
 }
 
@@ -104,6 +108,10 @@ func Load() Config {
 		ContactPerHour:          envInt("CONTACT_RATE_LIMIT_PER_HOUR", 6),
 		ContactBurst:            envInt("CONTACT_RATE_LIMIT_BURST", 5),
 		AlertSendInterval:       envDuration("ALERT_SEND_INTERVAL", 30*time.Second),
+		OpenAIAPIKey:            env("OPENAI_API_KEY", ""),
+		OpenAIModel:             env("OPENAI_MODEL", "gpt-6-luna"),
+		OpenAIBaseURL:           env("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+		OpenAITimeout:           envDuration("OPENAI_TIMEOUT", 20*time.Second),
 		LogLevel:                env("LOG_LEVEL", "info"),
 	}
 }

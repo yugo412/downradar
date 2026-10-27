@@ -173,9 +173,18 @@ func (n *Notifier) message(alert store.PendingAlert) (string, string, error) {
 
 	subject := fmt.Sprintf("%s is now %s", what, badgeFor(alert.ToStatus).Label)
 
+	// The summary is reused as the opening line only when it was written after
+	// this change. An older sentence describes a state the reader has left.
+	summary := ""
+	if alert.GeneratedSummary != "" && alert.SummaryGeneratedAt != nil &&
+		!alert.SummaryGeneratedAt.Before(alert.ChangedAt) {
+		summary = alert.GeneratedSummary
+	}
+
 	body, err := mail.Render("alert", alertData{
 		VendorName:    alert.VendorName,
 		ComponentName: alert.ComponentName,
+		Summary:       summary,
 		What:          what,
 		From:          badgeFor(alert.FromStatus),
 		To:            badgeFor(alert.ToStatus),
@@ -195,6 +204,7 @@ func (n *Notifier) message(alert store.PendingAlert) (string, string, error) {
 type alertData struct {
 	VendorName    string
 	ComponentName string
+	Summary       string
 	What          string
 	From          badge
 	To            badge
