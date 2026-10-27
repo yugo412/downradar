@@ -9,12 +9,15 @@ const usable = computed(() => Boolean(props.src) && !broken.value)
 </script>
 
 <template>
+  <!-- The reset makes an image's height auto, so pin both sides in CSS; an SVG's
+       own aspect ratio must not decide the size of the outer box. -->
   <img
     v-if="usable"
     :src="src!"
     :alt="`${name} logo`"
     :width="size"
     :height="size"
+    :style="{ width: `${size}px`, height: `${size}px` }"
     class="shrink-0 rounded-box border border-base-300 bg-base-100 object-contain p-1"
     loading="lazy"
     referrerpolicy="no-referrer"
