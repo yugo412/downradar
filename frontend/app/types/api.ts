@@ -85,6 +85,14 @@ export interface AuthProvider {
   label: string
 }
 
+// A configured provider on the account screen, with whether this account has
+// already attached it and which identity the provider gave.
+export interface LinkedLogin extends AuthProvider {
+  connected: boolean
+  email?: string
+  username?: string
+}
+
 export type ServiceStatus = 'proposed' | 'published' | 'rejected' | 'no_match'
 
 export interface AdminService {

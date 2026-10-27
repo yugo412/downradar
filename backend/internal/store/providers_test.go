@@ -92,6 +92,104 @@ func TestOneAccountHasOneIdentityPerProvider(t *testing.T) {
 	}
 }
 
+func TestUserProvidersListsWhatIsLinked(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	user := testStoreUser(t, st)
+	subject := uniqueSubject()
+	if err := st.LinkProvider(ctx, user.ID, "github", subject,
+		"github@example.com", "octocat"); err != nil {
+		t.Fatalf("LinkProvider github: %v", err)
+	}
+	if err := st.LinkProvider(ctx, user.ID, "google", uniqueSubject(),
+		"google@example.com", ""); err != nil {
+		t.Fatalf("LinkProvider google: %v", err)
+	}
+
+	other := testStoreUser(t, st)
+	if err := st.LinkProvider(ctx, other.ID, "github", uniqueSubject(),
+		"other@example.com", "other"); err != nil {
+		t.Fatalf("LinkProvider other: %v", err)
+	}
+
+	links, err := st.UserProviders(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("UserProviders: %v", err)
+	}
+	if len(links) != 2 {
+		t.Fatalf("links = %+v, want two", links)
+	}
+	// Ordered by provider, and only this account's rows.
+	if links[0].Provider != "github" || links[0].Email != "github@example.com" ||
+		links[0].Username != "octocat" {
+		t.Errorf("first link = %+v", links[0])
+	}
+	if links[1].Provider != "google" || links[1].Email != "google@example.com" {
+		t.Errorf("second link = %+v", links[1])
+	}
+
+	if err := st.UnlinkProvider(ctx, user.ID, "github"); err != nil {
+		t.Fatalf("UnlinkProvider: %v", err)
+	}
+	if _, err := st.UserByProvider(ctx, "github", subject); !errors.Is(err, ErrNotFound) {
+		t.Errorf("the removed identity still resolves: %v", err)
+	}
+	if err := st.UnlinkProvider(ctx, user.ID, "github"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("removing it twice = %v, want ErrNotFound", err)
+	}
+}
+
+func TestTheLastProviderNeedsAPasswordBeforeItCanGo(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	email := uniqueTestEmail()
+	t.Cleanup(func() { dropTestUser(context.Background(), st, email) })
+	user, err := st.CreateUser(ctx, email, "Provider Person", "subscriber", "")
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	if err := st.LinkProvider(ctx, user.ID, "github", uniqueSubject(),
+		"github@example.com", "octocat"); err != nil {
+		t.Fatalf("LinkProvider: %v", err)
+	}
+
+	if err := st.UnlinkProvider(ctx, user.ID, "github"); !errors.Is(err, ErrLastSignIn) {
+		t.Errorf("removing the only login = %v, want ErrLastSignIn", err)
+	}
+	if links, err := st.UserProviders(ctx, user.ID); err != nil || len(links) != 1 {
+		t.Errorf("links = %+v, err = %v, want the provider left alone", links, err)
+	}
+
+	if err := st.SetUserPassword(ctx, user.ID, "a-hash"); err != nil {
+		t.Fatalf("SetUserPassword: %v", err)
+	}
+	if err := st.UnlinkProvider(ctx, user.ID, "github"); err != nil {
+		t.Fatalf("UnlinkProvider after setting a password: %v", err)
+	}
+
+	// Two providers and no password is enough to remove one, but not the last.
+	secondEmail := uniqueTestEmail()
+	t.Cleanup(func() { dropTestUser(context.Background(), st, secondEmail) })
+	second, err := st.CreateUser(ctx, secondEmail, "Two Logins", "subscriber", "")
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	for _, provider := range []string{"github", "google"} {
+		if err := st.LinkProvider(ctx, second.ID, provider, uniqueSubject(),
+			provider+"@example.com", ""); err != nil {
+			t.Fatalf("LinkProvider %s: %v", provider, err)
+		}
+	}
+	if err := st.UnlinkProvider(ctx, second.ID, "github"); err != nil {
+		t.Fatalf("removing one of two logins: %v", err)
+	}
+	if err := st.UnlinkProvider(ctx, second.ID, "google"); !errors.Is(err, ErrLastSignIn) {
+		t.Errorf("removing the last login = %v, want ErrLastSignIn", err)
+	}
+}
+
 // testStoreUser makes an ordinary account for a test, the way the shell does.
 func testStoreUser(t *testing.T, st *Store) *User {
 	t.Helper()

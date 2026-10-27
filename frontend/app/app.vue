@@ -44,6 +44,7 @@ const serviceLinks = [
 const accountLinks = [
   { label: 'Edit profile', to: '/account/profile' },
   { label: 'Change password', to: '/account/password' },
+  { label: 'Linked logins', to: '/account/logins' },
 ]
 
 async function onSignOut() {
@@ -357,6 +358,8 @@ async function resend() {
           <NuxtLink to="/terms" class="link">Terms</NuxtLink>
           <span aria-hidden="true">&middot;</span>
           <NuxtLink to="/api" class="link">Public API</NuxtLink>
+          <span aria-hidden="true">&middot;</span>
+          <NuxtLink to="/api#mcp" class="link">MCP server</NuxtLink>
           <span aria-hidden="true">&middot;</span>
           <a href="/sitemap.xml" class="link">Sitemap</a>
           <template v-if="githubRepo">

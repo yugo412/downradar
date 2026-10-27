@@ -3,7 +3,7 @@ definePageMeta({ middleware: 'authenticated', ssr: false })
 
 useSeoMeta({ title: 'Account', robots: 'noindex, nofollow' })
 
-// Nothing lives at /account itself, the menu points at the two forms.
+// Nothing lives at /account itself, the menu points at the account screens.
 onMounted(() => navigateTo('/account/profile', { replace: true }))
 </script>
 

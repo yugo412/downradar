@@ -58,7 +58,8 @@ useSeoMeta({
           <li>
             <strong>Take the data elsewhere.</strong> The
             <NuxtLink to="/api" class="link">public API</NuxtLink> serves the same status as read-only
-            JSON. It is free, needs no key, and is happy to be cached.
+            JSON, and an MCP server offers it to AI assistants. Both are free and need no key, and
+            the JSON API is happy to be cached.
           </li>
           <li>
             <strong>Suggest a service.</strong> If something you use is missing, the search box offers

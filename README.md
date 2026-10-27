@@ -51,6 +51,7 @@ Then open:
 | --- | --- |
 | http://localhost:3000 | the site |
 | http://localhost:8080/api/v1/vendors | the API |
+| http://localhost:3000/api/v1/mcp | the MCP endpoint |
 | http://localhost:3000/api | API documentation |
 | http://localhost:8026 | Mailpit (captures outgoing email) |
 
@@ -241,6 +242,15 @@ there is nothing to unsubscribe from. They are served by the site from routes
 that read the API the way a page does, and are cached for a minute. The alert page
 offers both shapes with a copy button.
 
+## MCP
+
+The catalogue is also a read-only Model Context Protocol server at
+`/api/v1/mcp`, mounted beside the JSON API as a stateless Streamable HTTP
+endpoint. It offers `list_vendors`, `search_vendors`, `get_vendor` and
+`recent_changes`; every tool reads the same public store methods as the API.
+There is no account, management or write path behind it, and its requests share
+the read rate limit, counted per caller even through the Nuxt proxy.
+
 ## Private services
 
 `visibility = 'private'` keeps a row out of the public list, vendor pages, stats
@@ -383,6 +393,7 @@ backend/                  Go: poller, adapters, store, API
   internal/auth/          roles, bcrypt, session tokens
   internal/catalog/       services.yaml -> profiles, with validation
   internal/mail/          SMTP, and the HTML templates every email is written from
+  internal/mcp/           read-only Model Context Protocol server
   internal/seed/          seed/vendors.yaml -> targets, with validation
   internal/poller/        reads the table each cycle, scheduling, worker pool
   internal/store/         the only package that speaks SQL
