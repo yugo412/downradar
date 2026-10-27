@@ -342,6 +342,11 @@ type PendingAlert struct {
 	ToStatus      string
 	ChangedAt     time.Time
 	Attempts      int
+	// GeneratedSummary is the vendor sentence stored when the state changed.
+	// SummaryGeneratedAt says when it was written, so the sender can leave it out
+	// if the row is older than the change the alert is about.
+	GeneratedSummary   string
+	SummaryGeneratedAt *time.Time
 }
 
 // PublicService returns the id and name of a vendor the open API can serve,
@@ -1506,12 +1511,14 @@ func (s *Store) PendingAlerts(ctx context.Context, maxAttempts, limit int) ([]Pe
 	rows, err := s.pool.Query(ctx, `
 		select d.id, c.id, c.kind, c.address, c.settings, d.service_id, s.name, s.slug,
 		       coalesce(cm.name, ''), c.token, a.user_id,
-		       d.from_status, d.to_status, d.changed_at, d.attempts
+		       d.from_status, d.to_status, d.changed_at, d.attempts,
+		       coalesce(sm.summary, ''), sm.generated_at
 		from alert_deliveries d
 		join alert_channels c on c.id = d.channel_id
 		join alert_subscriptions a on a.id = c.subscription_id
 		join services s on s.id = d.service_id
 		left join components cm on cm.id = d.component_id
+		left join service_summaries sm on sm.service_id = d.service_id
 		where d.sent_at is null and d.attempts < $1
 		  and d.deliver_after <= now()
 		  and c.unsubscribed_at is null and c.paused_at is null
@@ -1529,7 +1536,8 @@ func (s *Store) PendingAlerts(ctx context.Context, maxAttempts, limit int) ([]Pe
 		var settings []byte
 		if err := rows.Scan(&p.ID, &p.ChannelID, &p.Kind, &address, &settings, &p.ServiceID,
 			&p.VendorName, &p.VendorSlug, &p.ComponentName, &p.Token, &p.UserID,
-			&p.FromStatus, &p.ToStatus, &p.ChangedAt, &p.Attempts); err != nil {
+			&p.FromStatus, &p.ToStatus, &p.ChangedAt, &p.Attempts,
+			&p.GeneratedSummary, &p.SummaryGeneratedAt); err != nil {
 			return nil, fmt.Errorf("alerts: scan pending: %w", err)
 		}
 
