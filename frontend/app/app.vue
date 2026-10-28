@@ -39,6 +39,7 @@ function toggle(menu: 'service' | 'account' | 'nav') {
 const serviceLinks = [
   { label: 'Add service', to: '/services/new' },
   { label: 'List services', to: '/services' },
+  { label: 'All alerts', to: '/alerts/all' },
 ]
 
 const accountLinks = [
