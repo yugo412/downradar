@@ -81,10 +81,12 @@ useSeoMeta({
           The first returns every monitored service, around 25 KB for 71 services.
           The second returns one service with its generated summary, components,
           recent status changes and incidents. The summary is present only while
-          there is something to explain, and carries the time it was written. The
-          third returns the newest status changes across every service, newest
-          first, with <code class="font-mono">?limit=</code> to ask for fewer than
-          the fifty it gives, up to a hundred.
+          there is something to explain, and carries the time it was written. A
+          service whose polling is paused carries
+          <code class="font-mono">paused: true</code>; its other fields are the
+          last known state. The third returns the newest status changes across
+          every service, newest first, with <code class="font-mono">?limit=</code>
+          to ask for fewer than the fifty it gives, up to a hundred.
         </p>
       </section>
 
@@ -212,6 +214,8 @@ useSeoMeta({
           <li>
             Each service is polled every 5 minutes while healthy, and every minute
             while it is having problems. Data can therefore be up to 5 minutes old.
+            A paused service is not polled at all, and its detail answer keeps the
+            last known state with <code class="font-mono">paused: true</code>.
           </li>
           <li>
             <code class="font-mono">changedAt</code> is when the status last

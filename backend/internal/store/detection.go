@@ -23,6 +23,7 @@ func (s *Store) PendingDetection(ctx context.Context) ([]DetectRow, error) {
 		select s.id, s.slug, s.name, coalesce(s.url, ''), s.last_polled_at
 		from services s
 		where s.active
+		  and not s.paused
 		  and s.status in ($1, $2)
 		  and coalesce(s.profile, '') = ''
 		  and coalesce(s.url, '') <> ''

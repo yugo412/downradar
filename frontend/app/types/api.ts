@@ -42,6 +42,9 @@ export interface GeneratedSummary {
 }
 
 export interface VendorDetail extends Vendor {
+  // True while staff have paused polling; the rest of the answer is the last
+  // known state rather than a fresh reading.
+  paused?: boolean
   aliases?: string[]
   componentsList: ComponentStatus[]
   recentEvents: StatusEvent[]
@@ -117,6 +120,7 @@ export interface AdminService {
   status: ServiceStatus
   state: string
   active: boolean
+  paused: boolean
   visibility: Visibility
   ownerId?: number
   ownerName?: string
@@ -304,5 +308,7 @@ export interface ServicePayload {
   logoUrl: string
   aliases: string[]
   status?: ServiceStatus
+  // Staff only: stops scheduled polls while keeping the last known state.
+  paused?: boolean
   visibility?: Visibility
 }

@@ -221,6 +221,126 @@ func TestServiceRoutesLetStaffIn(t *testing.T) {
 	}
 }
 
+func TestStaffCanPauseAndResumePolling(t *testing.T) {
+	st, router, _ := testRouterWithOptions(t, func(opts *Options) {
+		opts.Catalog = testHandlers().catalog
+	})
+	ctx := context.Background()
+
+	moderator := testUser(t, st, auth.RoleModerator)
+	cookie := sessionFor(t, st, moderator)
+
+	name := fmt.Sprintf("zz-pause-%d", time.Now().UnixNano())
+	slug, err := st.CreateService(ctx, store.NewService{
+		Name:       name,
+		URL:        "https://status.example.invalid",
+		Profile:    "statuspage-v2",
+		Visibility: store.VisibilityPublic,
+	})
+	if err != nil {
+		t.Fatalf("CreateService: %v", err)
+	}
+	t.Cleanup(func() { _ = st.PurgeService(context.Background(), slug) })
+
+	rec := call(t, router, http.MethodPatch, "/api/v1/services/"+slug,
+		`{"paused":true}`, cookie)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("pausing a published service = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+
+	row, err := st.AdminGetService(ctx, slug)
+	if err != nil {
+		t.Fatalf("AdminGetService: %v", err)
+	}
+	if !row.Paused {
+		t.Error("the management row does not show the pause")
+	}
+
+	rec = call(t, router, http.MethodGet, "/api/v1/vendors/"+slug, "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the public page after pausing = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var public struct {
+		Paused bool `json:"paused"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &public); err != nil {
+		t.Fatalf("decode public page: %v", err)
+	}
+	if !public.Paused {
+		t.Error("the public page does not say its data may be stale")
+	}
+
+	rows, err := st.Services(ctx)
+	if err != nil {
+		t.Fatalf("Services: %v", err)
+	}
+	for _, polled := range rows {
+		if polled.Slug == slug {
+			t.Error("a paused service must not be offered to the poller")
+		}
+	}
+
+	rec = call(t, router, http.MethodPatch, "/api/v1/services/"+slug,
+		`{"paused":false}`, cookie)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("resuming a paused service = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	row, err = st.AdminGetService(ctx, slug)
+	if err != nil {
+		t.Fatalf("AdminGetService after resume: %v", err)
+	}
+	if row.Paused {
+		t.Error("the management row still shows the pause")
+	}
+
+	rec = call(t, router, http.MethodGet, "/api/v1/vendors/"+slug, "", "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &public); err != nil {
+		t.Fatalf("decode public page after resume: %v", err)
+	}
+	if public.Paused {
+		t.Error("the public page still says its data may be stale")
+	}
+
+	// Taking a paused row off the site clears the pause with it, so restoring
+	// the row later starts polling again instead of leaving hidden state.
+	rec = call(t, router, http.MethodPatch, "/api/v1/services/"+slug,
+		`{"paused":true}`, cookie)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("pausing before removal = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	rec = call(t, router, http.MethodPatch, "/api/v1/services/"+slug,
+		`{"active":false}`, cookie)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("removing a paused service = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	row, err = st.AdminGetService(ctx, slug)
+	if err != nil {
+		t.Fatalf("AdminGetService after removal: %v", err)
+	}
+	if row.Paused {
+		t.Error("removing a service left the polling pause behind")
+	}
+
+	// A row that is not published has no polling to pause.
+	parkedName := fmt.Sprintf("zz-pause-parked-%d", time.Now().UnixNano())
+	parked, err := st.CreateService(ctx, store.NewService{
+		Name:       parkedName,
+		URL:        "https://status.example.invalid",
+		Status:     string(store.StatusNoMatch),
+		Visibility: store.VisibilityPublic,
+	})
+	if err != nil {
+		t.Fatalf("CreateService parked: %v", err)
+	}
+	t.Cleanup(func() { _ = st.PurgeService(context.Background(), parked) })
+
+	rec = call(t, router, http.MethodPatch, "/api/v1/services/"+parked,
+		`{"paused":true}`, cookie)
+	if rec.Code != http.StatusConflict {
+		t.Errorf("pausing a service with no match = %d, want 409: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestServiceRoutesNeedASession(t *testing.T) {
 	_, router := testRouter(t)
 
@@ -307,6 +427,7 @@ func TestASubscriberEditsTheirOwnService(t *testing.T) {
 		"profile":"statuspage-v2",
 		"status":"published",
 		"active":false,
+		"paused":true,
 		"visibility":"public"
 	}`, cookie)
 	if rec.Code != http.StatusOK {
@@ -328,6 +449,9 @@ func TestASubscriberEditsTheirOwnService(t *testing.T) {
 	}
 	if !row.Active {
 		t.Error("active = false, want the row left on the site")
+	}
+	if row.Paused {
+		t.Error("paused = true, want the polling pause left to staff")
 	}
 	if row.Visibility != store.VisibilityPublic {
 		t.Errorf("visibility = %q, want the owner's own choice", row.Visibility)

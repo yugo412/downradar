@@ -41,6 +41,7 @@ type servicePayload struct {
 	Aliases    *[]string `json:"aliases"`
 	Status     *string   `json:"status"`
 	Active     *bool     `json:"active"`
+	Paused     *bool     `json:"paused"`
 	Visibility *string   `json:"visibility"`
 }
 
@@ -526,7 +527,7 @@ func (h *handlers) updateService(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Name == nil && body.Slug == nil && body.URL == nil && body.Profile == nil && body.Category == nil &&
 		body.LogoURL == nil && body.Endpoint == nil && body.Aliases == nil &&
-		body.Status == nil && body.Active == nil && body.Visibility == nil {
+		body.Status == nil && body.Active == nil && body.Paused == nil && body.Visibility == nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Nothing to update"})
 		return
 	}
@@ -535,14 +536,15 @@ func (h *handlers) updateService(w http.ResponseWriter, r *http.Request) {
 	staff := auth.CanManageServices(user.Role)
 
 	// A subscriber edits the service they added: name, page, logo, category, aliases
-	// and visibility. The address, adapter, endpoint, stage and active flag stay
-	// with staff, so a body that carries them changes nothing.
+	// and visibility. The address, adapter, endpoint, stage, active flag and
+	// polling pause stay with staff, so a body that carries them changes nothing.
 	if !staff {
 		body.Slug = nil
 		body.Profile = nil
 		body.Endpoint = nil
 		body.Status = nil
 		body.Active = nil
+		body.Paused = nil
 	}
 
 	// The row has to stay valid as a whole, so the patch is merged onto the
@@ -624,7 +626,26 @@ func (h *handlers) updateService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	patch := store.ServicePatch{Active: body.Active}
+	// Pausing is for a service the poller would otherwise read. Clearing the
+	// pause is always allowed, so a row that changed stage while paused can be
+	// brought back to a normal state. A row that leaves the published, active
+	// state is unpaused with it, so a later restore starts polling again.
+	active := current.Active
+	if body.Active != nil {
+		active = *body.Active
+	}
+	if body.Paused != nil && *body.Paused && (!active || status != string(store.StatusPublished)) {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "Only a published service can be paused",
+		})
+		return
+	}
+	if !active || status != string(store.StatusPublished) {
+		paused := false
+		body.Paused = &paused
+	}
+
+	patch := store.ServicePatch{Active: body.Active, Paused: body.Paused}
 	if body.Name != nil {
 		patch.Name = &name
 	}
@@ -701,7 +722,8 @@ func (h *handlers) updateService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.log.Info("service updated", "slug", nextSlug, "was", slug, "status", status, "by", user.Email)
+	h.log.Info("service updated", "slug", nextSlug, "was", slug, "status", status,
+		"paused", updated.Paused, "by", user.Email)
 	writeJSON(w, http.StatusOK, map[string]any{"service": updated})
 }
 

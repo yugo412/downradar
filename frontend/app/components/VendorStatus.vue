@@ -309,7 +309,9 @@ const shownComponents = computed(() => {
     </section>
 
     <p v-if="vendor.lastPolledAt" class="mt-8 text-xs opacity-50">
-      Last checked <LiveAgo :at="vendor.lastPolledAt" />. Data is polled every few minutes.
+      Last checked <LiveAgo :at="vendor.lastPolledAt" />.
+      <template v-if="vendor.paused">Polling is paused, so this is the last known state.</template>
+      <template v-else>Data is polled every few minutes.</template>
     </p>
   </div>
 </template>

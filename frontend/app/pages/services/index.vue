@@ -224,6 +224,7 @@ const purgeError = ref('')
 const actionError = ref('')
 const actionNotice = ref('')
 const retrying = ref('')
+const pausing = ref('')
 
 // The URL follows the page, so the view on screen is the one that can be linked
 // to. Only the search term is followed the other way, because a shared link is
@@ -356,6 +357,27 @@ async function restore(service: AdminService) {
     await refresh()
   } catch (err) {
     actionError.value = apiError(err)
+  }
+}
+
+async function togglePolling(service: AdminService) {
+  actionError.value = ''
+  actionNotice.value = ''
+  pausing.value = service.slug
+
+  try {
+    await $fetch(`/api/v1/services/${service.slug}`, {
+      method: 'PATCH',
+      body: { paused: !service.paused },
+    })
+    actionNotice.value = service.paused
+      ? `${service.name} is being polled again.`
+      : `${service.name} is paused. Its page keeps the last known state and says it may be out of date.`
+    await refresh()
+  } catch (err) {
+    actionError.value = apiError(err, 'Could not change polling.')
+  } finally {
+    pausing.value = ''
   }
 }
 
@@ -528,6 +550,11 @@ async function onSaved() {
                     class="badge badge-ghost badge-sm"
                     title="Only you and the staff can see it"
                   >Private</span>
+                  <span
+                    v-if="s.paused"
+                    class="badge badge-warning badge-sm"
+                    title="Scheduled polls are paused; the last known state is kept"
+                  >Paused</span>
                 </div>
               </td>
               <td>
@@ -558,7 +585,9 @@ async function onSaved() {
                     :can-remove="canRemove(s)"
                     :can-purge="canPurge(s)"
                     :retrying="retrying === s.slug"
+                    :pausing="pausing === s.slug"
                     @edit="editing = s"
+                    @pause="togglePolling(s)"
                     @publish="editing = { ...s, status: 'published' }"
                     @retry="retryDetection(s)"
                     @restore="restore(s)"
@@ -597,6 +626,11 @@ async function onSaved() {
                 class="badge badge-ghost badge-sm"
                 title="Only you and the staff can see it"
               >Private</span>
+              <span
+                v-if="s.paused"
+                class="badge badge-warning badge-sm"
+                title="Scheduled polls are paused; the last known state is kept"
+              >Paused</span>
             </div>
           </div>
 
@@ -635,7 +669,9 @@ async function onSaved() {
               :can-remove="canRemove(s)"
               :can-purge="canPurge(s)"
               :retrying="retrying === s.slug"
+              :pausing="pausing === s.slug"
               @edit="editing = s"
+              @pause="togglePolling(s)"
               @publish="editing = { ...s, status: 'published' }"
               @retry="retryDetection(s)"
               @restore="restore(s)"

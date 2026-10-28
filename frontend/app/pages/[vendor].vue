@@ -33,11 +33,16 @@ useHead({ titleTemplate: null })
 
 if (vendor.value) {
   const name = vendor.value.name
+  const paused = Boolean(vendor.value.paused)
   useSeoMeta({
-    title: `Is ${name} down right now?`,
-    description: `Live ${name} status and recent incidents, taken from the official status page. Check whether ${name} is down right now.`,
-    ogTitle: `Is ${name} down right now?`,
-    ogDescription: `Live status of ${name}, straight from the official status page.`,
+    title: paused ? `${name} status: polling paused` : `Is ${name} down right now?`,
+    description: paused
+      ? `The last known ${name} status, taken from the official status page before polling was paused. It may be out of date.`
+      : `Live ${name} status and recent incidents, taken from the official status page. Check whether ${name} is down right now.`,
+    ogTitle: paused ? `${name} status: polling paused` : `Is ${name} down right now?`,
+    ogDescription: paused
+      ? `Last known status of ${name}, straight from the official status page before polling was paused.`
+      : `Live status of ${name}, straight from the official status page.`,
     ogType: 'website',
   })
 
@@ -46,8 +51,9 @@ if (vendor.value) {
     {
       eyebrow: 'Service status',
       name,
-      description:
-        'Live status, components and recent incidents, straight from the official status page.',
+      description: paused
+        ? 'Last known status, components and recent incidents. Polling is paused, so this may be out of date.'
+        : 'Live status, components and recent incidents, straight from the official status page.',
       address: vendor.value.url || `downradar.info/${vendor.value.slug}`,
     },
     { alt: `${name} status on DownRadar` },
@@ -117,6 +123,13 @@ if (vendor.value) {
           <StatusBadge :status="vendor.status" class="order-first md:order-none" />
         </div>
       </header>
+
+      <div v-if="vendor.paused" role="status" class="alert alert-warning mb-8">
+        <span>
+          Polling is paused for this service. The status below is the last known state and may be
+          out of date.
+        </span>
+      </div>
 
       <VendorStatus :vendor="vendor" />
 
