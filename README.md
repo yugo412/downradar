@@ -70,8 +70,14 @@ make reset      # stop everything and delete all data
 
 `make deploy` builds the api and web images on this machine, pushes them to
 `ghcr.io/yugo412`, and rolls the host to them. CI runs the same `deploy/ship.sh`
-on a tag. Nothing is built on the server: it has 1.9 GB of RAM and already serves
-other sites, so a Nuxt build there risks the OOM killer taking one of them down.
+on every merge to main, tagging the images with the commit, so the site follows
+main rather than a release. Nothing is built on the server: it has 1.9 GB of RAM
+and already serves other sites, so a Nuxt build there risks the OOM killer
+taking one of them down.
+
+A `v*` tag does not deploy. The release workflow re-publishes the image already
+built for that commit under the version name and opens a GitHub release, so the
+published version and the running site are the same bits.
 
 The machine runs Caddy and the Docker daemon. Caddy terminates TLS and forwards
 to the web container, whose published port is on the loopback interface. The host
@@ -88,15 +94,12 @@ keeps only:
 The stack is `db`, `redis`, `api` and `web`. Postgres keeps its data in the
 `db-data` volume and Redis in `redis-data`; both are dialled by service name
 (`db:5432`, `redis:6379`). The web server reaches the api as `http://api:8080`
-instead of the host loopback. A release is an image tag, so rolling back means
-naming the previous one:
+instead of the host loopback. Deploys are named by commit, so rolling back is
+dispatching the deploy workflow with an earlier tag; the image is shipped as it
+is, without a rebuild:
 
 ```bash
-ssh ubuntu@43.134.10.112
-cd /srv/downradar
-sudo API_IMAGE=ghcr.io/yugo412/downradar-api:<previous> \
-     WEB_IMAGE=ghcr.io/yugo412/downradar-web:<previous> \
-     docker compose up -d
+gh workflow run deploy.yml -f image_tag=<earlier sha>
 ```
 
 The seed and user commands ride in the api image:

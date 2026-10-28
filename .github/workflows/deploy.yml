@@ -2,8 +2,12 @@ name: deploy
 
 on:
   push:
-    tags:
-      - "v*"
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: An image already in the registry to ship, instead of building one. Use the commit sha to roll back.
+        required: false
 
 concurrency:
   group: deploy
@@ -18,12 +22,19 @@ jobs:
     permissions:
       contents: read
       packages: write
+    env:
+      # A push from main is tagged with the commit it was built from. A manual
+      # run can name an earlier image instead, which is what a rollback is.
+      IMAGE_TAG: ${{ inputs.image_tag || github.sha }}
     steps:
       - uses: actions/checkout@v7
 
-      - uses: docker/setup-buildx-action@v4
+      - name: Build a new image
+        if: ${{ github.event_name == 'push' || inputs.image_tag == '' }}
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to the registry
+        if: ${{ github.event_name == 'push' || inputs.image_tag == '' }}
         uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
@@ -31,16 +42,16 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push the api image
+        if: ${{ github.event_name == 'push' || inputs.image_tag == '' }}
         uses: docker/build-push-action@v7
         with:
           context: backend
           platforms: linux/amd64
           push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/downradar-api:${{ github.ref_name }}
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/downradar-api:latest
+          tags: ${{ env.REGISTRY }}/${{ github.repository_owner }}/downradar-api:${{ env.IMAGE_TAG }}
 
       - name: Build and push the web image
+        if: ${{ github.event_name == 'push' || inputs.image_tag == '' }}
         uses: docker/build-push-action@v7
         with:
           context: frontend
@@ -48,18 +59,17 @@ jobs:
           push: true
           build-args: |
             NUXT_PAGE_CACHE_SECONDS=60
-          tags: |
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/downradar-web:${{ github.ref_name }}
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/downradar-web:latest
+          tags: ${{ env.REGISTRY }}/${{ github.repository_owner }}/downradar-web:${{ env.IMAGE_TAG }}
 
       # The same guard the native ship.sh used to make: Nuxt inlines whatever
       # nuxt.config.ts reads at build time, so a config that started reading a
       # secret would put it in the bundle this image is about to ship.
       - name: Check that no secret was baked into the web image
+        if: ${{ github.event_name == 'push' || inputs.image_tag == '' }}
         env:
           INTERNAL_TOKEN: ${{ secrets.INTERNAL_TOKEN }}
         run: |
-          image="${{ env.REGISTRY }}/${{ github.repository_owner }}/downradar-web:${{ github.ref_name }}"
+          image="${{ env.REGISTRY }}/${{ github.repository_owner }}/downradar-web:${{ env.IMAGE_TAG }}"
           if [ -z "$INTERNAL_TOKEN" ]; then
             echo "INTERNAL_TOKEN is not set, the bundle check is skipped" >&2
           elif docker run --rm -e INTERNAL_TOKEN --entrypoint sh "$image" \
@@ -77,11 +87,11 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: Roll the host to the release
+      - name: Roll the host to the image
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
-          API_IMAGE: ${{ env.REGISTRY }}/${{ github.repository_owner }}/downradar-api:${{ github.ref_name }}
-          WEB_IMAGE: ${{ env.REGISTRY }}/${{ github.repository_owner }}/downradar-web:${{ github.ref_name }}
+          API_IMAGE: ${{ env.REGISTRY }}/${{ github.repository_owner }}/downradar-api:${{ env.IMAGE_TAG }}
+          WEB_IMAGE: ${{ env.REGISTRY }}/${{ github.repository_owner }}/downradar-web:${{ env.IMAGE_TAG }}
           # A package from a workflow is private by default. This job's token is
           # handed to the host so it can pull, and it expires with the job.
           GHCR_USER: ${{ github.actor }}
