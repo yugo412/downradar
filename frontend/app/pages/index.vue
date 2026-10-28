@@ -119,8 +119,8 @@ watch(user, () => {
   mineOnly.value = false
 })
 
-// The clear button in the filter row drops the state chips; these two are not
-// states, so they are dropped here.
+// The desktop chip row's reset drops the state chips; these two are not states,
+// so they are dropped here. The mobile sheet clears all three itself.
 function clearChips() {
   subscribedOnly.value = false
   mineOnly.value = false
@@ -409,44 +409,97 @@ useSeoMeta({
       </div>
     </section>
 
-    <section class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center">
-      <input
-        v-model="queryInput"
-        type="search"
-        placeholder="Search a service, e.g. strava"
-        class="input input-bordered w-full sm:max-w-sm"
-      />
-      <label class="label cursor-pointer gap-2">
-        <input v-model="worstFirst" type="checkbox" class="toggle toggle-sm" />
-        <span class="label-text text-sm">Show problems first</span>
-      </label>
+    <section class="mb-6 flex flex-col gap-3 md:flex-row md:items-center">
+      <div class="relative w-full md:flex-1">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          class="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 opacity-50"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <circle cx="11" cy="11" r="7" />
+          <path d="m20 20-3.5-3.5" />
+        </svg>
+        <input
+          v-model="queryInput"
+          type="search"
+          placeholder="Search a service, e.g. strava"
+          aria-label="Search services"
+          class="input input-bordered w-full pl-9"
+        />
+      </div>
+
+      <div role="group" aria-label="Sort services" class="join w-full md:w-auto">
+        <button
+          type="button"
+          class="btn join-item flex-1 md:flex-none"
+          :class="worstFirst ? 'btn-primary' : 'bg-base-100'"
+          :aria-pressed="worstFirst"
+          @click="worstFirst = true"
+        >
+          Problems first
+        </button>
+        <button
+          type="button"
+          class="btn join-item flex-1 md:flex-none"
+          :class="worstFirst ? 'bg-base-100' : 'btn-primary'"
+          :aria-pressed="!worstFirst"
+          @click="worstFirst = false"
+        >
+          Name A–Z
+        </button>
+      </div>
     </section>
 
-    <StatusFilter
-      v-model="statusFilter"
-      :statuses="statusOptions"
-      label="Filter services"
-      class="mb-6"
-      @clear="clearChips"
-    >
-      <!-- Beside the states, because they narrow the same list, and only for
-           somebody signed in: a guest typed an address, not an account, so there
-           is nothing of theirs to narrow to. They wait for the account's own
-           rows to be read in the browser, and a chip with nothing under it is not
-           shown, the same way a state no card is in is not. -->
-      <FilterChip
-        v-if="user && (mineCount || mineOnly)"
-        v-model="mineOnly"
-        label="My services"
-        :count="mineCount"
+    <!-- A narrow screen gets one trigger and a sheet, because the states and
+         the account's own filters do not fit a row there. From md up the chips
+         stay in view, which is faster when there is room for them. The account's
+         own filters only appear for somebody signed in: a guest typed an
+         address, not an account, so there is nothing of theirs to narrow to.
+         They wait for the account's own rows to be read in the browser, and an
+         option with nothing under it is not shown, the same way a state no card
+         is in is not. -->
+    <div class="mb-6">
+      <CatalogueFilter
+        v-model="statusFilter"
+        v-model:mine="mineOnly"
+        v-model:subscribed="subscribedOnly"
+        :statuses="statusOptions"
+        :mine-count="mineCount"
+        :subscribed-count="subscribedCount"
+        :show-mine="!!user && (!!mineCount || mineOnly)"
+        :show-subscribed="!!user && (!!subscribedCount || subscribedOnly)"
+        :result-count="visible.length"
+        label="Filter services"
+        class="md:hidden"
       />
-      <FilterChip
-        v-if="user && (subscribedCount || subscribedOnly)"
-        v-model="subscribedOnly"
-        label="Subscribed"
-        :count="subscribedCount"
-      />
-    </StatusFilter>
+
+      <StatusFilter
+        v-model="statusFilter"
+        :statuses="statusOptions"
+        label="Filter services"
+        class="hidden md:flex"
+        @clear="clearChips"
+      >
+        <FilterChip
+          v-if="user && (mineCount || mineOnly)"
+          v-model="mineOnly"
+          label="My services"
+          :count="mineCount"
+        />
+        <FilterChip
+          v-if="user && (subscribedCount || subscribedOnly)"
+          v-model="subscribedOnly"
+          label="Subscribed"
+          :count="subscribedCount"
+        />
+      </StatusFilter>
+    </div>
 
     <div v-if="error" role="alert" class="alert alert-error">
       <span>Could not load the status list. The API may still be warming up.</span>
