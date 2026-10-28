@@ -34,7 +34,7 @@ function clear() {
 <template>
   <div
     v-if="props.statuses.length || props.clearable || slots.default"
-    class="filter"
+    class="filter gap-2"
     role="group"
     :aria-label="props.label"
   >
