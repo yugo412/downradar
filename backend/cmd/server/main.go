@@ -62,7 +62,8 @@ func run() error {
 		DefaultLimits: map[string]int{
 			store.LimitAlert: cfg.AlertLimitPerSubscriber,
 		},
-		AppKey: cfg.AppKey,
+		AppKey:           cfg.AppKey,
+		DisableSummaries: !cfg.SummaryEnabled,
 	})
 	if err != nil {
 		return err
@@ -82,16 +83,12 @@ func run() error {
 	}
 
 	p := poller.New(st, cat, cfg.PollConcurrency, cfg.PollTick, log)
-	if cfg.OpenAIAPIKey != "" {
-		summaries := summary.New(st, summary.Config{
-			APIKey:  cfg.OpenAIAPIKey,
-			BaseURL: cfg.OpenAIBaseURL,
-			Model:   cfg.OpenAIModel,
-			Timeout: cfg.OpenAITimeout,
-		}, log)
+	if summaries := newSummaryGenerator(cfg, st, log); summaries != nil {
 		p.WithSummarizer(summaries)
 		go summaries.Run(ctx)
 		log.Info("generated summaries are on", "model", cfg.OpenAIModel)
+	} else if !cfg.SummaryEnabled {
+		log.Info("generated summaries are off: SUMMARY_ENABLED is false")
 	} else {
 		log.Warn("generated summaries are off: OPENAI_API_KEY is not set")
 	}
@@ -206,6 +203,18 @@ func run() error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+func newSummaryGenerator(cfg config.Config, st *store.Store, log *slog.Logger) *summary.Generator {
+	if !cfg.SummaryEnabled || cfg.OpenAIAPIKey == "" {
+		return nil
+	}
+	return summary.New(st, summary.Config{
+		APIKey:  cfg.OpenAIAPIKey,
+		BaseURL: cfg.OpenAIBaseURL,
+		Model:   cfg.OpenAIModel,
+		Timeout: cfg.OpenAITimeout,
+	}, log)
 }
 
 func runAuthCleanup(ctx context.Context, st *store.Store, log *slog.Logger) {

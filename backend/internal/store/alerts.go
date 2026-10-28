@@ -1809,6 +1809,10 @@ func (s *Store) PendingAlerts(ctx context.Context, maxAttempts, limit int) ([]Pe
 			&p.GeneratedSummary, &p.SummaryGeneratedAt); err != nil {
 			return nil, fmt.Errorf("alerts: scan pending: %w", err)
 		}
+		if !s.summariesEnabled {
+			p.GeneratedSummary = ""
+			p.SummaryGeneratedAt = nil
+		}
 
 		// The address is the inbox for email, the chat for Telegram, the webhook
 		// URL for Slack or Discord, and the URL for a webhook.
