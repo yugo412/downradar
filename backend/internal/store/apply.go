@@ -66,7 +66,17 @@ func (s *Store) ApplyReport(ctx context.Context, serviceID int64, rep adapters.R
 			unknownStatuses = append(unknownStatuses, c.Name)
 		}
 
-		didChange, err := s.applyComponentState(ctx, tx, serviceID, compID, c.Status, changedAt, rep.SourceUpdatedAt)
+		// A source that stamps each component itself is more precise than the
+		// fetch time, so its time wins when it has one.
+		componentChangedAt := c.ChangedAt
+		if componentChangedAt.IsZero() {
+			componentChangedAt = changedAt
+		}
+		sourceChangedAt := c.ChangedAt
+		if sourceChangedAt.IsZero() {
+			sourceChangedAt = rep.SourceUpdatedAt
+		}
+		didChange, err := s.applyComponentState(ctx, tx, serviceID, compID, c.Status, componentChangedAt, sourceChangedAt)
 		if err != nil {
 			return false, err
 		}

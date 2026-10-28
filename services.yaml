@@ -205,6 +205,17 @@ profiles:
     poll_interval_seconds: 300
     active_interval_seconds: 60
 
+  # Microsoft's status page is a single-page app, but the consumer card reads
+  # plain json from /api/posts/m365Consumer. It is hidden from the picker
+  # because it can only ever be Microsoft 365's page.
+  microsoft-365:
+    kind: microsoft
+    description: Microsoft 365's consumer status page, read from its own JSON API.
+    endpoint: /api/posts/m365Consumer
+    poll_interval_seconds: 300
+    active_interval_seconds: 60
+    visible: false
+
   # A profile to choose by hand, not one the detect queue can reach: it answers
   # for any url that is up, so in the queue it would take every page no other
   # profile could read. There is no status page behind it either, the target is
