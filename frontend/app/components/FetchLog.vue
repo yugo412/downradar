@@ -28,6 +28,7 @@ const polls = computed(() => data.value?.polls ?? [])
 // value out for the owner. It counts down with the same clock the "ago" values
 // use, so it moves while the page is open.
 const now = useNow()
+const { format: formatLocal } = useLocalTime()
 const nextPollAt = computed(() => data.value?.nextPollAt ?? null)
 const wait = computed(() => {
   if (!canManageServices.value || !nextPollAt.value) return ''
@@ -50,7 +51,7 @@ watch(
 <template>
   <section v-if="allowed" class="mt-10">
     <h2 class="text-lg font-semibold" :class="wait ? 'mb-1' : 'mb-3'">Fetch log</h2>
-    <p v-if="wait" class="mb-3 text-sm opacity-70" :title="formatDate(nextPollAt)">
+    <p v-if="wait" class="mb-3 text-sm opacity-70" :title="formatLocal(nextPollAt)">
       The page refused the last poll. Next attempt {{ wait }}.
     </p>
     <div class="overflow-x-auto bg-base-100 border border-base-300 rounded-box shadow-sm">
@@ -68,7 +69,7 @@ watch(
           <tr v-for="run in polls" :key="run.id" class="align-top">
             <td class="whitespace-nowrap">
               <LiveAgo :at="run.fetchedAt" />
-              <div class="text-xs opacity-50">{{ formatDate(run.fetchedAt) }}</div>
+              <div class="text-xs opacity-50"><LocalTime :at="run.fetchedAt" /></div>
             </td>
             <td>
               <span class="badge badge-sm" :class="run.ok ? 'badge-success' : 'badge-error'">

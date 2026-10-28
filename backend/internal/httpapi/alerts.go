@@ -1065,6 +1065,37 @@ func (h *handlers) pauseAlert(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// listStaffAlerts is the staff view of every subscription, including the ones
+// guests left. It is a read only answer: pausing, editing and deleting stay with
+// the subscriber.
+func (h *handlers) listStaffAlerts(w http.ResponseWriter, r *http.Request) {
+	alerts, err := h.store.StaffAlerts(r.Context())
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	views := make([]map[string]any, 0, len(alerts))
+	for _, alert := range alerts {
+		views = append(views, map[string]any{
+			"id":              alert.ID,
+			"subscriberName":  alert.SubscriberName,
+			"subscriberEmail": alert.SubscriberEmail,
+			"guest":           alert.Guest,
+			"vendorSlug":      alert.VendorSlug,
+			"vendorName":      alert.VendorName,
+			"vendorStatus":    alert.VendorStatus,
+			"state":           alert.State(),
+			"createdAt":       alert.CreatedAt,
+			"wholeService":    alert.WholeService,
+			"components":      alert.Components,
+			"channels":        alert.Channels,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"alerts": views, "count": len(views)})
+}
+
 // listUserAlerts is the account screen: everything this person asked to be told
 // about, including paused and ended ones so they can start again. The address is
 // shown in full because it is their own screen and knowing which inbox is the point.

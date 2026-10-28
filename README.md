@@ -134,7 +134,9 @@ field is still there.
 
 Generated summaries need `OPENAI_API_KEY` in `.env`; the key is never committed.
 When it is empty no new sentence is written, and rows already stored are left
-alone. `OPENAI_MODEL` defaults to `gpt-6-luna`,
+alone. `SUMMARY_ENABLED` defaults to true and can turn the worker off even while
+a key is set; stored sentences are then hidden but kept for when it is turned
+back on. `OPENAI_MODEL` defaults to `gpt-6-luna`,
 and `OPENAI_BASE_URL` can point at a compatible endpoint. A vendor's sentence is
 written after a successful poll when the stored state changed, then read from the
 database by the page and by alert emails. A healthy vendor keeps no sentence, and
@@ -431,9 +433,10 @@ Everything is read from what the platform publishes, one adapter per platform:
 Atlassian Statuspage, Status.io, Sorry, cron-job.org, FlashDuty, PagerDuty, Slack,
 Better Stack, SolarWinds, UptimeRobot and StatusCake, plus bespoke adapters for
 pages that are not a platform: OpenCode's own page, whose components are slugs and
-whose incidents have generated ids, and the pages of Auth0, PayPal, Railway and
-Midtrans. Platform profiles are also in the detect queue, so a vendor can be added
-before its platform is known; a page of a vendor's own kind is chosen by hand,
+whose incidents have generated ids, and the pages of Auth0, PayPal, Railway,
+Midtrans and Microsoft 365. Platform profiles are also in the detect queue, so a
+vendor can be added before its platform is known; a page of a vendor's own kind
+is chosen by hand,
 since its profile can only match that one page. Ping is the profile to pick by
 hand for a service with no status page: it watches the target by asking for it,
 and a request that stops coming back is the outage. Further platforms are

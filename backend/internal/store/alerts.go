@@ -135,6 +135,16 @@ func (v AlertView) State() string {
 	}
 }
 
+// StaffAlertView is one subscription as staff see it: the subscription itself,
+// plus who left it. A guest has no account, so their name is empty and the
+// address is the one they left with the alert.
+type StaffAlertView struct {
+	AlertView
+	SubscriberName  string
+	SubscriberEmail string
+	Guest           bool
+}
+
 // UserAlerts is everything one account has asked to be told about, newest first,
 // paused and unsubscribed rows included so the screen can offer to start them
 // again. A row shows its channel kinds, its email address and what it watches.
@@ -193,6 +203,68 @@ func (s *Store) UserAlerts(ctx context.Context, userID int64) ([]AlertView, erro
 			&v.WholeService, &v.Components, &v.EmailPaused, &v.WebhookPaused,
 			&v.Channels); err != nil {
 			return nil, fmt.Errorf("alerts: scan list: %w", err)
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// StaffAlerts is every subscription, whether it belongs to an account or was
+// left by a guest, newest first, for the staff view. A guest has no account, so
+// the address they subscribed with stands in for their name.
+func (s *Store) StaffAlerts(ctx context.Context) ([]StaffAlertView, error) {
+	rows, err := s.pool.Query(ctx, `
+		select a.id, v.slug, v.name, coalesce(ss.status, 'unknown'),
+		       a.created_at,
+		       case when ch.total > 0 and ch.ended < ch.total and ch.live = 0
+		            then ch.last_paused end,
+		       case when ch.total > 0 and ch.ended = ch.total
+		            then ch.last_ended end,
+		       w.whole, w.components, ch.kinds,
+		       coalesce(u.name, ''), coalesce(u.email, ch.email, ''),
+		       a.user_id is null
+		from alert_subscriptions a
+		left join users u on u.id = a.user_id
+		join services v on v.id = a.service_id
+		left join service_state ss on ss.service_id = v.id
+		left join lateral (
+			select count(*) filter (where t2.component_id is null) > 0 as whole,
+			       coalesce(array_agg(cm.name order by cm.position, cm.name)
+			                filter (where t2.component_id is not null), '{}'::text[]) as components
+			from alert_targets t2
+			left join components cm on cm.id = t2.component_id
+			where t2.subscription_id = a.id
+		) w on true
+		left join lateral (
+			select (array_agg(c.address order by (c.unsubscribed_at is null) desc, c.id)
+			        filter (where c.kind = 'email'))[1] as email,
+			       count(*) as total,
+			       count(*) filter (where c.unsubscribed_at is not null) as ended,
+			       count(*) filter (where c.unsubscribed_at is null and c.paused_at is null) as live,
+			       max(c.unsubscribed_at) as last_ended,
+			       max(c.paused_at) as last_paused,
+			       coalesce(
+			           array_agg(distinct c.kind order by c.kind) filter (where c.unsubscribed_at is null),
+			           array_agg(distinct c.kind order by c.kind),
+			           '{}'::text[]
+			       ) as kinds
+			from alert_channels c
+			where c.subscription_id = a.id
+		) ch on true
+		order by a.id desc`)
+	if err != nil {
+		return nil, fmt.Errorf("alerts: list for staff: %w", err)
+	}
+	defer rows.Close()
+
+	var out []StaffAlertView
+	for rows.Next() {
+		var v StaffAlertView
+		if err := rows.Scan(&v.ID, &v.VendorSlug, &v.VendorName, &v.VendorStatus,
+			&v.CreatedAt, &v.PausedAt, &v.UnsubscribedAt,
+			&v.WholeService, &v.Components, &v.Channels,
+			&v.SubscriberName, &v.SubscriberEmail, &v.Guest); err != nil {
+			return nil, fmt.Errorf("alerts: scan staff list: %w", err)
 		}
 		out = append(out, v)
 	}
@@ -1736,6 +1808,10 @@ func (s *Store) PendingAlerts(ctx context.Context, maxAttempts, limit int) ([]Pe
 			&p.FromStatus, &p.ToStatus, &p.ChangedAt, &p.Attempts,
 			&p.GeneratedSummary, &p.SummaryGeneratedAt); err != nil {
 			return nil, fmt.Errorf("alerts: scan pending: %w", err)
+		}
+		if !s.summariesEnabled {
+			p.GeneratedSummary = ""
+			p.SummaryGeneratedAt = nil
 		}
 
 		// The address is the inbox for email, the chat for Telegram, the webhook

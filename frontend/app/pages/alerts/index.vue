@@ -474,7 +474,9 @@ watch(
                 <p class="mt-1 text-xs opacity-70">{{ watches(alert) }}</p>
               </td>
               <td class="text-sm whitespace-nowrap opacity-70">{{ arrives(alert) }}</td>
-              <td class="text-sm whitespace-nowrap opacity-70">{{ formatDate(alert.createdAt) }}</td>
+              <td class="text-sm whitespace-nowrap opacity-70">
+                <LocalTime :at="alert.createdAt" />
+              </td>
               <td>
                 <span class="badge badge-sm whitespace-nowrap" :class="stateOf(alert).cls">
                   {{ stateOf(alert).label }}
@@ -517,7 +519,7 @@ watch(
           </div>
 
           <p class="mt-2 text-sm opacity-70">{{ arrives(alert) }}</p>
-          <p class="mt-1 text-xs opacity-60">added {{ formatDate(alert.createdAt) }}</p>
+          <p class="mt-1 text-xs opacity-60">added <LocalTime :at="alert.createdAt" /></p>
 
           <div class="mt-3">
             <AlertActions

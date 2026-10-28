@@ -274,7 +274,27 @@ export interface AccountAlert {
   wholeService: boolean
   components: string[]
   channels: string[]
-}export interface ServicePayload {
+}
+
+// One row on the staff alerts screen: the subscription, plus who left it. A
+// guest has no account, so their name is empty and the address stands alone.
+// It is read only, so it carries no actions.
+export interface StaffAlert {
+  id: number
+  subscriberName: string
+  subscriberEmail: string
+  guest: boolean
+  vendorSlug: string
+  vendorName: string
+  vendorStatus: Health
+  state: 'active' | 'paused' | 'unsubscribed'
+  createdAt: string
+  wholeService: boolean
+  components: string[]
+  channels: string[]
+}
+
+export interface ServicePayload {
   name: string
   // Staff correct the address; a subscriber's payload never carries one.
   slug?: string

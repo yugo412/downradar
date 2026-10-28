@@ -132,7 +132,9 @@ services:
       ALERT_TEST_RATE_LIMIT_PER_HOUR: ${ALERT_TEST_RATE_LIMIT_PER_HOUR:-60}
       ALERT_TEST_RATE_LIMIT_BURST: ${ALERT_TEST_RATE_LIMIT_BURST:-10}
       # The generated sentence above a vendor's incidents. It is off when the key
-      # is empty; the key belongs in .env and is never committed.
+      # is empty; the key belongs in .env and is never committed. The switch
+      # turns it off even while a key is set, and also hides a stored sentence.
+      SUMMARY_ENABLED: ${SUMMARY_ENABLED:-true}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-6-luna}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}

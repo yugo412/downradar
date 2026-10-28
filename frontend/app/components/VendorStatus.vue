@@ -163,7 +163,7 @@ const shownComponents = computed(() => {
           </div>
         </div>
         <span class="text-xs tabular-nums opacity-50">
-          Generated {{ formatDate(vendor.generatedSummary.generatedAt) }}
+          Generated <LocalTime :at="vendor.generatedSummary.generatedAt" />
         </span>
       </div>
       <p class="mt-4 text-[15px] leading-7 text-base-content/85">
@@ -270,8 +270,8 @@ const shownComponents = computed(() => {
               <span v-if="i.impact" class="badge badge-sm">{{ i.impact }}</span>
             </div>
             <p class="mt-1 text-xs opacity-60">
-              {{ formatDate(i.startedAt) }}
-              <span v-if="i.resolvedAt"> → {{ formatDate(i.resolvedAt) }}</span>
+              <LocalTime :at="i.startedAt" />
+              <span v-if="i.resolvedAt"> → <LocalTime :at="i.resolvedAt" /></span>
               <span v-else> → ongoing</span>
             </p>
             <a
@@ -300,7 +300,7 @@ const shownComponents = computed(() => {
             <div class="flex flex-wrap items-center gap-2">
               <StatusBadge :status="e.status" size="sm" />
               <span v-if="e.component" class="text-sm opacity-80">{{ e.component }}</span>
-              <span class="text-xs opacity-50">{{ formatDate(e.changedAt) }}</span>
+              <span class="text-xs opacity-50"><LocalTime :at="e.changedAt" /></span>
             </div>
           </div>
           <hr />

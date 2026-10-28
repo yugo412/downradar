@@ -38,11 +38,40 @@ export function timeUntil(iso?: string | null, now: number = Date.now()): string
   return `in ${Math.floor(hours / 24)}d`
 }
 
-export function formatDate(iso?: string | null): string {
+// An absolute time in the zone it is shown in, with that zone beside it. The
+// default is UTC, which is what the server-rendered page and the feeds use. The
+// browser passes the zone it detects after the page has hydrated.
+export function formatDate(iso?: string | null, timeZone = 'UTC'): string {
   if (!iso) return '—'
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return '—'
-  return d.toISOString().replace('T', ' ').slice(0, 16) + ' UTC'
+
+  const utc = d.toISOString().replace('T', ' ').slice(0, 16) + ' UTC'
+  if (!timeZone || timeZone === 'UTC' || timeZone === 'Etc/UTC') return utc
+
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+      timeZoneName: 'shortOffset',
+    }).formatToParts(d)
+    const value = (type: string) => parts.find((part) => part.type === type)?.value ?? ''
+    const year = value('year')
+    const month = value('month')
+    const day = value('day')
+    const hour = value('hour')
+    const minute = value('minute')
+    if (!year || !month || !day || !hour || !minute) return utc
+    const zone = value('timeZoneName') || timeZone
+    return `${year}-${month}-${day} ${hour}:${minute} ${zone === 'GMT+0' ? 'UTC' : zone}`
+  } catch {
+    return utc
+  }
 }
 
 const SEVERITY: Record<string, number> = {

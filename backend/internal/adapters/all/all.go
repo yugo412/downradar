@@ -9,6 +9,7 @@ import (
 	_ "downradar.info/backend/internal/adapters/cronjob"
 	_ "downradar.info/backend/internal/adapters/flashduty"
 	_ "downradar.info/backend/internal/adapters/lark"
+	_ "downradar.info/backend/internal/adapters/microsoft"
 	_ "downradar.info/backend/internal/adapters/midtrans"
 	_ "downradar.info/backend/internal/adapters/opencode"
 	_ "downradar.info/backend/internal/adapters/pagerduty"
