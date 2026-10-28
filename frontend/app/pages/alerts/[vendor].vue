@@ -1410,7 +1410,7 @@ async function refreshCalls() {
                           {{ call.status ?? 'no answer' }}
                         </span>
                         <span class="font-medium">{{ call.method }}</span>
-                        <span class="opacity-60">{{ formatDate(call.createdAt) }}</span>
+                        <span class="opacity-60"><LocalTime :at="call.createdAt" /></span>
                         <span v-if="call.kind === 'test'" class="badge badge-xs badge-ghost">test</span>
                       </div>
                       <p v-if="call.error" class="mt-1 text-xs text-error">{{ call.error }}</p>

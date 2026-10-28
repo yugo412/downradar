@@ -22,6 +22,7 @@ const stages: { value: Stage; label: string }[] = [
 const route = useRoute()
 const router = useRouter()
 const { user, canManageServices, isAdmin } = useAuth()
+const { format: formatLocal } = useLocalTime()
 
 // Every filter and the sort live in the query string, so a view can be shared,
 // bookmarked, or come back with the back button. Whatever the URL carries when
@@ -533,7 +534,7 @@ async function onSaved() {
                 <span v-if="s.profile" class="font-mono text-xs">{{ s.profile }}</span>
                 <span v-else class="text-xs opacity-50">none</span>
               </td>
-              <td class="whitespace-nowrap text-sm opacity-60" :title="formatDate(s.updatedAt)">
+              <td class="whitespace-nowrap text-sm opacity-60" :title="formatLocal(s.updatedAt)">
                 <LiveAgo :at="s.updatedAt" />
               </td>
               <td class="max-w-xs">
@@ -616,7 +617,7 @@ async function onSaved() {
 
           <!-- Its own line: with the profile and the url above it, the time wraps
                around the middle of a phone screen and reads as part of the link. -->
-          <div class="mt-1 text-xs opacity-70" :title="formatDate(s.updatedAt)">
+          <div class="mt-1 text-xs opacity-70" :title="formatLocal(s.updatedAt)">
             updated <LiveAgo :at="s.updatedAt" />
           </div>
 
