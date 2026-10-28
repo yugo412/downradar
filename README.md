@@ -134,7 +134,9 @@ field is still there.
 
 Generated summaries need `OPENAI_API_KEY` in `.env`; the key is never committed.
 When it is empty no new sentence is written, and rows already stored are left
-alone. `OPENAI_MODEL` defaults to `gpt-6-luna`,
+alone. `SUMMARY_ENABLED` defaults to true and can turn the worker off even while
+a key is set; stored sentences are then hidden but kept for when it is turned
+back on. `OPENAI_MODEL` defaults to `gpt-6-luna`,
 and `OPENAI_BASE_URL` can point at a compatible endpoint. A vendor's sentence is
 written after a successful poll when the stored state changed, then read from the
 database by the page and by alert emails. A healthy vendor keeps no sentence, and

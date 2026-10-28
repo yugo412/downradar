@@ -19,6 +19,7 @@ type Store struct {
 	rawPayloadMinInterval time.Duration
 	defaultLimits         map[string]int
 	secrets               *secure.Cipher
+	summariesEnabled      bool
 }
 
 type Options struct {
@@ -30,6 +31,9 @@ type Options struct {
 	// AppKey seals the secrets the database keeps. It is a master value rather
 	// than a key: the key is derived from it and never stored.
 	AppKey string
+	// DisableSummaries hides the generated sentence from every read. The rows
+	// stay in the database so turning summaries back on reuses them.
+	DisableSummaries bool
 }
 
 func New(ctx context.Context, dsn string, opts Options) (*Store, error) {
@@ -70,6 +74,7 @@ func New(ctx context.Context, dsn string, opts Options) (*Store, error) {
 		rawPayloadMinInterval: interval,
 		defaultLimits:         opts.DefaultLimits,
 		secrets:               secrets,
+		summariesEnabled:      !opts.DisableSummaries,
 	}, nil
 }
 

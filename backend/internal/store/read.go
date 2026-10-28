@@ -188,7 +188,7 @@ func (s *Store) GetVendor(ctx context.Context, slug string, viewer Viewer) (*Ven
 	if err != nil {
 		return nil, fmt.Errorf("read: get vendor %s: %w", slug, err)
 	}
-	if summaryText != "" && summaryAt != nil {
+	if summaryText != "" && summaryAt != nil && s.summariesEnabled {
 		v.GeneratedSummary = &GeneratedSummary{
 			Text:        summaryText,
 			GeneratedAt: *summaryAt,
