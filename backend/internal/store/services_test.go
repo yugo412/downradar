@@ -130,6 +130,81 @@ func TestServicesReturnsRowsForThePoller(t *testing.T) {
 	}
 }
 
+func TestPausedServiceLeavesThePollingFeedAndKeepsItsState(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	const slug = "zz-test-paused-service"
+	id := testService(t, st, slug)
+	if _, err := st.ApplyReport(ctx, id, testReport("page-paused")); err != nil {
+		t.Fatalf("store a first report: %v", err)
+	}
+
+	paused := true
+	if err := st.UpdateService(ctx, slug, ServicePatch{Paused: &paused}); err != nil {
+		t.Fatalf("pause: %v", err)
+	}
+
+	rows, err := st.Services(ctx)
+	if err != nil {
+		t.Fatalf("Services: %v", err)
+	}
+	for _, row := range rows {
+		if row.ID == id {
+			t.Error("a paused service must not be offered to the poller")
+		}
+	}
+
+	pending, err := st.PendingDetection(ctx)
+	if err != nil {
+		t.Fatalf("PendingDetection: %v", err)
+	}
+	for _, row := range pending {
+		if row.ID == id {
+			t.Error("a paused service must not be offered to detection")
+		}
+	}
+
+	admin, err := st.AdminGetService(ctx, slug)
+	if err != nil {
+		t.Fatalf("AdminGetService: %v", err)
+	}
+	if !admin.Paused {
+		t.Error("the management row does not show the pause")
+	}
+
+	detail, err := st.GetVendor(ctx, slug, Public())
+	if err != nil {
+		t.Fatalf("GetVendor: %v", err)
+	}
+	if !detail.Paused {
+		t.Error("the public detail does not show the pause")
+	}
+	if detail.Status != string(adapters.HealthOK) || detail.LastPolledAt == nil {
+		t.Errorf("status/last poll = %q/%v, want the last known state kept",
+			detail.Status, detail.LastPolledAt)
+	}
+
+	paused = false
+	if err := st.UpdateService(ctx, slug, ServicePatch{Paused: &paused}); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+
+	rows, err = st.Services(ctx)
+	if err != nil {
+		t.Fatalf("Services after resume: %v", err)
+	}
+	found := false
+	for _, row := range rows {
+		if row.ID == id {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("a resumed service must be offered to the poller again")
+	}
+}
+
 func TestProposeServiceIsNotPolledUntilPublished(t *testing.T) {
 	st := integrationStore(t)
 	ctx := context.Background()

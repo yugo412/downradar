@@ -32,9 +32,10 @@ type ServiceRow struct {
 	PollRefusals          int
 }
 
-// Services returns every published vendor. The poller calls this once per
-// cycle, which is what makes a row published by a moderator take effect without
-// any reload mechanism. Proposals are not polled.
+// Services returns every published vendor that is not paused. The poller calls
+// this once per cycle, which is what makes a row published by a moderator take
+// effect without any reload mechanism. Proposals are not polled, and a paused
+// row keeps its last known state until staff resume it.
 func (s *Store) Services(ctx context.Context) ([]ServiceRow, error) {
 	rows, err := s.pool.Query(ctx, `
 		select s.id, s.slug, s.name, coalesce(s.url, ''),
@@ -45,7 +46,7 @@ func (s *Store) Services(ctx context.Context) ([]ServiceRow, error) {
 		       s.next_poll_at, s.poll_refusals
 		from services s
 		left join service_state ss on ss.service_id = s.id
-		where s.active and s.status = $1
+		where s.active and s.status = $1 and not s.paused
 		order by s.slug`, string(StatusPublished))
 	if err != nil {
 		return nil, fmt.Errorf("services: query: %w", err)

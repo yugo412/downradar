@@ -74,6 +74,9 @@ type GeneratedSummary struct {
 
 type VendorDetail struct {
 	VendorSummary
+	// Paused says staff stopped polling this row. The rest of the answer is the
+	// last known state, not a fresh reading.
+	Paused           bool              `json:"paused"`
 	Aliases          []string          `json:"aliases,omitempty"`
 	ComponentsList   []ComponentView   `json:"componentsList"`
 	RecentEvents     []EventView       `json:"recentEvents"`
@@ -170,7 +173,7 @@ func (s *Store) GetVendor(ctx context.Context, slug string, viewer Viewer) (*Ven
 
 	err := s.pool.QueryRow(ctx, `
 		select s.id, s.slug, s.name, coalesce(s.url, ''), coalesce(s.category, ''), coalesce(s.logo_url, ''),
-		       coalesce(ss.status, 'unknown'), ss.changed_at, s.last_polled_at,
+		       coalesce(ss.status, 'unknown'), ss.changed_at, s.last_polled_at, s.paused,
 		       coalesce(sm.summary, ''), sm.generated_at,
 		       coalesce(sm.model, ''), coalesce(sm.input_hash, '')
 		from services s
@@ -180,7 +183,7 @@ func (s *Store) GetVendor(ctx context.Context, slug string, viewer Viewer) (*Ven
 		  and (s.visibility = 'public'
 		       or ($2::bigint > 0 and s.owner_id = $2)
 		       or $3::boolean)`, slug, viewer.UserID, viewer.IsStaff,
-	).Scan(&serviceID, &v.Slug, &v.Name, &v.URL, &v.Category, &v.LogoURL, &v.Status, &v.ChangedAt, &v.LastPolledAt,
+	).Scan(&serviceID, &v.Slug, &v.Name, &v.URL, &v.Category, &v.LogoURL, &v.Status, &v.ChangedAt, &v.LastPolledAt, &v.Paused,
 		&summaryText, &summaryAt, &summaryModel, &summaryHash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound

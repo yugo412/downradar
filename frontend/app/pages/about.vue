@@ -82,6 +82,10 @@ useSeoMeta({
           components and incidents underneath it.
         </p>
         <p class="mt-3 text-sm leading-relaxed opacity-80">
+          Polling can be paused for a service, such as while its source is being fixed. Its page
+          then keeps the last known state and says that it may be out of date until staff resume it.
+        </p>
+        <p class="mt-3 text-sm leading-relaxed opacity-80">
           That also sets the limit. A page that cannot be reached, or that words its status in a way we
           do not recognise, is shown as <StatusBadge status="unknown" size="sm" /> rather than as
           operational. A service that is slow to admit a problem is slow here too, so the data is never

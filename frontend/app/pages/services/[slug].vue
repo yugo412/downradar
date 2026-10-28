@@ -34,6 +34,26 @@ useSeoMeta({
 })
 
 const editing = ref(false)
+const pauseBusy = ref(false)
+const pauseError = ref('')
+
+async function togglePolling() {
+  if (!meta.value) return
+
+  pauseBusy.value = true
+  pauseError.value = ''
+  try {
+    await $fetch(`/api/v1/services/${slug.value}`, {
+      method: 'PATCH',
+      body: { paused: !meta.value.service.paused },
+    })
+    await Promise.all([refreshMeta(), refreshDetail()])
+  } catch (err) {
+    pauseError.value = apiError(err, 'Could not change polling.')
+  } finally {
+    pauseBusy.value = false
+  }
+}
 
 async function onSaved(service: AdminService) {
   editing.value = false
@@ -68,6 +88,11 @@ async function onSaved(service: AdminService) {
                 class="badge badge-ghost badge-sm"
                 title="Only you and the staff can see it"
               >Private</span>
+              <span
+                v-if="meta.service.paused"
+                class="badge badge-warning badge-sm"
+                title="Scheduled polls are paused; the last known state is kept"
+              >Polling paused</span>
               <span v-if="meta.service.ownerId && canManageServices" class="badge badge-ghost badge-sm">
                 {{ meta.service.status === 'proposed' ? `suggested by ${meta.service.ownerName}` : `added by ${meta.service.ownerName}` }}
               </span>
@@ -83,7 +108,17 @@ async function onSaved(service: AdminService) {
             </div>
           </div>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2">
+          <button
+            v-if="canManageServices && meta.service.active && meta.service.status === 'published'"
+            type="button"
+            class="btn btn-ghost btn-sm gap-2"
+            :disabled="pauseBusy"
+            @click="togglePolling"
+          >
+            <span v-if="pauseBusy" class="loading loading-spinner loading-xs" />
+            {{ meta.service.paused ? 'Resume polling' : 'Pause polling' }}
+          </button>
           <button
             v-if="canEdit"
             type="button"
@@ -119,6 +154,8 @@ async function onSaved(service: AdminService) {
           </span>
         </div>
       </header>
+
+      <p v-if="pauseError" role="alert" class="alert alert-error mb-4">{{ pauseError }}</p>
 
       <VendorStatus v-if="detail" :vendor="detail" />
 

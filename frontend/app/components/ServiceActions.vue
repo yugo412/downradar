@@ -10,10 +10,12 @@ defineProps<{
   canEdit: boolean
   canManage: boolean
   retrying: boolean
+  pausing: boolean
 }>()
 
 const emit = defineEmits<{
   edit: []
+  pause: []
   publish: []
   retry: []
   restore: []
@@ -25,6 +27,22 @@ const emit = defineEmits<{
 <template>
   <div class="flex flex-wrap items-center gap-2 text-xs">
     <button v-if="canEdit" type="button" class="link" @click="emit('edit')">Edit</button>
+
+    <button
+      v-if="canManage && service.active && service.status === 'published'"
+      type="button"
+      class="link inline-flex items-center gap-1"
+      :disabled="pausing"
+      :title="
+        service.paused
+          ? 'Start scheduled polls again and refresh its page.'
+          : 'Stop scheduled polls and keep the last known state on its page.'
+      "
+      @click="emit('pause')"
+    >
+      <span v-if="pausing" class="loading loading-spinner loading-xs" />
+      {{ service.paused ? 'Resume polling' : 'Pause polling' }}
+    </button>
 
     <button
       v-if="canManage && service.active && service.status === 'no_match'"

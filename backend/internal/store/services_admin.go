@@ -27,6 +27,7 @@ type AdminService struct {
 	Status                string     `json:"status"`
 	State                 string     `json:"state"`
 	Active                bool       `json:"active"`
+	Paused                bool       `json:"paused"`
 	Visibility            string     `json:"visibility"`
 	OwnerID               *int64     `json:"ownerId,omitempty"`
 	OwnerName             string     `json:"ownerName,omitempty"`
@@ -41,7 +42,7 @@ type AdminService struct {
 const adminServiceColumns = `
 	s.id, s.slug, s.name, coalesce(s.url, ''), coalesce(s.category, ''), coalesce(s.logo_url, ''),
 	coalesce(s.profile, ''), coalesce(s.endpoint, ''), s.aliases, s.allow_shared_page,
-	s.poll_interval_seconds, s.active_interval_seconds, s.status, s.active, s.visibility,
+	s.poll_interval_seconds, s.active_interval_seconds, s.status, s.active, s.paused, s.visibility,
 	coalesce(st.status, 'unknown'),
 	s.last_polled_at, s.created_at, s.updated_at,
 	s.owner_id, coalesce(u.name, ''), coalesce(u.email, ''),
@@ -58,7 +59,7 @@ func scanAdminService(row rowScanner) (*AdminService, error) {
 	if err := row.Scan(
 		&a.ID, &a.Slug, &a.Name, &a.URL, &a.Category, &a.LogoURL,
 		&a.Profile, &a.Endpoint, &a.Aliases, &a.AllowSharedPage,
-		&a.PollIntervalSeconds, &a.ActiveIntervalSeconds, &a.Status, &a.Active, &a.Visibility,
+		&a.PollIntervalSeconds, &a.ActiveIntervalSeconds, &a.Status, &a.Active, &a.Paused, &a.Visibility,
 		&a.State,
 		&a.LastPolledAt, &a.CreatedAt, &a.UpdatedAt,
 		&a.OwnerID, &a.OwnerName, &a.OwnerEmail,
@@ -245,6 +246,7 @@ type ServicePatch struct {
 	Aliases  *[]string
 	Status   *string
 	Active   *bool
+	Paused   *bool
 	// The intervals are declared by the profile, so they travel with it when the
 	// profile changes. A nil field leaves the stored value alone.
 	PollIntervalSeconds   *int
@@ -261,7 +263,7 @@ type ServicePatch struct {
 func (p ServicePatch) Empty() bool {
 	return p.Name == nil && p.Slug == nil && p.URL == nil && p.Profile == nil && p.Category == nil &&
 		p.LogoURL == nil && p.Endpoint == nil && p.Aliases == nil && p.Status == nil &&
-		p.Active == nil && p.PollIntervalSeconds == nil && p.ActiveIntervalSeconds == nil &&
+		p.Active == nil && p.Paused == nil && p.PollIntervalSeconds == nil && p.ActiveIntervalSeconds == nil &&
 		!p.SetOwner && p.Visibility == nil
 }
 
@@ -282,11 +284,12 @@ func (s *Store) UpdateService(ctx context.Context, slug string, p ServicePatch) 
 			active_interval_seconds = coalesce($14::int, active_interval_seconds),
 			visibility = coalesce($15::text, visibility),
 			slug       = coalesce($16::text, slug),
+			paused     = coalesce($17::boolean, paused),
 			updated_at = now()
 		where slug = $1`,
 		slug, p.Name, p.URL, p.Profile, p.Category, p.LogoURL, p.Endpoint,
 		p.Aliases, p.Status, p.Active, p.SetOwner, p.OwnerID,
-		p.PollIntervalSeconds, p.ActiveIntervalSeconds, p.Visibility, p.Slug)
+		p.PollIntervalSeconds, p.ActiveIntervalSeconds, p.Visibility, p.Slug, p.Paused)
 	if err != nil {
 		// The unique index on the address is the only one this statement can
 		// trip, and a taken address is a person's answer to correct, not a fault.
