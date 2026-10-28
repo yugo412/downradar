@@ -46,11 +46,12 @@ func (h Health) Severity() int {
 }
 
 type ComponentStatus struct {
-	SourceID string
-	Name     string
-	Group    string
-	Position int
-	Status   Health
+	SourceID  string
+	Name      string
+	Group     string
+	Position  int
+	Status    Health
+	ChangedAt time.Time
 }
 
 type Incident struct {
