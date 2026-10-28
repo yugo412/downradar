@@ -1334,3 +1334,141 @@ func TestPausingOneWayFromThePage(t *testing.T) {
 		t.Errorf("pausing with no session = %d, want 401", rec.Code)
 	}
 }
+
+// Staff can read every alert, guest subscriptions included, and only staff.
+// There is no route here that changes anything.
+func TestStaffAlertsListsEverySubscription(t *testing.T) {
+	st, router := testRouter(t)
+	slug := alertVendor(t, st)
+
+	subscriber := testUser(t, st, auth.RoleSubscriber)
+	cookie := sessionFor(t, st, subscriber)
+
+	rec := call(t, router, http.MethodPost, "/api/v1/vendors/"+slug+"/alerts",
+		`{"email":"watch@example.org"}`, cookie)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("subscribe = %d, want 201: %s", rec.Code, rec.Body.String())
+	}
+
+	// Pause the alert so the staff row has a state worth reading back.
+	var mine struct {
+		Alerts []struct {
+			ID         int64  `json:"id"`
+			VendorSlug string `json:"vendorSlug"`
+		} `json:"alerts"`
+	}
+	rec = call(t, router, http.MethodGet, "/api/v1/auth/alerts", "", cookie)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("own alerts = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &mine); err != nil {
+		t.Fatalf("decode own alerts: %v", err)
+	}
+	if len(mine.Alerts) != 1 {
+		t.Fatalf("own alerts = %+v, want the one just made", mine.Alerts)
+	}
+	rec = call(t, router, http.MethodPatch,
+		fmt.Sprintf("/api/v1/auth/alerts/%d", mine.Alerts[0].ID), `{"state":"paused"}`, cookie)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("pause = %d, want 204: %s", rec.Code, rec.Body.String())
+	}
+
+	// A visitor with no account can still leave one. It belongs here too.
+	guestVendor := alertVendor(t, st)
+	rec = call(t, router, http.MethodPost, "/api/v1/vendors/"+guestVendor+"/alerts",
+		`{"email":"guest@example.org"}`, "")
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("guest subscribe = %d, want 201: %s", rec.Code, rec.Body.String())
+	}
+
+	admin := testUser(t, st, auth.RoleAdmin)
+	adminCookie := sessionFor(t, st, admin)
+
+	rec = call(t, router, http.MethodGet, "/api/v1/staff/alerts", "", adminCookie)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("staff alerts = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+
+	var staff struct {
+		Alerts []struct {
+			SubscriberName  string   `json:"subscriberName"`
+			SubscriberEmail string   `json:"subscriberEmail"`
+			Guest           bool     `json:"guest"`
+			VendorSlug      string   `json:"vendorSlug"`
+			Channels        []string `json:"channels"`
+			State           string   `json:"state"`
+		} `json:"alerts"`
+		Count int `json:"count"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &staff); err != nil {
+		t.Fatalf("decode staff alerts: %v", err)
+	}
+	if staff.Count != len(staff.Alerts) {
+		t.Errorf("count = %d, want %d rows", staff.Count, len(staff.Alerts))
+	}
+
+	found, guest := -1, -1
+	for i, alert := range staff.Alerts {
+		if alert.VendorSlug == guestVendor {
+			guest = i
+		}
+		if alert.VendorSlug == slug {
+			found = i
+		}
+	}
+	if found < 0 {
+		t.Fatalf("staff list has no alert on %s: %+v", slug, staff.Alerts)
+	}
+	if guest < 0 {
+		t.Fatalf("staff list has no guest alert on %s: %+v", guestVendor, staff.Alerts)
+	}
+
+	alert := staff.Alerts[found]
+	if alert.SubscriberName != subscriber.Name || alert.SubscriberEmail != subscriber.Email {
+		t.Errorf("subscriber = %q <%s>, want %q <%s>", alert.SubscriberName,
+			alert.SubscriberEmail, subscriber.Name, subscriber.Email)
+	}
+	if alert.Guest {
+		t.Error("an account's alert is marked as a guest")
+	}
+	if alert.State != store.AlertPaused {
+		t.Errorf("state = %q, want %q", alert.State, store.AlertPaused)
+	}
+	if len(alert.Channels) != 1 || alert.Channels[0] != store.ChannelEmail {
+		t.Errorf("channels = %v, want [email]", alert.Channels)
+	}
+
+	guestAlert := staff.Alerts[guest]
+	if !guestAlert.Guest {
+		t.Error("guest alert is not marked as a guest")
+	}
+	if guestAlert.SubscriberName != "" || guestAlert.SubscriberEmail != "guest@example.org" {
+		t.Errorf("guest = %q <%s>, want an empty name and guest@example.org",
+			guestAlert.SubscriberName, guestAlert.SubscriberEmail)
+	}
+	if guestAlert.State != store.AlertActive {
+		t.Errorf("guest state = %q, want %q", guestAlert.State, store.AlertActive)
+	}
+
+	// The list is for admins and moderators; a subscriber and a signed out
+	// visitor are both refused.
+	moderator := testUser(t, st, auth.RoleModerator)
+	modCookie := sessionFor(t, st, moderator)
+	if rec := call(t, router, http.MethodGet, "/api/v1/staff/alerts", "", modCookie); rec.Code != http.StatusOK {
+		t.Errorf("moderator = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if rec := call(t, router, http.MethodGet, "/api/v1/staff/alerts", "", cookie); rec.Code != http.StatusForbidden {
+		t.Errorf("subscriber = %d, want 403: %s", rec.Code, rec.Body.String())
+	}
+	if rec := call(t, router, http.MethodGet, "/api/v1/staff/alerts", "", ""); rec.Code != http.StatusUnauthorized {
+		t.Errorf("signed out = %d, want 401: %s", rec.Code, rec.Body.String())
+	}
+
+	// There is no mutation for this list, even for an admin.
+	for _, method := range []string{http.MethodDelete, http.MethodPatch} {
+		rec := call(t, router, method, "/api/v1/staff/alerts", "", adminCookie)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s = %d, want 405", method, rec.Code)
+		}
+	}
+}

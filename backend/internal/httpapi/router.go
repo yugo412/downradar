@@ -291,6 +291,10 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	mux.HandleFunc("PATCH /api/v1/auth/alerts/{id}", h.requireAuth(h.setUserAlertState))
 	mux.HandleFunc("DELETE /api/v1/auth/alerts/{id}", h.requireAuth(h.deleteUserAlertRow))
 
+	// Staff see every alert here, guests included. It is a read only view: there
+	// is no route to pause, edit or delete another subscriber's alert.
+	mux.HandleFunc("GET /api/v1/staff/alerts", h.requireStaff(h.listStaffAlerts))
+
 	mux.HandleFunc("POST /api/v1/auth/login",
 		h.authEndpoint(h.limited(h.loginLimiter, false,
 			"Too many sign in attempts, please try again later", h.login)))
