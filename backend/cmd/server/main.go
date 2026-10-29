@@ -16,6 +16,7 @@ import (
 	"downradar.info/backend/internal/catalog"
 	"downradar.info/backend/internal/config"
 	"downradar.info/backend/internal/contact"
+	"downradar.info/backend/internal/discord"
 	"downradar.info/backend/internal/httpapi"
 	"downradar.info/backend/internal/mail"
 	"downradar.info/backend/internal/notify"
@@ -140,6 +141,15 @@ func run() error {
 		log.Warn("adding to slack is off: SLACK_CLIENT_ID or SLACK_CLIENT_SECRET is not set")
 	}
 
+	// Adding a Discord channel in one click is the site's own Discord app. The
+	// webhook.incoming scope makes a channel webhook, so no bot is installed.
+	var discordApp *discord.App
+	if cfg.DiscordClientID != "" && cfg.DiscordClientSecret != "" {
+		discordApp = discord.NewApp(cfg.DiscordClientID, cfg.DiscordClientSecret)
+	} else {
+		log.Warn("adding to discord is off: DISCORD_CLIENT_ID or DISCORD_CLIENT_SECRET is not set")
+	}
+
 	srv := &http.Server{
 		Addr: cfg.HTTPAddr,
 		Handler: httpapi.NewRouter(st, log, httpapi.Options{
@@ -172,6 +182,7 @@ func run() error {
 			SessionCookieSecure:     cfg.SessionCookieSecure,
 			Providers:               providers,
 			Slack:                   slackApp,
+			Discord:                 discordApp,
 			PublicURL:               cfg.PublicURL,
 			AlertsEnabled:           cfg.SMTPAddr != "",
 			// Telegram is offered only while the sender loop above can drain what

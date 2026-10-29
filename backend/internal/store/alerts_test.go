@@ -2099,7 +2099,7 @@ func TestADiscordChannelIsAFifthWayForOneAlert(t *testing.T) {
 	if err := st.SubscribeAlert(ctx, id, &user.ID, AlertChange{
 		Email:        &email,
 		EmailToken:   "token-discord-mail",
-		Discord:      &AlertDiscord{URL: first},
+		Discord:      &AlertDiscord{URL: first, Channel: "100"},
 		DiscordToken: "token-discord-way",
 		Targets:      WholeVendor,
 	}); err != nil {
@@ -2117,6 +2117,9 @@ func TestADiscordChannelIsAFifthWayForOneAlert(t *testing.T) {
 	if view.Discord != first {
 		t.Errorf("discord = %q, want %q", view.Discord, first)
 	}
+	if view.DiscordChannel != "100" {
+		t.Errorf("discord channel = %q, want the install's channel", view.DiscordChannel)
+	}
 	if view.DiscordPaused {
 		t.Error("a channel that was just saved reads as paused")
 	}
@@ -2124,10 +2127,26 @@ func TestADiscordChannelIsAFifthWayForOneAlert(t *testing.T) {
 		t.Errorf("email = %q, want %q", view.Email, email)
 	}
 
-	// A new URL updates the same channel and keeps its token.
+	// A same-URL save without a channel keeps the install's channel.
+	if err := st.SubscribeAlert(ctx, id, &user.ID, AlertChange{
+		Discord:      &AlertDiscord{URL: first},
+		DiscordToken: "token-discord-same",
+		Targets:      WholeVendor,
+	}); err != nil {
+		t.Fatalf("SubscribeAlert without a channel: %v", err)
+	}
+	view, err = st.UserAlert(ctx, user.ID, id)
+	if err != nil {
+		t.Fatalf("UserAlert after the same URL: %v", err)
+	}
+	if view.DiscordChannel != "100" {
+		t.Errorf("discord channel = %q after a same-URL save, want it kept", view.DiscordChannel)
+	}
+
+	// A new URL updates the same channel, keeps its token, and starts a new channel.
 	const second = "https://discord.com/api/webhooks/100/second"
 	if err := st.SubscribeAlert(ctx, id, &user.ID, AlertChange{
-		Discord:      &AlertDiscord{URL: second},
+		Discord:      &AlertDiscord{URL: second, Channel: "200"},
 		DiscordToken: "token-discord-other",
 		Targets:      WholeVendor,
 	}); err != nil {
@@ -2152,6 +2171,9 @@ func TestADiscordChannelIsAFifthWayForOneAlert(t *testing.T) {
 	}
 	if view.Discord != second {
 		t.Errorf("discord = %q, want %q", view.Discord, second)
+	}
+	if view.DiscordChannel != "200" {
+		t.Errorf("discord channel = %q, want the channel the new install named", view.DiscordChannel)
 	}
 	if view.Email != email {
 		t.Errorf("saving the channel changed the email to %q", view.Email)
@@ -2192,6 +2214,9 @@ func TestADiscordChannelIsAFifthWayForOneAlert(t *testing.T) {
 	}
 	if view.Discord != "" {
 		t.Errorf("discord = %q, want it empty once stopped", view.Discord)
+	}
+	if view.DiscordChannel != "" {
+		t.Errorf("discord channel = %q, want it empty once stopped", view.DiscordChannel)
 	}
 	if view.Email != email {
 		t.Errorf("stopping the channel changed the email to %q", view.Email)

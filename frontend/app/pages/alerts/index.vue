@@ -21,6 +21,7 @@ const atLimit = computed(() => limit.value !== null && used.value >= limit.value
 onMounted(async () => {
   await load()
   showSlackFailure()
+  showDiscordFailure()
 })
 
 async function load() {
@@ -38,15 +39,24 @@ async function load() {
   }
 }
 
-// A Slack install that never made it back to an alert page ends here, because
-// the callback had no alert to name. The reason is read once and taken out of
-// the address, so a reload does not say it again.
+// A Slack or Discord install that never made it back to an alert page ends
+// here, because the callback had no alert to name. The reason is read once and
+// taken out of the address, so a reload does not say it again.
 function showSlackFailure() {
   if (String(route.query.slack ?? '') !== 'failed') return
 
   notice.value = 'Slack could not be connected. Open the alert page and try again.'
   const query = { ...route.query }
   delete query.slack
+  router.replace({ query })
+}
+
+function showDiscordFailure() {
+  if (String(route.query.discord ?? '') !== 'failed') return
+
+  notice.value = 'Discord could not be connected. Open the alert page and try again.'
+  const query = { ...route.query }
+  delete query.discord
   router.replace({ query })
 }
 

@@ -77,6 +77,14 @@ func (s *Store) parseSlackSettings(raw []byte) (string, error) {
 	return parseSlackSettings(plain)
 }
 
+func (s *Store) parseDiscordSettings(raw []byte) (string, error) {
+	plain, err := s.openSettings(raw)
+	if err != nil {
+		return "", err
+	}
+	return parseDiscordSettings(plain)
+}
+
 func (s *Store) parseLarkSettings(raw []byte) (string, error) {
 	plain, err := s.openSettings(raw)
 	if err != nil {

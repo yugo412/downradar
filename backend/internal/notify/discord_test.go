@@ -210,6 +210,40 @@ func TestDiscordRefusalIsRetried(t *testing.T) {
 	}
 }
 
+// A channel that has just been connected gets one message saying so, so the
+// install is visible without waiting for a change.
+func TestWelcomeDiscordSaysItIsConnected(t *testing.T) {
+	server, got := newReceiver(t, 204)
+
+	n := New(nil, &fakeSender{}, "https://downradar.info", time.Second, quietLogger())
+	if err := n.WelcomeDiscord(context.Background(), server.URL+"/api/webhooks/100/token",
+		"Zz Discord Vendor", "zz-discord-vendor"); err != nil {
+		t.Fatalf("WelcomeDiscord: %v", err)
+	}
+
+	payload := sentDiscord(t, got)
+	if len(payload.Embeds) != 1 {
+		t.Fatalf("embeds = %d, want one", len(payload.Embeds))
+	}
+	if !strings.Contains(payload.Embeds[0].Title, "connected") {
+		t.Errorf("title = %q, want it to say the channel is connected", payload.Embeds[0].Title)
+	}
+
+	body := got.last(t).body
+	for _, want := range []string{
+		"Zz Discord Vendor",
+		"Open status page",
+		"https://downradar.info/zz-discord-vendor",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the message does not contain %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "Stop these alerts") {
+		t.Errorf("a welcome message carries a way out of something that was never saved:\n%s", body)
+	}
+}
+
 // A test says it is one and carries no way out; nothing is saved yet.
 func TestTestDiscordSaysItIsATest(t *testing.T) {
 	st := testStore(t)

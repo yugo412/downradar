@@ -134,14 +134,16 @@ const discordAnswer = ref<{ ok: boolean; error: string } | null>(null)
 const larkTrying = ref(false)
 const larkAnswer = ref<{ ok: boolean; code: number; error: string } | null>(null)
 
-// Disconnecting is a save of its own: it stops the Slack way and leaves the
-// other ways and what the alert watches exactly as they were.
+// Disconnecting is a save of its own: it stops one way and leaves the other
+// ways and what the alert watches exactly as they were.
 const disconnecting = ref(false)
+const discordDisconnecting = ref(false)
 
 // What an install answered, in the address the callback sent the browser back
 // with. It is read once and taken out of the address, so a reload does not say
 // it again. The channel itself arrives with the alert, not here.
 const slackNotice = ref<{ ok: boolean; text: string } | null>(null)
+const discordNotice = ref<{ ok: boolean; text: string } | null>(null)
 
 // What the email reports on. A call reports on the whole service, whatever is
 // picked here, because its body says what the service looks like now.
@@ -283,6 +285,7 @@ const savedTelegram = computed(() => String(state.value?.telegram ?? ''))
 const savedSlack = computed(() => String(state.value?.slack ?? ''))
 const slackChannel = computed(() => String(state.value?.slackChannel ?? ''))
 const savedDiscord = computed(() => String(state.value?.discord ?? ''))
+const discordChannel = computed(() => String(state.value?.discordChannel ?? ''))
 const savedLark = computed(() => String(state.value?.lark ?? ''))
 const emailPaused = computed(() => state.value?.emailPaused === true)
 const webhookPaused = computed(() => state.value?.webhookPaused === true)
@@ -294,12 +297,15 @@ const larkDelivery = computed(() =>
   (state.value?.channelStatus ?? []).find((status) => status.kind === 'lark'),
 )
 
-// Whether the site has a Slack app to install in one click. Without one the
-// panel keeps the manual webhook path and says why the button is not offered.
+// Whether the site has a Slack or Discord app to install in one click. Without
+// one the panel keeps the manual webhook path and says why the button is not
+// offered.
 const slackEnabled = computed(() => state.value?.slackEnabled === true)
+const discordEnabled = computed(() => state.value?.discordEnabled === true)
 
-// A Slack message that reports on nothing would never have anything to say.
+// A message that reports on nothing would never have anything to say.
 const slackNothingToPost = computed(() => !whole.value && picked.value.length === 0)
+const discordNothingToPost = computed(() => !whole.value && picked.value.length === 0)
 
 // Whether the site has a sender loop at all, which is what decides if a chat is
 // offered.
@@ -397,9 +403,15 @@ const sample = computed(() => {
 onMounted(async () => {
   await load()
 
-  const result = String(route.query.slack ?? '')
-  if (result) {
+  const slackResult = String(route.query.slack ?? '')
+  if (slackResult) {
     showSlackResult()
+    return
+  }
+
+  const discordResult = String(route.query.discord ?? '')
+  if (discordResult) {
+    showDiscordResult()
     return
   }
 
@@ -542,6 +554,50 @@ function showSlackResult() {
   router.replace({ query, hash: '#slack' })
 }
 
+// What the callback said when Discord sent the browser back. The reason is in
+// the address rather than in the answer, because the install is a navigation.
+function showDiscordResult() {
+  const result = String(route.query.discord ?? '')
+  if (!result) return
+
+  const messages: Record<string, { ok: boolean; text: string }> = {
+    connected: {
+      ok: true,
+      text: 'Discord is connected. The channel is saved with this alert.',
+    },
+    refused: {
+      ok: false,
+      text: 'Discord was not connected. Nothing changed.',
+    },
+    limit: {
+      ok: false,
+      text: 'Your account has reached its limit of services. Remove one from your alerts page first.',
+    },
+    pick: {
+      ok: false,
+      text: 'Pick the whole service or at least one component before connecting Discord.',
+    },
+    'too-many': {
+      ok: false,
+      text: 'This alert picks too many things to connect in one click. Pick the whole service instead.',
+    },
+    unavailable: {
+      ok: false,
+      text: 'Adding to Discord is not set up on this site. Paste a webhook URL below instead.',
+    },
+    failed: {
+      ok: false,
+      text: 'Discord could not be connected. Try again.',
+    },
+  }
+  discordNotice.value = messages[result] ?? messages.failed
+  way.value = 'discord'
+
+  const query = { ...route.query }
+  delete query.discord
+  router.replace({ query, hash: '#discord' })
+}
+
 // One click installs the site's Slack app. What the page holds is saved first,
 // so an address or a chat typed but not saved yet is not left behind by the trip
 // to Slack. A page with no other way has nothing to save before the callback
@@ -592,6 +648,58 @@ async function disconnectSlack() {
     }
   } finally {
     disconnecting.value = false
+  }
+}
+
+// One click installs the site's Discord app. What the page holds is saved first,
+// so an address or a chat typed but not saved yet is not left behind by the trip
+// to Discord.
+async function connectDiscord() {
+  if (!discordEnabled.value || discordNothingToPost.value || busy.value) return
+  if (hookProblem.value || slackProblem.value || discordProblem.value || larkProblem.value) return
+
+  if (anyWay.value) {
+    await save()
+    if (busy.value || error.value || secretOpen.value) return
+  }
+
+  const query = new URLSearchParams({ wholeService: String(whole.value) })
+  for (const id of picked.value) query.append('components', id)
+  window.location.href =
+    `/api/v1/vendors/${encodeURIComponent(slug.value)}/alerts/discord/connect?` +
+    query.toString()
+}
+
+// Stopping the channel is the same save the page already makes, with an empty
+// URL and the targets the alert already has. Naming only Discord leaves the
+// other ways alone.
+async function disconnectDiscord() {
+  if (!savedDiscord.value || discordDisconnecting.value) return
+
+  discordDisconnecting.value = true
+  discordNotice.value = null
+
+  try {
+    await $fetch(`/api/v1/vendors/${slug.value}/alerts`, {
+      method: 'POST',
+      body: {
+        discord: { url: '' },
+        wholeService: state.value?.wholeService ?? true,
+        components: state.value?.components ?? [],
+      },
+    })
+    await load()
+    discordNotice.value = {
+      ok: true,
+      text: 'Discord is disconnected. Nothing else about this alert changed.',
+    }
+  } catch (err) {
+    discordNotice.value = {
+      ok: false,
+      text: apiError(err, 'Could not disconnect Discord.'),
+    }
+  } finally {
+    discordDisconnecting.value = false
   }
 }
 
@@ -1589,7 +1697,7 @@ async function refreshCalls() {
                       :disabled="!slackEnabled || slackNothingToPost || busy"
                       @click="connectSlack"
                     >
-                      <SlackIcon class="size-4 shrink-0" />
+                      <ChannelIcon kind="slack" class="size-4 shrink-0" />
                       {{ slackChannel ? 'Change channel' : 'Add to Slack' }}
                     </button>
                     <button
@@ -1732,52 +1840,118 @@ async function refreshCalls() {
             <div v-show="way === 'discord'">
               <h3 class="font-semibold">Discord</h3>
               <p class="mt-1 text-sm opacity-70">
-                A post in a Discord channel each time one of the things you pick
-                below changes, in either direction. The post links to the status
-                page and to a page that stops these messages.
+                A post in a Discord channel whenever one of the things you pick
+                changes, in either direction.
               </p>
 
-              <details class="mt-3 min-w-0 rounded-box border border-base-300">
-                <summary class="cursor-pointer px-4 py-3 text-sm font-medium">
-                  How to make a webhook
-                </summary>
-                <div class="min-w-0 border-t border-base-300 px-4 py-3">
-                  <ol class="list-decimal space-y-1 pl-5 text-sm opacity-70">
-                    <li>
-                      Open the channel's settings in Discord and choose
-                      <span class="font-medium">Integrations</span>.
-                    </li>
-                    <li>
-                      Open <span class="font-medium">Webhooks</span> and press
-                      <span class="font-medium">New Webhook</span>.
-                    </li>
-                    <li>
-                      Pick the channel, copy the webhook URL, and paste it here.
-                    </li>
-                  </ol>
-                  <p class="mt-2 text-sm opacity-70">
-                    You need Manage Webhooks in that channel to make one.
-                  </p>
-                </div>
-              </details>
-
-              <!-- The URL is a secret, so the field masks it and offers to show
-                   it, the same way the Slack one is shown. -->
-              <div class="mt-3">
-                <PasswordInput
-                  v-model="discordURL"
-                  label="Webhook URL"
-                  secret="webhook URL"
-                  autocomplete="off"
-                  placeholder="https://discord.com/api/webhooks/..."
-                >
-                  <p v-if="discordProblem" class="mt-2 text-sm text-error">{{ discordProblem }}</p>
-                  <p class="mt-2 text-sm opacity-70">
-                    The URL is kept with this alert and shown masked. Leave it
-                    empty to stop the messages for good.
-                  </p>
-                </PasswordInput>
+              <!-- Installing the site's Discord app is the one click way:
+                   Discord asks which channel, and the webhook.incoming scope
+                   makes the webhook this alert saves. The manual field below is
+                   still there for a reader who already has a webhook. -->
+              <div
+                v-if="discordNotice"
+                :role="discordNotice.ok ? 'status' : 'alert'"
+                class="alert mt-4 py-2 text-sm"
+                :class="discordNotice.ok ? 'alert-success' : 'alert-error'"
+              >
+                <span>{{ discordNotice.text }}</span>
               </div>
+
+              <div
+                class="mt-4"
+                :class="discordChannel ? 'rounded-box border border-base-300 p-4' : ''"
+              >
+                <div class="flex flex-wrap items-center gap-3">
+                  <p v-if="discordChannel" class="min-w-0 text-sm">
+                    Connected to <span class="font-medium">Discord</span>.
+                    Connect again to move it.
+                  </p>
+                  <div
+                    class="flex flex-wrap items-center gap-2"
+                    :class="discordChannel ? 'ml-auto' : ''"
+                  >
+                    <button
+                      type="button"
+                      class="btn btn-sm shrink-0"
+                      :disabled="!discordEnabled || discordNothingToPost || busy"
+                      @click="connectDiscord"
+                    >
+                      <ChannelIcon kind="discord" class="size-4 shrink-0" />
+                      {{ discordChannel ? 'Change channel' : 'Add to Discord' }}
+                    </button>
+                    <button
+                      v-if="discordChannel"
+                      type="button"
+                      class="btn btn-ghost btn-sm text-error"
+                      :disabled="discordDisconnecting || busy"
+                      @click="disconnectDiscord"
+                    >
+                      <span
+                        v-if="discordDisconnecting"
+                        class="loading loading-spinner loading-xs"
+                      />
+                      Disconnect
+                    </button>
+                  </div>
+                </div>
+                <p v-if="!discordEnabled" class="mt-3 text-xs opacity-70">
+                  Adding to Discord is not set up on this site. Paste a webhook
+                  URL below.
+                </p>
+                <p v-else-if="discordNothingToPost" class="mt-3 text-xs text-error">
+                  Pick the whole service or a component below first.
+                </p>
+              </div>
+
+              <template v-if="!discordChannel">
+                <div class="mt-5 flex items-center gap-3 text-xs opacity-70">
+                  <span class="h-px flex-1 bg-base-300" />
+                  or paste a webhook URL
+                  <span class="h-px flex-1 bg-base-300" />
+                </div>
+
+                <details class="mt-3 min-w-0 rounded-box border border-base-300">
+                  <summary class="cursor-pointer px-4 py-3 text-sm font-medium">
+                    How to make a webhook
+                  </summary>
+                  <div class="min-w-0 border-t border-base-300 px-4 py-3">
+                    <ol class="list-decimal space-y-1 pl-5 text-sm opacity-70">
+                      <li>
+                        Open the channel's settings in Discord and choose
+                        <span class="font-medium">Integrations</span>.
+                      </li>
+                      <li>
+                        Open <span class="font-medium">Webhooks</span> and press
+                        <span class="font-medium">New Webhook</span>.
+                      </li>
+                      <li>
+                        Pick the channel, copy the webhook URL, and paste it here.
+                      </li>
+                    </ol>
+                    <p class="mt-2 text-sm opacity-70">
+                      You need Manage Webhooks in that channel to make one.
+                    </p>
+                  </div>
+                </details>
+
+                <!-- The URL is a secret, so the field masks it and offers to show
+                     it, the same way the Slack one is shown. -->
+                <div class="mt-3">
+                  <PasswordInput
+                    v-model="discordURL"
+                    label="Webhook URL"
+                    secret="webhook URL"
+                    autocomplete="off"
+                    placeholder="https://discord.com/api/webhooks/..."
+                  >
+                    <p v-if="discordProblem" class="mt-2 text-sm text-error">{{ discordProblem }}</p>
+                    <p class="mt-2 text-sm opacity-70">
+                      The URL is kept with this alert and shown masked. Leave it
+                      empty to stop the messages for good.
+                    </p>
+                  </PasswordInput>
+                </div>
+              </template>
 
               <!-- What a Discord message reports on, which is what the
                    subscriber picked: the post names the component that moved. -->
@@ -1837,9 +2011,8 @@ async function refreshCalls() {
             <div v-show="way === 'lark'">
               <h3 class="font-semibold">Lark</h3>
               <p class="mt-1 text-sm opacity-70">
-                A card in a Lark group each time one of the things you pick below
-                changes, in either direction. The card links to the status page
-                and to a page that stops these messages.
+                A card in a Lark group whenever one of the things you pick
+                changes, in either direction.
               </p>
 
               <details class="mt-3 min-w-0 rounded-box border border-base-300">

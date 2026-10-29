@@ -98,14 +98,15 @@ type AlertView struct {
 	// TelegramBot is the subscriber's own bot, never handed back. Slack, Discord
 	// and Lark are the webhook URLs those messages go to; LarkSecret signs them
 	// when the bot requires it.
-	Telegram     string `json:"-"`
-	TelegramBot  string `json:"-"`
-	Slack        string `json:"-"`
-	SlackChannel string `json:"-"`
-	Discord      string `json:"-"`
-	Lark         string `json:"-"`
-	LarkSecret   string `json:"-"`
-	Kind         string `json:"-"`
+	Telegram       string `json:"-"`
+	TelegramBot    string `json:"-"`
+	Slack          string `json:"-"`
+	SlackChannel   string `json:"-"`
+	Discord        string `json:"-"`
+	DiscordChannel string `json:"-"`
+	Lark           string `json:"-"`
+	LarkSecret     string `json:"-"`
+	Kind           string `json:"-"`
 
 	// The kinds of channel the subscription arrives by, in a stable order; an
 	// ended row falls back to the kinds it had so it still says how it arrived.
@@ -802,7 +803,7 @@ func (s *Store) subscribeAlert(ctx context.Context, serviceID int64, userID *int
 		}
 	}
 	if change.Discord != nil {
-		if err := saveDiscordChannel(ctx, tx, subscriptionID, *change.Discord, change.DiscordToken); err != nil {
+		if err := s.saveDiscordChannel(ctx, tx, subscriptionID, *change.Discord, change.DiscordToken); err != nil {
 			return "", fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
 		}
 	}
@@ -998,8 +999,11 @@ type AlertSlack struct {
 }
 
 // AlertDiscord is the fifth way: the incoming webhook URL of a Discord channel.
+// Channel is the id an install returned, only to say whether the URL came from
+// the one click flow rather than a pasted webhook.
 type AlertDiscord struct {
-	URL string
+	URL     string
+	Channel string
 }
 
 // AlertLark is the sixth way: the custom bot webhook of a Lark group, and the
@@ -1072,6 +1076,30 @@ func parseSlackSettings(raw []byte) (string, error) {
 	var settings slackSettings
 	if err := json.Unmarshal(raw, &settings); err != nil {
 		return "", fmt.Errorf("alerts: read slack settings: %w", err)
+	}
+	return settings.Channel, nil
+}
+
+type discordSettings struct {
+	Channel string `json:"channel,omitempty"`
+}
+
+// encodeDiscordSettings writes the channel id an install returned. It is only a
+// label for the page, not something a delivery reads.
+func encodeDiscordSettings(settings discordSettings) ([]byte, error) {
+	return json.Marshal(settings)
+}
+
+// parseDiscordSettings reads back what encodeDiscordSettings wrote. A URL pasted
+// by hand has no channel, which reads as an empty one.
+func parseDiscordSettings(raw []byte) (string, error) {
+	if len(raw) == 0 {
+		return "", nil
+	}
+
+	var settings discordSettings
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		return "", fmt.Errorf("alerts: read discord settings: %w", err)
 	}
 	return settings.Channel, nil
 }
@@ -1193,32 +1221,52 @@ func (s *Store) saveSlackChannel(ctx context.Context, tx pgx.Tx, subscriptionID 
 }
 
 // saveDiscordChannel saves one Discord way. An empty URL stops it, and an
-// existing channel keeps its token.
-func saveDiscordChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, way AlertDiscord, token string) error {
+// existing channel keeps its token. A same-URL save without a channel keeps the
+// id an install wrote; a different URL starts without one, so a pasted webhook
+// is not mistaken for that install.
+func (s *Store) saveDiscordChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, way AlertDiscord, token string) error {
 	if way.URL == "" {
 		return stopChannels(ctx, tx, subscriptionID, ChannelDiscord)
 	}
 
 	var channelID int64
 	var channelToken string
+	var address string
+	var raw []byte
 	err := tx.QueryRow(ctx, `
-		select id, token from alert_channels
+		select id, token, address, coalesce(settings, '{}'::jsonb)
+		from alert_channels
 		where subscription_id = $1 and kind = 'discord'
 		order by (unsubscribed_at is null) desc, id
-		limit 1`, subscriptionID).Scan(&channelID, &channelToken)
+		limit 1`, subscriptionID).Scan(&channelID, &channelToken, &address, &raw)
 
+	channel := way.Channel
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		channelToken = token
 	case err != nil:
 		return fmt.Errorf("read the discord way: %w", err)
+	case channel == "" && address == way.URL:
+		channel, err = s.parseDiscordSettings(raw)
+		if err != nil {
+			return err
+		}
+	}
+
+	settings, err := encodeDiscordSettings(discordSettings{Channel: channel})
+	if err != nil {
+		return fmt.Errorf("write the discord way: %w", err)
+	}
+	settings, err = s.sealSettings(settings)
+	if err != nil {
+		return fmt.Errorf("seal the discord way: %w", err)
 	}
 
 	// A row id is never zero, so nothing found means nothing is there yet.
 	if channelID == 0 {
 		if _, err := tx.Exec(ctx, `
-			insert into alert_channels (subscription_id, kind, address, token)
-			values ($1, 'discord', $2, $3)`, subscriptionID, way.URL, channelToken); err != nil {
+			insert into alert_channels (subscription_id, kind, address, settings, token)
+			values ($1, 'discord', $2, $3, $4)`, subscriptionID, way.URL, settings, channelToken); err != nil {
 			return fmt.Errorf("add the discord way: %w", err)
 		}
 		return nil
@@ -1226,8 +1274,8 @@ func saveDiscordChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, wa
 
 	if _, err := tx.Exec(ctx, `
 		update alert_channels
-		set address = $2, unsubscribed_at = null, updated_at = now()
-		where id = $1`, channelID, way.URL); err != nil {
+		set address = $2, settings = $3, unsubscribed_at = null, updated_at = now()
+		where id = $1`, channelID, way.URL, settings); err != nil {
 		return fmt.Errorf("update the discord way: %w", err)
 	}
 	return dropChannelsApartFrom(ctx, tx, subscriptionID, ChannelDiscord, channelID)
@@ -1598,6 +1646,7 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 	var webhookSettings []byte
 	var telegramSettings []byte
 	var slackRaw []byte
+	var discordRaw []byte
 	var larkRaw []byte
 	err := s.pool.QueryRow(ctx, `
 		select a.id, v.slug, v.name, coalesce(ch.address, ''), a.created_at,
@@ -1609,7 +1658,7 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 		       coalesce(ch.webhook_address, ''), coalesce(ch.webhook_settings, '{}'::jsonb),
 		       coalesce(ch.telegram_address, ''), coalesce(ch.telegram_settings, '{}'::jsonb),
 		       coalesce(ch.slack_address, ''), coalesce(ch.slack_settings, '{}'::jsonb),
-		       coalesce(ch.discord_address, ''),
+		       coalesce(ch.discord_address, ''), coalesce(ch.discord_settings, '{}'::jsonb),
 		       coalesce(ch.lark_address, ''), coalesce(ch.lark_settings, '{}'::jsonb),
 		       ch.email_paused, ch.webhook_paused, ch.telegram_paused, ch.slack_paused,
 		       ch.discord_paused, ch.lark_paused
@@ -1640,6 +1689,8 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 			        filter (where c.kind = 'slack' and c.unsubscribed_at is null))[1] as slack_settings,
 			       (array_agg(c.address order by c.id)
 			        filter (where c.kind = 'discord' and c.unsubscribed_at is null))[1] as discord_address,
+			       (array_agg(c.settings order by c.id)
+			        filter (where c.kind = 'discord' and c.unsubscribed_at is null))[1] as discord_settings,
 			       (array_agg(c.address order by c.id)
 			        filter (where c.kind = 'lark' and c.unsubscribed_at is null))[1] as lark_address,
 			       (array_agg(c.settings order by c.id)
@@ -1678,7 +1729,7 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 		&webhookAddress, &webhookSettings,
 		&view.Telegram, &telegramSettings,
 		&view.Slack, &slackRaw,
-		&view.Discord,
+		&view.Discord, &discordRaw,
 		&view.Lark, &larkRaw,
 		&view.EmailPaused, &view.WebhookPaused, &view.TelegramPaused, &view.SlackPaused,
 		&view.DiscordPaused, &view.LarkPaused)
@@ -1709,6 +1760,13 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 			return nil, err
 		}
 		view.SlackChannel = channel
+	}
+	if view.Discord != "" {
+		channel, err := s.parseDiscordSettings(discordRaw)
+		if err != nil {
+			return nil, err
+		}
+		view.DiscordChannel = channel
 	}
 	if view.Lark != "" {
 		secret, err := s.parseLarkSettings(larkRaw)

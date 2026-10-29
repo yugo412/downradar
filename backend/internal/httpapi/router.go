@@ -35,6 +35,7 @@ type handlers struct {
 	notifier        *notify.Notifier
 	providers       map[string]oauth.Provider
 	slack           SlackApp
+	discord         DiscordApp
 	publicURL       string
 	readLimiter     *ipLimiter
 	suggestLimiter  *ipLimiter
@@ -89,10 +90,11 @@ type Options struct {
 	// route name. An empty map is a site with no provider sign in, the default.
 	// PublicURL is the site's own address, what the provider sends the browser back to.
 	Providers map[string]oauth.Provider
-	// Slack is the site's own Slack app, which is what the one click install
-	// uses. Without it the page keeps the manual webhook path and does not offer
-	// the button.
+	// Slack and Discord are the site's own apps, which are what the one click
+	// installs use. Without them the page keeps the manual webhook path and does
+	// not offer the button.
 	Slack     SlackApp
+	Discord   DiscordApp
 	PublicURL string
 }
 
@@ -184,6 +186,7 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 		notifier:        opts.Notifier,
 		providers:       opts.Providers,
 		slack:           opts.Slack,
+		discord:         opts.Discord,
 		publicURL:       publicURL,
 		readLimiter:     newIPLimiter(readInterval, opts.RateLimitBurst),
 		suggestLimiter:  newIPLimiter(suggestInterval, opts.SuggestBurst),
@@ -279,6 +282,12 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	mux.HandleFunc("GET /api/v1/vendors/{slug}/alerts/slack/connect",
 		h.requireAuth(h.slackConnect))
 	mux.HandleFunc("GET /api/v1/slack/callback", h.slackCallback)
+
+	// Installing the site's Discord app follows the same shape, with Discord's
+	// webhook.incoming scope making the channel's incoming webhook.
+	mux.HandleFunc("GET /api/v1/vendors/{slug}/alerts/discord/connect",
+		h.requireAuth(h.discordConnect))
+	mux.HandleFunc("GET /api/v1/discord/callback", h.discordCallback)
 
 	// Stopping one way without taking away what it was told, which is how a
 	// subscriber makes one of them quiet for a while.

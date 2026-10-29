@@ -46,8 +46,9 @@ useSeoMeta({
       <p class="mt-3">
         The site uses a session cookie to keep you signed in, short-lived state
         cookies while signing in with a provider, connecting one from your
-        account, or connecting Slack, and a theme cookie that remembers your
-        colour preference. There are no advertising or analytics cookies.
+        account, or connecting Slack or Discord, and a theme cookie that
+        remembers your colour preference. There are no advertising or analytics
+        cookies.
       </p>
     </section>
 
