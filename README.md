@@ -434,14 +434,13 @@ Atlassian Statuspage, Status.io, Sorry, cron-job.org, FlashDuty, PagerDuty, Slac
 Better Stack, SolarWinds, UptimeRobot and StatusCake, plus bespoke adapters for
 pages that are not a platform: OpenCode's own page, whose components are slugs and
 whose incidents have generated ids, and the pages of Auth0, PayPal, Railway,
-Midtrans and Microsoft 365. Platform profiles are also in the detect queue, so a
-vendor can be added before its platform is known; a page of a vendor's own kind
-is chosen by hand,
-since its profile can only match that one page. Ping is the profile to pick by
-hand for a service with no status page: it watches the target by asking for it,
-and a request that stops coming back is the outage. Further platforms are
-additional adapters; the interface already separates "how to fetch" from "how to
-interpret".
+Midtrans, Indodax and Microsoft 365. Platform profiles are also in the detect
+queue, so a vendor can be added before its platform is known; a page of a
+vendor's own kind is chosen by hand, since its profile can only match that one
+page. Ping is the profile to pick by hand for a service with no status page: it
+watches the target by asking for it, and a request that stops coming back is the
+outage. Further platforms are additional adapters; the interface already
+separates "how to fetch" from "how to interpret".
 
 Please respect each provider's `robots.txt` and terms. Attribution and a link back
 to the official status page are shown on every vendor page.

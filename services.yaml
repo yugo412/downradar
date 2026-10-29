@@ -25,11 +25,12 @@
 # for its platform is listed here.
 #
 # Only platform profiles belong here. A page that runs its own software (auth0,
-# paypal, railway, midtrans) is picked by hand from the profile list: a profile
-# for it can only ever match that one page, and every entry in the queue is a
-# fetch on every unknown url. A page with no marker to look for (opencode, slack)
-# is left out for the same reason, and ping is left out because it would match
-# every url there is. The order below keeps the cheap and common platforms first.
+# paypal, railway, midtrans, indodax) is picked by hand from the profile list: a
+# profile for it can only ever match that one page, and every entry in the
+# queue is a fetch on every unknown url. A page with no marker to look for
+# (opencode, slack) is left out for the same reason, and ping is left out
+# because it would match every url there is. The order below keeps the cheap and
+# common platforms first.
 detect:
   - statuspage-v2
   - statusio
@@ -214,6 +215,15 @@ profiles:
   midtrans:
     kind: midtrans
     description: Midtrans' status page, read from the page itself.
+    poll_interval_seconds: 300
+    active_interval_seconds: 60
+
+  # Indodax renders its status page with a custom WordPress template: one row
+  # per feature, with the state carried by the icon's class. It is offered in
+  # the picker rather than the queue, because it can only ever be Indodax's page.
+  indodax:
+    kind: indodax
+    description: Indodax's status page, read from its feature table.
     poll_interval_seconds: 300
     active_interval_seconds: 60
 
