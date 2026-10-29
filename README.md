@@ -184,8 +184,9 @@ endpoint, the default intervals and the one-line description the management
 screens show. A row can override the endpoint and intervals for itself.
 
 A profile can be marked `visible: false` for a page written for one vendor rather
-than a platform. It is then left out of the profile picker, while the vendor that
-already uses it still gets it back when edited.
+than a platform. It is then left out of the default profile picker, which stays a
+list of platforms; staff can still assign it from the single-vendor section of
+the service form. Detection never tries it.
 
 Validation happens on the write path: an unknown profile, duplicate slug or
 internal url is rejected before a row exists. The poller trusts the table and

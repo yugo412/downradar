@@ -10,8 +10,9 @@
 # intervals for itself.
 #
 # A profile written for one vendor's own page sets visible: false. It is then
-# left out of the picker when a vendor is added, so that stays a list of
-# platforms, and it is still offered for the vendor that already uses it.
+# left out of the default picker when a vendor is added, so that stays a list of
+# platforms. Staff can still assign it from the single-vendor section of the
+# service form, and it is never used by detection.
 #
 # This file is validated at startup. An unknown kind, an unknown field, a
 # non positive interval or a detect queue naming a profile that is not declared
@@ -98,7 +99,7 @@ profiles:
   # Lark's own status page is a React app that fetches its service list from
   # this endpoint. The page names each service by a numeric bizType, so the
   # adapter carries the labels from the page's own bundle. It is only ever
-  # Lark's page, so it is not offered in the picker or tried by detection.
+  # Lark's page, so it is not offered in the default picker or tried by detection.
   lark:
     kind: lark
     description: Lark's own status page, read from the JSON API its page calls.
@@ -218,8 +219,8 @@ profiles:
     active_interval_seconds: 60
 
   # Microsoft's status page is a single-page app, but the consumer card reads
-  # plain json from /api/posts/m365Consumer. It is hidden from the picker
-  # because it can only ever be Microsoft 365's page.
+  # plain json from /api/posts/m365Consumer. It is hidden from the default
+  # picker because it can only ever be Microsoft 365's page.
   microsoft-365:
     kind: microsoft
     description: Microsoft 365's consumer status page, read from its own JSON API.
