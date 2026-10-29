@@ -132,6 +132,13 @@ until it is removed. The signing secret is unused because the site does not take
 Slack events. Without the two values the button is off and the manual webhook
 field is still there.
 
+One-click Discord setup needs `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET`
+from an application at discord.com/developers/applications, with the
+`webhook.incoming` scope and `PUBLIC_URL/api/v1/discord/callback` registered as
+its redirect URL. It does not install a bot: the install returns the channel's
+incoming webhook. Without the two values the button is off and the manual webhook
+field is still there.
+
 Generated summaries need `OPENAI_API_KEY` in `.env`; the key is never committed.
 When it is empty no new sentence is written, and rows already stored are left
 alone. `SUMMARY_ENABLED` defaults to true and can turn the worker off even while
@@ -238,7 +245,7 @@ where they choose what to watch and how it arrives.
 - **Webhook test:** the page can send a made-up change with the current URL, method and headers. The last fifty calls are kept, without the sent body or header list, and the log shows twenty at a time.
 - **Telegram:** use the subscriber's own bot from BotFather, press Start, then enter the chat id from @userinfobot. The token stays masked and can be revealed, tested or replaced.
 - **Slack:** use an incoming webhook URL, or Add to Slack for the site's app. Messages use Block Kit; the URL stays masked, the channel name is shown, and the channel can be tested before saving.
-- **Discord:** use the channel's incoming webhook URL. The post is an embed with the status, a link to the vendor page and a link that stops that channel.
+- **Discord:** use an incoming webhook URL, or Add to Discord for the site's app. The post is an embed with the status, a link to the vendor page and a link that stops that channel.
 - **Lark:** use a custom bot's webhook from the group, plus its signing secret when signature verification is on. The card carries the status, a link to the vendor page and a link that stops the channel. The page shows the last real delivery result; tests do not replace it.
 - **Delivery:** a status change writes one delivery per channel in the same transaction; a loop drains them and retries failures. A slow endpoint cannot hold up polling, and a restart loses nothing.
 - **SMTP:** alerts are off without `SMTP_ADDR`, and the API refuses subscriptions while off. Port 465 uses TLS from the first byte; other ports use STARTTLS when offered. Email wording lives in `internal/mail/templates`.

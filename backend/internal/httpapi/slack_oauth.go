@@ -3,8 +3,6 @@ package httpapi
 import (
 	"context"
 	"crypto/subtle"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -26,21 +24,7 @@ type SlackApp interface {
 // The cookie carrying an install from the alert page to the callback. Slack sends
 // the browser back to one fixed address, so the alert travels beside the state
 // rather than in the address; the state proves this browser started the flow.
-const (
-	slackStateCookie = "dr_slack"
-	slackStateTTL    = 10 * time.Minute
-	slackCookiePath  = "/api/v1/"
-)
-
-type slackFlow struct {
-	UserID     int64    `json:"user"`
-	ServiceID  int64    `json:"service"`
-	VendorSlug string   `json:"slug"`
-	VendorName string   `json:"name"`
-	Whole      bool     `json:"whole"`
-	Components []string `json:"components,omitempty"`
-	Expires    int64    `json:"exp"`
-}
+const slackStateCookie = "dr_slack"
 
 // slackRedirectURL is the address registered with the Slack app. It is the
 // public site rather than the API's own address, because the person's browser
@@ -92,7 +76,7 @@ func (h *handlers) slackConnect(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	whole, components, reason := slackTargets(r)
+	whole, components, reason := alertConnectTargets(r)
 	if reason != "" {
 		h.slackBack(w, r, slug, reason)
 		return
@@ -103,44 +87,19 @@ func (h *handlers) slackConnect(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	h.setSlackState(w, state, slackFlow{
+	h.setAlertInstallState(w, slackStateCookie, state, alertInstallFlow{
 		UserID:     user.ID,
 		ServiceID:  serviceID,
 		VendorSlug: slug,
 		VendorName: name,
 		Whole:      whole,
 		Components: components,
-		Expires:    time.Now().Add(slackStateTTL).Unix(),
+		Expires:    time.Now().Add(alertInstallStateTTL).Unix(),
 	})
 
 	h.log.Info("slack install started", "vendor", name, "user", user.Email,
 		"whole", whole, "components", len(components))
 	http.Redirect(w, r, h.slack.AuthorizeURL(state, h.slackRedirectURL()), http.StatusFound)
-}
-
-// slackTargets reads what the page had ticked. The list lives in a cookie of a few
-// kilobytes, so a vendor with an unusual number of components is refused rather
-// than cut short; saving the alert first is the way to connect one.
-func slackTargets(r *http.Request) (bool, []string, string) {
-	query := r.URL.Query()
-	whole := query.Get("wholeService") == "true"
-	components := query["components"]
-
-	if !whole && len(components) == 0 {
-		return false, nil, "pick"
-	}
-
-	total := 0
-	for _, id := range components {
-		if id == "" || len(id) > 200 {
-			return false, nil, "failed"
-		}
-		total += len(id) + 1
-		if total > 1800 {
-			return false, nil, "too-many"
-		}
-	}
-	return whole, components, ""
 }
 
 // slackCallback takes the answer back. Everything that can go wrong ends on the
@@ -149,7 +108,7 @@ func slackTargets(r *http.Request) (bool, []string, string) {
 func (h *handlers) slackCallback(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 
-	state, flow, ok := h.takeSlackState(w, r)
+	state, flow, ok := h.takeAlertInstallState(w, r, slackStateCookie)
 	if !ok || time.Now().Unix() > flow.Expires ||
 		subtle.ConstantTimeCompare([]byte(state), []byte(r.URL.Query().Get("state"))) != 1 {
 		h.log.Warn("slack callback did not come from this browser", "ip", h.clientIP(r))
@@ -243,56 +202,4 @@ func (h *handlers) slackCallback(w http.ResponseWriter, r *http.Request) {
 func (h *handlers) slackBack(w http.ResponseWriter, r *http.Request, slug, reason string) {
 	query := url.Values{"slack": {reason}}
 	http.Redirect(w, r, "/alerts/"+url.PathEscape(slug)+"?"+query.Encode(), http.StatusFound)
-}
-
-// setSlackState puts the state and the alert it belongs to in a cookie. The
-// cookie is short lived and spent by the first callback, whatever the answer is.
-func (h *handlers) setSlackState(w http.ResponseWriter, state string, flow slackFlow) {
-	raw, _ := json.Marshal(flow)
-	value := state + ":" + base64.RawURLEncoding.EncodeToString(raw)
-	http.SetCookie(w, &http.Cookie{
-		Name:     slackStateCookie,
-		Value:    value,
-		Path:     slackCookiePath,
-		MaxAge:   int(slackStateTTL.Seconds()),
-		HttpOnly: true,
-		Secure:   h.sessionSecure,
-		SameSite: http.SameSiteLaxMode,
-	})
-}
-
-func (h *handlers) takeSlackState(w http.ResponseWriter, r *http.Request) (state string, flow slackFlow, ok bool) {
-	cookie, err := r.Cookie(slackStateCookie)
-	h.clearSlackState(w)
-	if err != nil {
-		return "", slackFlow{}, false
-	}
-
-	raw, encoded, found := strings.Cut(cookie.Value, ":")
-	if !found {
-		return "", slackFlow{}, false
-	}
-	decoded, err := base64.RawURLEncoding.DecodeString(encoded)
-	if err != nil {
-		return "", slackFlow{}, false
-	}
-	if err := json.Unmarshal(decoded, &flow); err != nil {
-		return "", slackFlow{}, false
-	}
-	if flow.Expires == 0 || flow.UserID == 0 || flow.ServiceID == 0 || flow.VendorSlug == "" {
-		return "", slackFlow{}, false
-	}
-	return raw, flow, true
-}
-
-func (h *handlers) clearSlackState(w http.ResponseWriter) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     slackStateCookie,
-		Value:    "",
-		Path:     slackCookiePath,
-		MaxAge:   -1,
-		HttpOnly: true,
-		Secure:   h.sessionSecure,
-		SameSite: http.SameSiteLaxMode,
-	})
 }

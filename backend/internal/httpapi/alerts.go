@@ -1260,6 +1260,7 @@ func (h *handlers) getUserAlert(w http.ResponseWriter, r *http.Request) {
 			"telegramEnabled": h.telegramEnabled,
 			"telegramBot":     "",
 			"slackEnabled":    h.slack != nil && h.alertsEnabled,
+			"discordEnabled":  h.discord != nil && h.alertsEnabled,
 		})
 		return
 	}
@@ -1285,10 +1286,12 @@ func (h *handlers) getUserAlert(w http.ResponseWriter, r *http.Request) {
 		"slack":           view.Slack,
 		"slackChannel":    view.SlackChannel,
 		"discord":         view.Discord,
+		"discordChannel":  view.DiscordChannel,
 		"lark":            view.Lark,
 		"larkSecret":      view.LarkSecret,
 		"telegramEnabled": h.telegramEnabled,
 		"slackEnabled":    h.slack != nil && h.alertsEnabled,
+		"discordEnabled":  h.discord != nil && h.alertsEnabled,
 		// The bot is the owner's own, and the page shows it masked with a switch to
 		// reveal it, so it can be seen and replaced rather than only pasted again.
 		"telegramBot":   view.TelegramBot,

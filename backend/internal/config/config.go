@@ -41,6 +41,8 @@ type Config struct {
 	GoogleClientSecret      string
 	SlackClientID           string
 	SlackClientSecret       string
+	DiscordClientID         string
+	DiscordClientSecret     string
 	ContactEmail            string
 	AlertPerHour            int
 	AlertBurst              int
@@ -97,6 +99,8 @@ func Load() Config {
 		GoogleClientSecret:      env("GOOGLE_CLIENT_SECRET", ""),
 		SlackClientID:           env("SLACK_CLIENT_ID", ""),
 		SlackClientSecret:       env("SLACK_CLIENT_SECRET", ""),
+		DiscordClientID:         env("DISCORD_CLIENT_ID", ""),
+		DiscordClientSecret:     env("DISCORD_CLIENT_SECRET", ""),
 		ContactEmail:            env("CONTACT_EMAIL", "support@downradar.info"),
 		AlertPerHour:            envInt("ALERT_RATE_LIMIT_PER_HOUR", 6),
 		AlertBurst:              envInt("ALERT_RATE_LIMIT_BURST", 5),

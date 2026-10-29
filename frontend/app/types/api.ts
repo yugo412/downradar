@@ -253,8 +253,12 @@ export interface AlertState {
   slackChannel?: string
   slackEnabled?: boolean
   // The incoming webhook URL of the Discord channel, shown masked like the Slack
-  // one. A Discord channel is set up by hand, so there is no install to name.
+  // one. DiscordChannel is the id an install returned; a URL pasted by hand has
+  // none. DiscordEnabled says whether the site has an app to install in one
+  // click.
   discord?: string
+  discordChannel?: string
+  discordEnabled?: boolean
   // The custom bot webhook of a Lark group and the secret that signs its calls
   // when the group requires a signature. Both are shown masked on the page.
   lark?: string

@@ -107,6 +107,41 @@ func (n *Notifier) TestDiscord(ctx context.Context, serviceID int64, webhookURL 
 	return n.discordCall(ctx, webhookURL, n.discordMessage(alert, true)), nil
 }
 
+// WelcomeDiscord posts the message a channel gets the moment it is connected,
+// so the person sees the install worked. It is not a delivery and carries no way
+// out, because nothing has been saved to stop yet.
+func (n *Notifier) WelcomeDiscord(ctx context.Context, webhookURL, vendorName, vendorSlug string) error {
+	if strings.TrimSpace(webhookURL) == "" {
+		return errors.New("the discord webhook is empty")
+	}
+
+	page := fmt.Sprintf("%s/%s", n.publicURL, vendorSlug)
+	payload := discordPayload{
+		Embeds: []discordEmbed{{
+			Title:       "downradar.info is connected to this channel",
+			URL:         page,
+			Description: fmt.Sprintf("Changes to %s will arrive here.", vendorName),
+			Color:       discordColor("ok"),
+			Footer:      &discordFooter{Text: "downradar.info"},
+		}},
+		Components: []discordActionRow{{
+			Type: 1,
+			Components: []discordButton{{
+				Type:  2,
+				Style: 5,
+				Label: "Open status page",
+				URL:   page,
+			}},
+		}},
+	}
+
+	result := n.discordCall(ctx, webhookURL, payload)
+	if !result.OK {
+		return errors.New(result.Error)
+	}
+	return nil
+}
+
 // discordMessage writes the post. A test says so and carries no way out.
 func (n *Notifier) discordMessage(alert store.PendingAlert, test bool) discordPayload {
 	what := alert.VendorName
