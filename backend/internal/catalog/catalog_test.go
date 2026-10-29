@@ -240,8 +240,8 @@ func TestValidateURL(t *testing.T) {
 	}
 }
 
-// The picker offers only the profiles a vendor can generally be put on, so a
-// profile written for one vendor's own page has to be able to say so.
+// The default picker offers only the profiles a vendor can generally be put on,
+// so a profile written for one vendor's own page has to be able to say so.
 func TestLoadReadsVisibility(t *testing.T) {
 	cat, err := Load(writeTemp(t, `
 profiles:

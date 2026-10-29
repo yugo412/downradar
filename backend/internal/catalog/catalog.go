@@ -22,9 +22,10 @@ type Profile struct {
 	PollIntervalSeconds   int
 	ActiveIntervalSeconds int
 	Spec                  map[string]any
-	// Visible says whether the profile is offered when a vendor is added. A
-	// profile written for one vendor's own page is not, so the picker stays a
-	// list of platforms. It defaults to true.
+	// Visible says whether the profile is offered in the default picker when a
+	// vendor is added. A profile written for one vendor's own page is not, so
+	// that picker stays a list of platforms; staff can still assign it from the
+	// form's single-vendor section. It defaults to true.
 	Visible bool
 }
 

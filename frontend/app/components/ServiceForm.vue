@@ -69,26 +69,11 @@ const publishing = computed(() => status.value === 'published')
 
 const selectedProfile = computed(() => props.profiles.find((p) => p.name === profile.value))
 
-// Only the profiles a vendor can generally be put on are offered. A profile
-// written for one vendor's own page stays out of the list, unless the vendor
-// being edited already uses it: dropping it from the picker would clear it on
-// the next save.
-const pickableProfiles = computed(() =>
-  props.profiles.filter((p) => p.visible || p.name === props.initial?.profile),
-)
-
-// The picker lists every profile a vendor can be put on, so it carries a search
-// of its own: the names are short, and the description is what tells two of
-// them apart.
-const profileSearch = ref('')
-const profileSearchInput = ref<HTMLInputElement | null>(null)
-const filteredProfiles = computed(() => {
-  const query = profileSearch.value.trim().toLowerCase()
-  if (!query) return pickableProfiles.value
-  return pickableProfiles.value.filter((p) =>
-    `${p.name} ${p.kind} ${p.description ?? ''}`.toLowerCase().includes(query),
-  )
-})
+// The default picker stays a list of platforms. A profile written for one
+// vendor's own page is offered in the section below instead, so staff can still
+// assign it without putting it in every vendor's picker.
+const pickableProfiles = computed(() => props.profiles.filter((p) => p.visible))
+const hiddenProfiles = computed(() => props.profiles.filter((p) => !p.visible))
 
 // Detection runs on the page itself, so it is offered as a button rather than
 // being done quietly: a wrong url or a platform without an adapter is worth
@@ -97,21 +82,6 @@ const filteredProfiles = computed(() => {
 const detecting = ref(false)
 const detectError = ref('')
 const detected = ref('')
-const profileMenu = ref<HTMLDetailsElement | null>(null)
-
-function chooseProfile(name: string) {
-  profile.value = name
-  profileSearch.value = ''
-  profileMenu.value?.removeAttribute('open')
-}
-
-// A fresh search each time the menu opens, and the input in reach without a
-// second click.
-function onProfileToggle(event: Event) {
-  if (!(event.target as HTMLDetailsElement).open) return
-  profileSearch.value = ''
-  nextTick(() => profileSearchInput.value?.focus())
-}
 
 async function detect() {
   detecting.value = true
@@ -215,55 +185,12 @@ function onSubmit() {
     <div v-if="canChooseProfile" class="form-control w-full">
       <span class="label-text mb-1 text-sm font-medium">Adapter profile</span>
 
-      <!-- A native select cannot show what each profile reads, and that one
-           line is the whole difference between two of them. The list is a
-           dropdown of its own for that reason. -->
-      <details ref="profileMenu" class="dropdown w-full" @toggle="onProfileToggle">
-        <summary
-          class="flex cursor-pointer flex-col gap-0.5 rounded-box border border-base-300 bg-base-100 px-3 py-2 text-sm"
-          :class="profile ? '' : 'opacity-70'"
-        >
-          <span class="text-sm">
-            {{ profile ? `${profile} (${selectedProfile?.kind ?? ''})` : 'Not chosen yet' }}
-          </span>
-          <span v-if="selectedProfile?.description" class="text-xs opacity-70">
-            {{ selectedProfile.description }}
-          </span>
-        </summary>
-        <div
-          class="dropdown-content z-20 mt-1 w-full rounded-box border border-base-300 bg-base-100 p-2 shadow"
-        >
-          <input
-            ref="profileSearchInput"
-            v-model="profileSearch"
-            type="search"
-            class="input input-bordered mb-2 w-full"
-            placeholder="Search profiles"
-            aria-label="Search profiles"
-            @keydown.enter.prevent
-            @keydown.esc.prevent="profileMenu?.removeAttribute('open')"
-          />
-          <ul class="menu max-h-72 w-full flex-nowrap overflow-y-auto p-0">
-            <li v-if="!profileSearch.trim()">
-              <button type="button" class="text-sm" @click="chooseProfile('')">
-                Not chosen yet
-              </button>
-            </li>
-            <li v-for="p in filteredProfiles" :key="p.name">
-              <button type="button" class="flex flex-col items-start gap-0.5" @click="chooseProfile(p.name)">
-                <span class="font-mono text-xs">{{ p.name }} ({{ p.kind }})</span>
-                <span class="text-xs opacity-70">{{ p.description }}</span>
-              </button>
-            </li>
-          </ul>
-          <p
-            v-if="profileSearch.trim() && !filteredProfiles.length"
-            class="px-2 py-3 text-xs opacity-70"
-          >
-            No profile matches that search.
-          </p>
-        </div>
-      </details>
+      <ProfilePicker
+        v-model="profile"
+        :profiles="pickableProfiles"
+        :current="selectedProfile"
+        search-label="Search profiles"
+      />
 
       <span class="label-text-alt mt-1 opacity-60">
         Says how the status page is read. Leave it empty and the page is offered to the detect
@@ -275,6 +202,21 @@ function onSubmit() {
       <span v-else-if="detected" role="status" class="label-text-alt mt-1 text-success">
         {{ detected }} reads this page.
       </span>
+
+      <div v-if="hiddenProfiles.length" class="mt-2 rounded-box border border-base-300 bg-base-100 p-3">
+        <div class="form-control w-full">
+          <span class="label-text mb-1 text-sm font-medium">Single-vendor profile</span>
+          <ProfilePicker
+            v-model="profile"
+            :profiles="hiddenProfiles"
+            search-label="Search single-vendor profiles"
+          />
+          <span class="label-text-alt mt-1 opacity-60">
+            Staff only. These profiles are not used by detection; pick one only when this service
+            is that vendor's own page.
+          </span>
+        </div>
+      </div>
     </div>
 
     <div class="grid gap-4 sm:grid-cols-2">
