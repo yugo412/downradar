@@ -34,7 +34,7 @@ useHead(() => ({
   link: [{ rel: 'canonical', href: canonical.value }],
 }))
 
-const openMenu = ref<'service' | 'account' | 'nav' | null>(null)
+const openMenu = ref<'service' | 'tools' | 'account' | 'nav' | null>(null)
 
 useTheme()
 
@@ -59,7 +59,7 @@ watch(
   },
 )
 
-function toggle(menu: 'service' | 'account' | 'nav') {
+function toggle(menu: 'service' | 'tools' | 'account' | 'nav') {
   openMenu.value = openMenu.value === menu ? null : menu
 }
 
@@ -70,6 +70,8 @@ const serviceLinks = [
   { label: 'List services', to: '/services' },
   { label: 'All alerts', to: '/alerts/all' },
 ]
+
+const toolLinks = [{ label: 'Broadcast notification', to: '/tools' }]
 
 const accountLinks = [
   { label: 'Edit profile', to: '/account/profile' },
@@ -202,6 +204,30 @@ async function resend() {
                 </ul>
               </div>
 
+              <div v-if="isAdmin" class="relative">
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-sm"
+                  :aria-expanded="openMenu === 'tools'"
+                  @click="toggle('tools')"
+                >
+                  Tools
+                  <svg class="h-3 w-3 opacity-60" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+                    <path d="M6 8.5 1.5 4h9z" />
+                  </svg>
+                </button>
+                <ul
+                  v-if="openMenu === 'tools'"
+                  class="absolute right-0 z-50 mt-1 w-60 rounded-box border border-base-300 bg-base-100 p-2 shadow-lg"
+                >
+                  <li v-for="l in toolLinks" :key="l.to">
+                    <NuxtLink :to="l.to" class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200">
+                      {{ l.label }}
+                    </NuxtLink>
+                  </li>
+                </ul>
+              </div>
+
               <div class="relative">
                 <button
                   type="button"
@@ -318,6 +344,18 @@ async function resend() {
                 <p class="px-3 pb-1 pt-3 text-xs uppercase tracking-wide opacity-50">Service</p>
                 <NuxtLink
                   v-for="l in serviceLinks"
+                  :key="l.to"
+                  :to="l.to"
+                  class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200"
+                >
+                  {{ l.label }}
+                </NuxtLink>
+              </template>
+
+              <template v-if="isAdmin">
+                <p class="px-3 pb-1 pt-3 text-xs uppercase tracking-wide opacity-50">Tools</p>
+                <NuxtLink
+                  v-for="l in toolLinks"
                   :key="l.to"
                   :to="l.to"
                   class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200"

@@ -5,7 +5,7 @@
 // session cookie there. Reading the h3 event directly does work, and failing
 // closed is the right behaviour when the API cannot be reached.
 const SESSION_PREFIXES = ['/account', '/alerts', '/notifications', '/services']
-const ADMIN_PREFIX = '/users'
+const ADMIN_PREFIXES = ['/users', '/tools']
 const STAFF_PREFIX = '/alerts/all'
 // The link in an alert email has to work without a session, even though it sits
 // under a prefix that otherwise needs one.
@@ -20,7 +20,7 @@ export default defineEventHandler(async (event) => {
   const needsSession =
     !PUBLIC_PATHS.some((prefix) => under(path, prefix)) &&
     SESSION_PREFIXES.some((prefix) => under(path, prefix))
-  const needsAdmin = under(path, ADMIN_PREFIX)
+  const needsAdmin = ADMIN_PREFIXES.some((prefix) => under(path, prefix))
   const needsStaff = under(path, STAFF_PREFIX)
   if (!needsSession && !needsAdmin && !needsStaff) return
 

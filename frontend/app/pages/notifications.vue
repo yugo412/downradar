@@ -111,7 +111,7 @@ function alertLink(item: FeedNotification) {
       <div>
         <h1 class="text-2xl font-bold tracking-tight">Notifications</h1>
         <p class="mt-1 text-sm opacity-70">
-          Alert changes and operational notices, in one place.
+          Alert changes, site announcements, and operational notices, in one place.
         </p>
       </div>
       <button

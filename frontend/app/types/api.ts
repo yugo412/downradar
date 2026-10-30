@@ -289,7 +289,7 @@ export interface AccountAlert {
 // and the alert. readAt is absent until the account opens it.
 export interface FeedNotification {
   id: number
-  audience: 'staff' | 'subscribers'
+  audience: 'staff' | 'subscribers' | 'everyone'
   title: string
   body: string
   serviceSlug?: string

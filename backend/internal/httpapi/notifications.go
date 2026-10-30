@@ -15,6 +15,46 @@ type notificationReadRequest struct {
 	Read *bool `json:"read"`
 }
 
+type notificationBroadcastRequest struct {
+	Title string `json:"title"`
+	Body  string `json:"body"`
+}
+
+// broadcastNotification writes one site-wide announcement for every enabled
+// account. It uses the same insert path as every other notice, so a broadcast
+// has no table or feed of its own.
+func (h *handlers) broadcastNotification(w http.ResponseWriter, r *http.Request) {
+	var payload notificationBroadcastRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<10)).Decode(&payload); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+
+	title := clean(sanitize(payload.Title))
+	body := clean(sanitize(payload.Body))
+	if title == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "a title is required"})
+		return
+	}
+	if body == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "a message is required"})
+		return
+	}
+
+	user := h.user(r)
+	recipients, err := h.store.CreateNotification(r.Context(), store.NotificationInput{
+		Audience:  store.AudienceEveryone,
+		Title:     title,
+		Body:      body,
+		CreatedBy: &user.ID,
+	})
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]int{"recipients": recipients})
+}
+
 // listNotifications is the feed for the signed in account. The unread count is
 // returned with it so the page and the bell agree without a second request.
 func (h *handlers) listNotifications(w http.ResponseWriter, r *http.Request) {
