@@ -55,7 +55,8 @@ useSeoMeta({
         in. They are not a separate delivery channel and do not replace an alert.
         They follow an alert once at least one of its channels delivers, so a
         paused or failed channel does not create one by itself. Staff see
-        operational notices about polling and alert delivery.
+        operational notices about polling and alert delivery, and can send a
+        site-wide announcement to every registered account.
       </p>
     </section>
 

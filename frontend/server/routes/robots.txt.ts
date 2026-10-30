@@ -11,6 +11,7 @@ export default defineEventHandler((event) => {
     'Disallow: /account',
     'Disallow: /notifications',
     'Disallow: /users',
+    'Disallow: /tools',
     'Disallow: /login',
     '',
     `Sitemap: ${siteUrl}/sitemap.xml`,

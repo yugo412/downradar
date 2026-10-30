@@ -161,6 +161,70 @@ func TestTheNotificationFeedAndItsReadState(t *testing.T) {
 	}
 }
 
+func TestABroadcastNeedsAnAdminAndReachesEveryAccount(t *testing.T) {
+	st, router := isolatedNotificationRouter(t)
+
+	admin := testUser(t, st, auth.RoleAdmin)
+	moderator := testUser(t, st, auth.RoleModerator)
+	subscriber := testUser(t, st, auth.RoleSubscriber)
+	adminCookie := sessionFor(t, st, admin)
+	moderatorCookie := sessionFor(t, st, moderator)
+
+	title := notificationTitle("zz-http-broadcast")
+	payload := fmt.Sprintf(`{"title":%q,"body":"A site-wide announcement."}`, title)
+
+	rec := call(t, router, http.MethodPost, "/api/v1/notifications/broadcast", payload, adminCookie)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("broadcast = %d, want 201: %s", rec.Code, strings.TrimSpace(rec.Body.String()))
+	}
+	var answer struct {
+		Recipients int `json:"recipients"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &answer); err != nil {
+		t.Fatalf("decode broadcast answer: %v", err)
+	}
+	if answer.Recipients != 3 {
+		t.Errorf("broadcast wrote %d rows, want the three enabled accounts", answer.Recipients)
+	}
+
+	for _, account := range []struct {
+		name   string
+		cookie string
+	}{
+		{"admin", adminCookie},
+		{"moderator", sessionFor(t, st, moderator)},
+		{"subscriber", sessionFor(t, st, subscriber)},
+	} {
+		rec = call(t, router, http.MethodGet, "/api/v1/notifications", "", account.cookie)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s feed = %d, want 200", account.name, rec.Code)
+		}
+		var feed notificationFeed
+		if err := json.Unmarshal(rec.Body.Bytes(), &feed); err != nil {
+			t.Fatalf("decode %s feed: %v", account.name, err)
+		}
+		if feed.Count != 1 || feed.Notifications[0].Title != title {
+			t.Errorf("%s feed does not carry the broadcast", account.name)
+		}
+	}
+
+	rec = call(t, router, http.MethodPost, "/api/v1/notifications/broadcast", payload, moderatorCookie)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("moderator broadcast = %d, want 403", rec.Code)
+	}
+
+	rec = call(t, router, http.MethodPost, "/api/v1/notifications/broadcast", payload, "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("broadcast without a session = %d, want 401", rec.Code)
+	}
+
+	rec = call(t, router, http.MethodPost, "/api/v1/notifications/broadcast",
+		`{"title":"","body":"A site-wide announcement."}`, adminCookie)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("broadcast without a title = %d, want 400", rec.Code)
+	}
+}
+
 func TestDeletingANotificationOnlyRemovesTheCallersCopy(t *testing.T) {
 	st, router := isolatedNotificationRouter(t)
 
