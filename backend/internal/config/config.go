@@ -115,9 +115,9 @@ func Load() Config {
 		AlertSendInterval:       envDuration("ALERT_SEND_INTERVAL", 30*time.Second),
 		SummaryEnabled:          envBool("SUMMARY_ENABLED", true),
 		OpenAIAPIKey:            env("OPENAI_API_KEY", ""),
-		OpenAIModel:             env("OPENAI_MODEL", "gpt-6-luna"),
-		OpenAIBaseURL:           env("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-		OpenAITimeout:           envDuration("OPENAI_TIMEOUT", 20*time.Second),
+		OpenAIModel:             env("OPENAI_MODEL", ""),
+		OpenAIBaseURL:           env("OPENAI_BASE_URL", ""),
+		OpenAITimeout:           envDuration("OPENAI_TIMEOUT", 0),
 		LogLevel:                env("LOG_LEVEL", "info"),
 	}
 }

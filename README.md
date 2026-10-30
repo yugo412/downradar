@@ -139,16 +139,16 @@ its redirect URL. It does not install a bot: the install returns the channel's
 incoming webhook. Without the two values the button is off and the manual webhook
 field is still there.
 
-Generated summaries need `OPENAI_API_KEY` in `.env`; the key is never committed.
-When it is empty no new sentence is written, and rows already stored are left
-alone. `SUMMARY_ENABLED` defaults to true and can turn the worker off even while
-a key is set; stored sentences are then hidden but kept for when it is turned
-back on. `OPENAI_MODEL` defaults to `gpt-6-luna`,
-and `OPENAI_BASE_URL` can point at a compatible endpoint. A vendor's sentence is
-written after a successful poll when the stored state changed, then read from the
-database by the page and by alert emails. A healthy vendor keeps no sentence, and
-a model failure leaves the page with the official lists rather than a summary
-that describes the wrong state.
+Generated summaries need `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_BASE_URL`
+and `OPENAI_TIMEOUT` in `.env`; the key is never committed. When any is missing
+no new sentence is written, and rows already stored are left alone.
+`SUMMARY_ENABLED` defaults to true and can turn the worker off even while the
+values are set; stored sentences are then hidden but kept for when it is turned
+back on. The client sends the `x-opencode-session` header that OpenCode Go
+requires. A vendor's sentence is written after a successful poll when the stored
+state changed, then read from the database by the page and by alert emails. A
+healthy vendor keeps no sentence, and a model failure leaves the page with the
+official lists rather than a summary that describes the wrong state.
 
 Things that are easy to get wrong:
 
