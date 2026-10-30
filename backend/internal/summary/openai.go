@@ -12,9 +12,8 @@ import (
 )
 
 const (
-	defaultBaseURL = "https://api.openai.com/v1"
-	defaultModel   = "gpt-6-luna"
-	defaultTimeout = 20 * time.Second
+	// OpenCode routes by this header and expects a stable value per conversation.
+	opencodeSession = "downradar-summary"
 )
 
 // OpenAI is the writer that turns the state prompt into one short paragraph. It
@@ -28,15 +27,6 @@ type OpenAI struct {
 }
 
 func NewOpenAI(apiKey, baseURL, model string, timeout time.Duration) *OpenAI {
-	if strings.TrimSpace(baseURL) == "" {
-		baseURL = defaultBaseURL
-	}
-	if strings.TrimSpace(model) == "" {
-		model = defaultModel
-	}
-	if timeout <= 0 {
-		timeout = defaultTimeout
-	}
 	return &OpenAI{
 		apiKey:  strings.TrimSpace(apiKey),
 		baseURL: strings.TrimSuffix(strings.TrimSpace(baseURL), "/"),
@@ -73,6 +63,7 @@ func (o *OpenAI) Write(ctx context.Context, system, user string) (string, error)
 	req.Header.Set("Authorization", "Bearer "+o.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "downradar.info/0.1 (+https://downradar.info)")
+	req.Header.Set("x-opencode-session", opencodeSession)
 
 	resp, err := o.client.Do(req)
 	if err != nil {

@@ -91,7 +91,7 @@ func run() error {
 	} else if !cfg.SummaryEnabled {
 		log.Info("generated summaries are off: SUMMARY_ENABLED is false")
 	} else {
-		log.Warn("generated summaries are off: OPENAI_API_KEY is not set")
+		log.Warn("generated summaries are off: OPENAI_API_KEY, OPENAI_MODEL, OPENAI_BASE_URL and OPENAI_TIMEOUT must all be set")
 	}
 	go p.Run(ctx)
 
@@ -217,7 +217,7 @@ func run() error {
 }
 
 func newSummaryGenerator(cfg config.Config, st *store.Store, log *slog.Logger) *summary.Generator {
-	if !cfg.SummaryEnabled || cfg.OpenAIAPIKey == "" {
+	if !cfg.SummaryEnabled || !summaryConfigured(cfg) {
 		return nil
 	}
 	return summary.New(st, summary.Config{
@@ -226,6 +226,13 @@ func newSummaryGenerator(cfg config.Config, st *store.Store, log *slog.Logger) *
 		Model:   cfg.OpenAIModel,
 		Timeout: cfg.OpenAITimeout,
 	}, log)
+}
+
+func summaryConfigured(cfg config.Config) bool {
+	return cfg.OpenAIAPIKey != "" &&
+		cfg.OpenAIModel != "" &&
+		cfg.OpenAIBaseURL != "" &&
+		cfg.OpenAITimeout > 0
 }
 
 func runAuthCleanup(ctx context.Context, st *store.Store, log *slog.Logger) {

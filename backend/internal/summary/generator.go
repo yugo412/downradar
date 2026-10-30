@@ -54,9 +54,6 @@ type Generator struct {
 
 func New(st Store, cfg Config, log *slog.Logger) *Generator {
 	model := strings.TrimSpace(cfg.Model)
-	if model == "" {
-		model = defaultModel
-	}
 	return &Generator{
 		store:  st,
 		writer: NewOpenAI(cfg.APIKey, cfg.BaseURL, model, cfg.Timeout),

@@ -16,8 +16,16 @@ func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
+func TestNewOpenAIHasNoProviderDefaults(t *testing.T) {
+	client := NewOpenAI("", "", "", 0)
+	if client.baseURL != "" || client.model != "" || client.client.Timeout != 0 {
+		t.Errorf("NewOpenAI invented provider values: baseURL=%q model=%q timeout=%v",
+			client.baseURL, client.model, client.client.Timeout)
+	}
+}
+
 func TestOpenAIWriteSendsTheStoredPrompt(t *testing.T) {
-	var gotPath, gotAuth string
+	var gotPath, gotAuth, gotSession string
 	var gotBody struct {
 		Model    string `json:"model"`
 		Messages []struct {
@@ -29,6 +37,7 @@ func TestOpenAIWriteSendsTheStoredPrompt(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		gotAuth = r.Header.Get("Authorization")
+		gotSession = r.Header.Get("x-opencode-session")
 		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
 			t.Errorf("decode request: %v", err)
 		}
@@ -50,6 +59,9 @@ func TestOpenAIWriteSendsTheStoredPrompt(t *testing.T) {
 	}
 	if gotAuth != "Bearer secret-key" {
 		t.Errorf("authorization = %q", gotAuth)
+	}
+	if gotSession != opencodeSession {
+		t.Errorf("session = %q, want %q", gotSession, opencodeSession)
 	}
 	if gotBody.Model != "gpt-6-luna" {
 		t.Errorf("model = %q", gotBody.Model)

@@ -1,6 +1,38 @@
 package config
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
+
+func TestSummaryProviderSettingsComeFromEnv(t *testing.T) {
+	t.Setenv("OPENAI_MODEL", "test-model")
+	t.Setenv("OPENAI_BASE_URL", "https://example.com/v1")
+	t.Setenv("OPENAI_TIMEOUT", "45s")
+
+	cfg := Load()
+	if cfg.OpenAIModel != "test-model" {
+		t.Errorf("OpenAIModel = %q", cfg.OpenAIModel)
+	}
+	if cfg.OpenAIBaseURL != "https://example.com/v1" {
+		t.Errorf("OpenAIBaseURL = %q", cfg.OpenAIBaseURL)
+	}
+	if cfg.OpenAITimeout != 45*time.Second {
+		t.Errorf("OpenAITimeout = %v", cfg.OpenAITimeout)
+	}
+}
+
+func TestSummaryProviderSettingsHaveNoDefaults(t *testing.T) {
+	t.Setenv("OPENAI_MODEL", "")
+	t.Setenv("OPENAI_BASE_URL", "")
+	t.Setenv("OPENAI_TIMEOUT", "")
+
+	cfg := Load()
+	if cfg.OpenAIModel != "" || cfg.OpenAIBaseURL != "" || cfg.OpenAITimeout != 0 {
+		t.Errorf("provider settings have defaults: model=%q baseURL=%q timeout=%v",
+			cfg.OpenAIModel, cfg.OpenAIBaseURL, cfg.OpenAITimeout)
+	}
+}
 
 func TestSummaryEnabled(t *testing.T) {
 	tests := []struct {
