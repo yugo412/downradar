@@ -18,6 +18,9 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+
+  await nextTick()
+  showLinkedAlert()
 })
 
 const STATE: Record<StaffAlert['state'], { label: string; cls: string }> = {
@@ -188,6 +191,29 @@ const currentPage = computed(() => Math.min(page.value, pageCount.value))
 const paged = computed(() =>
   sorted.value.slice((currentPage.value - 1) * PAGE_SIZE, currentPage.value * PAGE_SIZE),
 )
+
+// A notification links to one alert. Both the table and the cards are in the
+// document for the responsive layout, so the hash is resolved to the one that
+// is visible, and the page holding it is opened first.
+function showLinkedAlert() {
+  const prefix = '#alert-'
+  if (!route.hash.startsWith(prefix)) return
+
+  const id = Number(route.hash.slice(prefix.length))
+  const index = sorted.value.findIndex((alert) => alert.id === id)
+  if (index < 0) return
+
+  page.value = Math.floor(index / PAGE_SIZE) + 1
+  nextTick(() => {
+    const nodes = document.querySelectorAll<HTMLElement>(`[data-alert-id="${id}"]`)
+    for (const node of nodes) {
+      if (node.offsetParent !== null) {
+        node.scrollIntoView({ block: 'start' })
+        return
+      }
+    }
+  })
+}
 
 const firstRow = computed(() => (sorted.value.length ? (currentPage.value - 1) * PAGE_SIZE + 1 : 0))
 const lastRow = computed(() => Math.min(currentPage.value * PAGE_SIZE, sorted.value.length))
@@ -371,7 +397,12 @@ watch(
             </tr>
           </thead>
           <tbody>
-            <tr v-for="alert in paged" :key="alert.id" class="align-top">
+            <tr
+              v-for="alert in paged"
+              :data-alert-id="alert.id"
+              :key="alert.id"
+              class="scroll-mt-20 align-top"
+            >
               <td>
                 <div class="font-medium">{{ alert.guest ? 'Guest' : alert.subscriberName }}</div>
                 <div class="text-xs break-all opacity-60">{{ alert.subscriberEmail }}</div>
@@ -400,8 +431,9 @@ watch(
       <ul class="flex flex-col gap-3 md:hidden">
         <li
           v-for="alert in paged"
+          :data-alert-id="alert.id"
           :key="alert.id"
-          class="rounded-box border border-base-300 bg-base-100 p-4 shadow-sm"
+          class="scroll-mt-20 rounded-box border border-base-300 bg-base-100 p-4 shadow-sm"
         >
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">

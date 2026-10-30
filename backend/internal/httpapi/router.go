@@ -300,6 +300,14 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	mux.HandleFunc("PATCH /api/v1/auth/alerts/{id}", h.requireAuth(h.setUserAlertState))
 	mux.HandleFunc("DELETE /api/v1/auth/alerts/{id}", h.requireAuth(h.deleteUserAlertRow))
 
+	// One feed for staff notices and subscriber announcements. The feed and its
+	// read state belong to the signed in account; only staff may write a broadcast.
+	mux.HandleFunc("GET /api/v1/notifications", h.requireAuth(h.listNotifications))
+	mux.HandleFunc("GET /api/v1/notifications/unread", h.requireAuth(h.unreadNotifications))
+	mux.HandleFunc("PATCH /api/v1/notifications/{id}", h.requireAuth(h.setNotificationRead))
+	mux.HandleFunc("POST /api/v1/notifications/read", h.requireAuth(h.markNotificationsRead))
+	mux.HandleFunc("POST /api/v1/staff/notifications", h.requireStaff(h.sendBroadcast))
+
 	// Staff see every alert here, guests included. It is a read only view: there
 	// is no route to pause, edit or delete another subscriber's alert.
 	mux.HandleFunc("GET /api/v1/staff/alerts", h.requireStaff(h.listStaffAlerts))

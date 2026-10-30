@@ -57,6 +57,10 @@ useSeoMeta({
             also keeps more alerts than the single one a visitor without an account gets.
           </li>
           <li>
+            <strong>Keep up with site notices.</strong> A signed in account has a notification feed for
+            announcements, and staff see operational notes there about polling and alert delivery.
+          </li>
+          <li>
             <strong>Take the data elsewhere.</strong> The
             <NuxtLink to="/api" class="link">public API</NuxtLink> serves the same status as read-only
             JSON, and an MCP server offers it to AI assistants. Both are free and need no key, and

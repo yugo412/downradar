@@ -2,6 +2,7 @@ package poller
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"math/rand/v2"
 	"time"
@@ -279,8 +280,11 @@ func (p *Poller) pollOne(ctx context.Context, j job) {
 		}
 		p.log.Warn("poll failed", attrs...)
 
-		if recErr := p.store.RecordFailure(ctx, j.row.ID, failure); recErr != nil {
+		first, recErr := p.store.RecordFailure(ctx, j.row.ID, failure)
+		if recErr != nil {
 			p.log.Error("failed to record poll failure", "vendor", j.target.Slug, "error", recErr)
+		} else if first {
+			p.notifyPollFailure(ctx, j, failure)
 		}
 		return
 	}
@@ -288,12 +292,16 @@ func (p *Poller) pollOne(ctx context.Context, j job) {
 	changed, err := p.store.ApplyReport(ctx, j.row.ID, rep)
 	if err != nil {
 		p.log.Error("failed to store poll result", "vendor", j.target.Slug, "error", err)
-		if recErr := p.store.RecordFailure(ctx, j.row.ID, store.PollFailure{
+		failure := store.PollFailure{
 			HTTPStatus: rep.HTTPStatus,
 			Error:      err.Error(),
 			DurationMS: int(elapsed.Milliseconds()),
-		}); recErr != nil {
+		}
+		first, recErr := p.store.RecordFailure(ctx, j.row.ID, failure)
+		if recErr != nil {
 			p.log.Error("failed to record the rejected poll", "vendor", j.target.Slug, "error", recErr)
+		} else if first {
+			p.notifyPollFailure(ctx, j, failure)
 		}
 		return
 	}
@@ -306,6 +314,33 @@ func (p *Poller) pollOne(ctx context.Context, j job) {
 			"status", rep.Global,
 			"components", len(rep.Components),
 			"duration", elapsed.Round(time.Millisecond))
+	}
+}
+
+// notifyPollFailure puts the first failure after a working poll in the staff
+// feed. A failure to write the notice must not hide the failed poll, so this is
+// logged rather than returned.
+func (p *Poller) notifyPollFailure(ctx context.Context, j job, failure store.PollFailure) {
+	body := "The status page could not be read."
+	if failure.HTTPStatus != 0 {
+		body = fmt.Sprintf("The status page answered HTTP %d and could not be read: %s.",
+			failure.HTTPStatus, failure.Error)
+	} else if failure.Error != "" {
+		body = fmt.Sprintf("The status page could not be read: %s.", failure.Error)
+	}
+	if failure.NextPollAt != nil {
+		body += fmt.Sprintf(" The next attempt is at %s.",
+			failure.NextPollAt.UTC().Format("2006-01-02 15:04 MST"))
+	}
+
+	serviceID := j.row.ID
+	if _, err := p.store.CreateNotification(ctx, store.NotificationInput{
+		Audience:  store.AudienceStaff,
+		Title:     fmt.Sprintf("Polling failed for %s", j.target.Name),
+		Body:      body,
+		ServiceID: &serviceID,
+	}); err != nil {
+		p.log.Error("failed to record the polling notice", "vendor", j.target.Slug, "error", err)
 	}
 }
 

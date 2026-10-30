@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const updated = '27 October 2026, 02:42 UTC'
+const updated = '30 October 2026, 02:38 UTC'
 
 useSeoMeta({
   title: 'Terms of Service',
@@ -42,13 +42,19 @@ useSeoMeta({
     </section>
 
     <section>
-      <h2 class="text-lg font-semibold">Alerts</h2>
+      <h2 class="text-lg font-semibold">Alerts and notifications</h2>
       <p class="mt-3">
         Alert delivery depends on email providers, webhooks, Telegram, Slack,
         Discord, Lark and the networks between them, so it is not guaranteed. Do
         not rely on DownRadar for emergencies, safety-critical work or anything where
         a missed message could cause harm. You are responsible for the endpoints
         and secrets you configure.
+      </p>
+      <p class="mt-3">
+        In-site notifications appear only in the account feed while you are signed
+        in. They are not a separate delivery channel and do not replace an alert.
+        Staff may send announcements to subscriber accounts, and operational
+        notices may be shown to staff.
       </p>
     </section>
 
