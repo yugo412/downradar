@@ -1,6 +1,7 @@
 <script setup lang="ts">
 const { githubRepo, siteName, siteUrl } = useRuntimeConfig().public
 const { user, isAdmin, canManageServices, signOut } = useAuth()
+const { unread, loadUnread, setUnread } = useNotifications()
 
 const siteHost = siteUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')
 
@@ -36,6 +37,20 @@ useHead(() => ({
 const openMenu = ref<'service' | 'account' | 'nav' | null>(null)
 
 useTheme()
+
+// The session is loaded in the browser, so the badge follows the same state the
+// menus do. A signed out visitor leaves no count behind.
+watch(
+  user,
+  (value) => {
+    if (value) {
+      if (import.meta.client) void loadUnread()
+      return
+    }
+    setUnread(0)
+  },
+  { immediate: true },
+)
 
 watch(
   () => route.fullPath,
@@ -121,6 +136,17 @@ async function resend() {
 
             <NuxtLink to="/alerts" class="btn btn-ghost btn-sm hidden md:inline-flex">
               Alerts
+            </NuxtLink>
+
+            <NuxtLink
+              v-if="user"
+              to="/notifications"
+              class="btn btn-ghost btn-sm hidden gap-1 md:inline-flex"
+            >
+              Notifications
+              <span v-if="unread > 0" class="badge badge-primary badge-sm">
+                {{ unread > 99 ? '99+' : unread }}
+              </span>
             </NuxtLink>
 
             <!-- A subscriber looks after the services they added from the same
@@ -253,6 +279,17 @@ async function resend() {
             >
               <NuxtLink to="/alerts" class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200">
                 Alerts
+              </NuxtLink>
+
+              <NuxtLink
+                v-if="user"
+                to="/notifications"
+                class="flex items-center justify-between rounded-btn px-3 py-2 text-sm hover:bg-base-200"
+              >
+                <span>Notifications</span>
+                <span v-if="unread > 0" class="badge badge-primary badge-sm">
+                  {{ unread > 99 ? '99+' : unread }}
+                </span>
               </NuxtLink>
 
               <NuxtLink

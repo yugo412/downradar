@@ -4,7 +4,7 @@
 // asked the API who the visitor is, and useRequestHeaders does not carry the
 // session cookie there. Reading the h3 event directly does work, and failing
 // closed is the right behaviour when the API cannot be reached.
-const SESSION_PREFIXES = ['/account', '/alerts', '/services']
+const SESSION_PREFIXES = ['/account', '/alerts', '/notifications', '/services']
 const ADMIN_PREFIX = '/users'
 const STAFF_PREFIX = '/alerts/all'
 // The link in an alert email has to work without a session, even though it sits
