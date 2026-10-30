@@ -447,8 +447,9 @@ func (s *Store) ChannelDeliveryStatuses(ctx context.Context, userID, serviceID i
 }
 
 // PendingAlert is one message waiting to go out, carrying the change it is about
-// so it describes the moment it happened even if status has moved on. ComponentName
-// names the watched component, empty for the vendor; Kind says how it goes.
+// so it describes the moment it happened even if status has moved on. ComponentID
+// is zero for the vendor as a whole; ComponentName names the watched component.
+// Kind says how it goes.
 type PendingAlert struct {
 	ID             int64
 	Kind           string
@@ -461,6 +462,7 @@ type PendingAlert struct {
 	LarkSecret     string
 	Webhook        AlertWebhook
 	ServiceID      int64
+	ComponentID    int64
 	SubscriptionID int64
 	ChannelID      int64
 	// UserID is the account the subscription belongs to, which is who a webhook
@@ -1837,7 +1839,8 @@ func (s *Store) UnsubscribeUserAlert(ctx context.Context, userID, serviceID int6
 // PendingAlerts is the next batch for the sender, oldest first.
 func (s *Store) PendingAlerts(ctx context.Context, maxAttempts, limit int) ([]PendingAlert, error) {
 	rows, err := s.pool.Query(ctx, `
-		select d.id, c.id, a.id, c.kind, c.address, c.settings, d.service_id, s.name, s.slug,
+		select d.id, c.id, a.id, c.kind, c.address, c.settings, d.service_id,
+		       coalesce(d.component_id, 0), s.name, s.slug,
 		       coalesce(cm.name, ''), c.token, a.user_id,
 		       d.from_status, d.to_status, d.changed_at, d.attempts,
 		       coalesce(sm.summary, ''), sm.generated_at
@@ -1863,7 +1866,7 @@ func (s *Store) PendingAlerts(ctx context.Context, maxAttempts, limit int) ([]Pe
 		var address string
 		var settings []byte
 		if err := rows.Scan(&p.ID, &p.ChannelID, &p.SubscriptionID, &p.Kind, &address, &settings, &p.ServiceID,
-			&p.VendorName, &p.VendorSlug, &p.ComponentName, &p.Token, &p.UserID,
+			&p.ComponentID, &p.VendorName, &p.VendorSlug, &p.ComponentName, &p.Token, &p.UserID,
 			&p.FromStatus, &p.ToStatus, &p.ChangedAt, &p.Attempts,
 			&p.GeneratedSummary, &p.SummaryGeneratedAt); err != nil {
 			return nil, fmt.Errorf("alerts: scan pending: %w", err)

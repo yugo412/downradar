@@ -12,9 +12,9 @@ import (
 	"downradar.info/backend/internal/auth"
 )
 
-// isolatedNotificationStore gives these tests a schema of their own. A
-// broadcast reaches every subscriber, so sharing a database with another test
-// package would make the feed and its unread count depend on timing.
+// isolatedNotificationStore gives these tests a schema of their own. A notice
+// can reach a whole audience and read state is per account, so sharing a
+// database with another test package would make the feed depend on timing.
 func isolatedNotificationStore(t *testing.T) *Store {
 	t.Helper()
 
@@ -160,52 +160,22 @@ func TestNotificationsFollowTheAudienceAndReadState(t *testing.T) {
 	}
 }
 
-func TestNotificationsCanBeBroadcastOrAddressedToOneAccount(t *testing.T) {
+func TestNotificationsCanBeAddressedToOneAccount(t *testing.T) {
 	st := isolatedNotificationStore(t)
 	ctx := context.Background()
 
 	admin := noticeUser(t, st, auth.RoleAdmin)
 	subscriber := noticeUser(t, st, auth.RoleSubscriber)
 
-	broadcastTitle := uniqueName("zz-notice-broadcast")
-	directTitle := uniqueName("zz-notice-direct")
+	title := uniqueName("zz-notice-direct")
 	t.Cleanup(func() {
-		_, _ = st.pool.Exec(ctx, `delete from notifications where title = any($1)`,
-			[]string{broadcastTitle, directTitle})
+		_, _ = st.pool.Exec(ctx, `delete from notifications where title = $1`, title)
 	})
 
 	written, err := st.CreateNotification(ctx, NotificationInput{
-		Audience: AudienceSubscribers,
-		Title:    broadcastTitle,
-		Body:     "A new feature is here.",
-	})
-	if err != nil {
-		t.Fatalf("broadcast: %v", err)
-	}
-	if written < 1 {
-		t.Fatal("the broadcast reached no subscriber")
-	}
-
-	subscriberFeed, err := st.Notifications(ctx, subscriber.ID, 100)
-	if err != nil {
-		t.Fatalf("Notifications subscriber: %v", err)
-	}
-	if findNotification(t, subscriberFeed, broadcastTitle) == nil {
-		t.Error("the subscriber did not receive the broadcast")
-	}
-
-	adminFeed, err := st.Notifications(ctx, admin.ID, 100)
-	if err != nil {
-		t.Fatalf("Notifications admin: %v", err)
-	}
-	if findNotification(t, adminFeed, broadcastTitle) != nil {
-		t.Error("staff received a subscriber broadcast")
-	}
-
-	written, err = st.CreateNotification(ctx, NotificationInput{
-		Audience:   AudienceStaff,
+		Audience:   AudienceSubscribers,
 		Recipients: []int64{subscriber.ID},
-		Title:      directTitle,
+		Title:      title,
 		Body:       "This one is only for you.",
 	})
 	if err != nil {
@@ -215,21 +185,135 @@ func TestNotificationsCanBeBroadcastOrAddressedToOneAccount(t *testing.T) {
 		t.Errorf("wrote %d direct rows, want 1", written)
 	}
 
-	subscriberFeed, err = st.Notifications(ctx, subscriber.ID, 100)
+	subscriberFeed, err := st.Notifications(ctx, subscriber.ID, 100)
 	if err != nil {
-		t.Fatalf("Notifications after direct: %v", err)
+		t.Fatalf("Notifications subscriber: %v", err)
 	}
-	if findNotification(t, subscriberFeed, directTitle) == nil {
+	if findNotification(t, subscriberFeed, title) == nil {
 		t.Error("the named recipient did not receive the notice")
 	}
 
-	adminFeed, err = st.Notifications(ctx, admin.ID, 100)
+	adminFeed, err := st.Notifications(ctx, admin.ID, 100)
 	if err != nil {
-		t.Fatalf("Notifications admin after direct: %v", err)
+		t.Fatalf("Notifications admin: %v", err)
 	}
-	if findNotification(t, adminFeed, directTitle) != nil {
+	if findNotification(t, adminFeed, title) != nil {
 		t.Error("an unnamed account received the direct notice")
 	}
+}
+
+func TestNotificationDedupeKeyWritesOneNotice(t *testing.T) {
+	st := isolatedNotificationStore(t)
+	ctx := context.Background()
+
+	subscriber := noticeUser(t, st, auth.RoleSubscriber)
+	title := uniqueName("zz-notice-dedupe")
+	key := uniqueName("zz-event")
+	t.Cleanup(func() {
+		_, _ = st.pool.Exec(ctx, `delete from notifications where title = $1`, title)
+	})
+
+	in := NotificationInput{
+		Audience:   AudienceSubscribers,
+		Recipients: []int64{subscriber.ID},
+		Title:      title,
+		Body:       "The same event reached two channels.",
+		DedupeKey:  key,
+	}
+	written, err := st.CreateNotification(ctx, in)
+	if err != nil {
+		t.Fatalf("first CreateNotification: %v", err)
+	}
+	if written != 1 {
+		t.Fatalf("first write = %d rows, want 1", written)
+	}
+
+	written, err = st.CreateNotification(ctx, in)
+	if err != nil {
+		t.Fatalf("second CreateNotification: %v", err)
+	}
+	if written != 0 {
+		t.Errorf("second write = %d rows, want 0", written)
+	}
+
+	feed, err := st.Notifications(ctx, subscriber.ID, 100)
+	if err != nil {
+		t.Fatalf("Notifications: %v", err)
+	}
+	if got := countNotifications(feed, title); got != 1 {
+		t.Errorf("feed has %d copies, want 1", got)
+	}
+}
+
+func TestDeletingANotificationOnlyRemovesOneFeed(t *testing.T) {
+	st := isolatedNotificationStore(t)
+	ctx := context.Background()
+
+	first := noticeUser(t, st, auth.RoleSubscriber)
+	second := noticeUser(t, st, auth.RoleSubscriber)
+	title := uniqueName("zz-notice-delete")
+	t.Cleanup(func() {
+		_, _ = st.pool.Exec(ctx, `delete from notifications where title = $1`, title)
+	})
+
+	if _, err := st.CreateNotification(ctx, NotificationInput{
+		Audience:   AudienceSubscribers,
+		Recipients: []int64{first.ID, second.ID},
+		Title:      title,
+		Body:       "This notice belongs to two feeds.",
+	}); err != nil {
+		t.Fatalf("CreateNotification: %v", err)
+	}
+
+	feed, err := st.Notifications(ctx, first.ID, 100)
+	if err != nil {
+		t.Fatalf("Notifications: %v", err)
+	}
+	item := findNotification(t, feed, title)
+	if item == nil {
+		t.Fatal("the notice is missing from the first feed")
+	}
+
+	if err := st.DeleteNotification(ctx, first.ID, item.ID); err != nil {
+		t.Fatalf("DeleteNotification: %v", err)
+	}
+
+	feed, err = st.Notifications(ctx, first.ID, 100)
+	if err != nil {
+		t.Fatalf("Notifications after delete: %v", err)
+	}
+	if findNotification(t, feed, title) != nil {
+		t.Error("the deleted notice is still in the first feed")
+	}
+	unread, err := st.UnreadNotifications(ctx, first.ID)
+	if err != nil {
+		t.Fatalf("UnreadNotifications: %v", err)
+	}
+	if unread != 0 {
+		t.Errorf("unread = %d after deleting the only notice, want 0", unread)
+	}
+
+	feed, err = st.Notifications(ctx, second.ID, 100)
+	if err != nil {
+		t.Fatalf("Notifications for the other account: %v", err)
+	}
+	if findNotification(t, feed, title) == nil {
+		t.Error("deleting one copy removed the other account's notice")
+	}
+
+	if err := st.DeleteNotification(ctx, first.ID, item.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("deleting the same notice twice = %v, want ErrNotFound", err)
+	}
+}
+
+func countNotifications(list []NotificationView, title string) int {
+	count := 0
+	for i := range list {
+		if list[i].Title == title {
+			count++
+		}
+	}
+	return count
 }
 
 func TestNotificationLinksResolveToTheServiceAndAlert(t *testing.T) {

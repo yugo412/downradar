@@ -8,6 +8,9 @@
 -- A notice can point at a service or an alert. The links are nullable and clear
 -- when the thing they point at goes away, because the notice is still part of
 -- the history even after its subject is gone.
+--
+-- dedupe_key is set when one event can arrive through more than one alert
+-- channel, so the feed still gets one notice. Staff notices leave it null.
 
 create table if not exists notifications (
   id         bigserial   primary key,
@@ -17,6 +20,7 @@ create table if not exists notifications (
   service_id bigint      references services (id) on delete set null,
   alert_id   bigint      references alert_subscriptions (id) on delete set null,
   created_by bigint      references users (id) on delete set null,
+  dedupe_key text        unique,
   created_at timestamptz not null default now()
 );
 

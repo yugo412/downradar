@@ -14,10 +14,7 @@ const error = ref('')
 const notice = ref('')
 const markingAll = ref(false)
 const marking = ref<number | null>(null)
-
-const broadcast = reactive({ title: '', body: '' })
-const sending = ref(false)
-const sent = ref<number | null>(null)
+const deleting = ref<number | null>(null)
 
 onMounted(load)
 
@@ -50,6 +47,23 @@ async function markRead(item: FeedNotification) {
     error.value = apiError(err, 'Could not mark the notification as read.')
   } finally {
     marking.value = null
+  }
+}
+
+async function remove(item: FeedNotification) {
+  if (deleting.value !== null) return
+
+  deleting.value = item.id
+  error.value = ''
+  notice.value = ''
+  try {
+    await $fetch(`/api/v1/notifications/${item.id}`, { method: 'DELETE' })
+    notifications.value = notifications.value.filter((entry) => entry.id !== item.id)
+    if (!item.readAt) setUnread(unread.value - 1)
+  } catch (err) {
+    error.value = apiError(err, 'Could not delete the notification.')
+  } finally {
+    deleting.value = null
   }
 }
 
@@ -89,41 +103,21 @@ function alertLink(item: FeedNotification) {
   if (!item.alertId) return ''
   return canManageServices.value ? `/alerts/all#alert-${item.alertId}` : '/alerts'
 }
-
-async function sendBroadcast() {
-  sending.value = true
-  error.value = ''
-  sent.value = null
-
-  try {
-    const res = await $fetch<{ sent: number }>('/api/v1/staff/notifications', {
-      method: 'POST',
-      body: { title: broadcast.title, body: broadcast.body },
-    })
-    sent.value = res.sent
-    broadcast.title = ''
-    broadcast.body = ''
-  } catch (err) {
-    error.value = apiError(err, 'Could not send the announcement.')
-  } finally {
-    sending.value = false
-  }
-}
 </script>
 
 <template>
-  <div class="mx-auto max-w-3xl px-4 py-8">
+  <div class="mx-auto max-w-6xl px-4 py-8">
     <header class="mb-6 flex flex-wrap items-end justify-between gap-3">
       <div>
         <h1 class="text-2xl font-bold tracking-tight">Notifications</h1>
         <p class="mt-1 text-sm opacity-70">
-          Site announcements and operational notices, in one place.
+          Alert changes and operational notices, in one place.
         </p>
       </div>
       <button
         v-if="unread > 0"
         type="button"
-        class="btn btn-ghost btn-sm"
+        class="link text-sm disabled:opacity-50"
         :disabled="markingAll"
         @click="markAllRead"
       >
@@ -154,10 +148,32 @@ async function sendBroadcast() {
       <li
         v-for="item in notifications"
         :key="item.id"
-        class="rounded-box border bg-base-100 p-4 shadow-sm"
+        class="relative rounded-box border bg-base-100 p-4 shadow-sm"
         :class="item.readAt ? 'border-base-300' : 'border-primary/40'"
       >
-        <div class="flex items-start gap-3">
+        <button
+          type="button"
+          class="absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-full border-0 bg-transparent p-0 text-base-content/60 transition-colors hover:bg-base-200 hover:text-base-content disabled:opacity-40"
+          :aria-label="`Delete notification: ${item.title}`"
+          :disabled="deleting === item.id"
+          @click="remove(item)"
+        >
+          <span v-if="deleting === item.id" class="loading loading-spinner loading-xs" />
+          <svg
+            v-else
+            class="h-4 w-4"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            aria-hidden="true"
+          >
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+
+        <div class="flex items-start gap-3 pr-8">
           <span
             class="mt-1.5 h-2 w-2 shrink-0 rounded-full"
             :class="item.readAt ? 'bg-base-300' : 'bg-primary'"
@@ -201,53 +217,5 @@ async function sendBroadcast() {
         </div>
       </li>
     </ol>
-
-    <section
-      v-if="canManageServices"
-      class="mt-10 rounded-box border border-base-300 bg-base-100 p-5 shadow-sm"
-    >
-      <h2 class="text-lg font-semibold">Send an announcement</h2>
-      <p class="mt-1 text-sm opacity-70">
-        One message for every subscriber account's notification feed. It is not
-        sent by email or chat.
-      </p>
-
-      <form class="mt-4 flex flex-col gap-3" @submit.prevent="sendBroadcast">
-        <label class="form-control">
-          <span class="label-text mb-1">Title</span>
-          <input
-            v-model.trim="broadcast.title"
-            type="text"
-            class="input input-bordered w-full"
-            maxlength="160"
-            required
-          />
-        </label>
-        <label class="form-control">
-          <span class="label-text mb-1">Message</span>
-          <textarea
-            v-model.trim="broadcast.body"
-            class="textarea textarea-bordered min-h-28 w-full"
-            maxlength="4000"
-            required
-          />
-        </label>
-        <div class="flex flex-wrap items-center gap-3">
-          <button type="submit" class="btn btn-primary btn-sm" :disabled="sending">
-            <span v-if="sending" class="loading loading-spinner loading-xs" />
-            Send to subscribers
-          </button>
-          <p v-if="sent !== null" role="status" class="text-sm text-success">
-            {{
-              sent === 0
-                ? 'There are no subscriber accounts to send to.'
-                : sent === 1
-                  ? 'Sent to 1 subscriber.'
-                  : `Sent to ${sent} subscribers.`
-            }}
-          </p>
-        </div>
-      </form>
-    </section>
   </div>
 </template>

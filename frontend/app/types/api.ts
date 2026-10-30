@@ -285,9 +285,8 @@ export interface AccountAlert {
 }
 
 // One notice in the account's global feed. The links are optional: a polling
-// notice points at the service, an alert delivery notice can point at both, and
-// a broadcast usually carries neither. readAt is absent until the account opens
-// it.
+// notice points at the service, and an alert notice points at both the service
+// and the alert. readAt is absent until the account opens it.
 export interface FeedNotification {
   id: number
   audience: 'staff' | 'subscribers'

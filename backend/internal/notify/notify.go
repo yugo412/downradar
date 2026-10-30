@@ -1,6 +1,7 @@
 // Package notify sends what a status change earns: an email, a Telegram, Slack
-// or Discord message, or a webhook call. The change writes its deliveries in the
-// same transaction that records it; this loop drains them and retries a failure.
+// or Discord message, or a webhook call, and mirrors a delivered alert into the
+// account's feed. The change writes its deliveries in the same transaction that
+// records it; this loop drains them and retries a failure.
 package notify
 
 import (
@@ -132,6 +133,7 @@ func (n *Notifier) drain(ctx context.Context) error {
 		}
 
 		n.recordChannelAttempt(ctx, alert.ChannelID, nil)
+		n.notifySubscriber(ctx, alert)
 		if err := n.store.SentAlert(ctx, alert.ID, alert.ToStatus, alert.ChangedAt); err != nil {
 			n.log.Error("failed to mark the alert sent", "id", alert.ID, "error", err)
 			continue
@@ -184,6 +186,42 @@ func (n *Notifier) notifyStaffDelivery(ctx context.Context, alert store.PendingA
 		AlertID:   &alertID,
 	}); err != nil {
 		n.log.Error("failed to record the alert delivery notice",
+			"vendor", alert.VendorSlug, "title", title, "error", err)
+	}
+}
+
+// notifySubscriber mirrors a delivered alert into the account's own feed. It is
+// written after a channel went through, so a paused or failed channel does not
+// leave a notice behind. The key covers the subscription, the component and the
+// change, so several live channels still write one notice.
+func (n *Notifier) notifySubscriber(ctx context.Context, alert store.PendingAlert) {
+	if alert.UserID == nil {
+		return
+	}
+
+	what := alert.VendorName
+	if alert.ComponentName != "" {
+		what = fmt.Sprintf("%s on %s", alert.ComponentName, alert.VendorName)
+	}
+	title := fmt.Sprintf("%s is now %s", what, badgeFor(alert.ToStatus).Label)
+	body := fmt.Sprintf("The status changed from %s to %s.",
+		badgeFor(alert.FromStatus).Label, badgeFor(alert.ToStatus).Label)
+
+	serviceID := alert.ServiceID
+	alertID := alert.SubscriptionID
+	key := fmt.Sprintf("alert:%d:%d:%d:%s:%s", alert.SubscriptionID, alert.ServiceID,
+		alert.ComponentID, alert.ChangedAt.UTC().Format(time.RFC3339Nano), alert.ToStatus)
+
+	if _, err := n.store.CreateNotification(ctx, store.NotificationInput{
+		Audience:   store.AudienceSubscribers,
+		Recipients: []int64{*alert.UserID},
+		Title:      title,
+		Body:       body,
+		ServiceID:  &serviceID,
+		AlertID:    &alertID,
+		DedupeKey:  key,
+	}); err != nil {
+		n.log.Error("failed to record the subscriber notification",
 			"vendor", alert.VendorSlug, "title", title, "error", err)
 	}
 }
