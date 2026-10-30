@@ -20,6 +20,27 @@ export function timeAgo(iso?: string | null, now: number = Date.now()): string {
   return new Date(iso).toISOString().slice(0, 10)
 }
 
+// The same difference written out, for a place that has room for the words.
+export function timeAgoLong(iso?: string | null, now: number = Date.now()): string {
+  if (!iso) return '—'
+  const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return '—'
+
+  const seconds = Math.max(0, Math.floor((now - then) / 1000))
+  if (seconds < 60) return 'just now'
+
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`
+
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`
+
+  const days = Math.floor(hours / 24)
+  if (days < 30) return `${days} day${days === 1 ? '' : 's'} ago`
+
+  return new Date(iso).toISOString().slice(0, 10)
+}
+
 // The same clock read forwards, for something that has not happened yet.
 export function timeUntil(iso?: string | null, now: number = Date.now()): string {
   if (!iso) return '—'

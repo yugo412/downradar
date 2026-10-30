@@ -133,12 +133,6 @@ if (vendor.value) {
 
       <VendorStatus :vendor="vendor" />
 
-      <!-- Staff only, and only in the browser: this page is cached and shared,
-           so a section that depends on who is asking cannot be part of it. -->
-      <ClientOnly>
-        <FetchLog :slug="vendor.slug" />
-      </ClientOnly>
-
       <ClientOnly>
         <ServiceEditor
           v-if="editing && canManageServices"
