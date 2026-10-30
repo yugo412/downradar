@@ -19,6 +19,20 @@ defineOgImage(
 )
 
 const route = useRoute()
+
+// Search engines treat the index's filter variants as separate pages unless the
+// clean address says which one to keep. The canonical is built from the site's
+// own address rather than this request, so it is absolute and never carries the
+// query string.
+const canonical = computed(() => {
+  const path = route.path === '/' ? '/' : route.path.replace(/\/+$/, '')
+  return `${siteUrl.replace(/\/+$/, '')}${path}`
+})
+
+useHead(() => ({
+  link: [{ rel: 'canonical', href: canonical.value }],
+}))
+
 const openMenu = ref<'service' | 'account' | 'nav' | null>(null)
 
 useTheme()
