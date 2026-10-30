@@ -36,9 +36,12 @@ app itself, not from fixtures.
 - Commits are a single subject line. No body, no `Closes #NN`.
 - Issue and pull request bodies are one or two short paragraphs. No bullet lists,
   no code blocks.
+- Sample code, links, plans and checklists belong in an issue artifact
+  (`gh issue artifact create`), not in the body. Keep the body short and point
+  at the artifact.
 - Never write the issue number in a pull request body.
-- Open the pull request as a draft with `gh pr create --draft`. Run `gh pr ready`
-  only when asked.
+- Open the pull request ready for review, not as a draft, with
+  `--assignee @me`.
 - Do not commit until the maintainer says the work is fine. Leave the change in the
   working tree, report it, and wait.
 - Do not inspect pull request state on GitHub: no `gh pr view`, `gh pr checks`,
