@@ -284,6 +284,22 @@ export interface AccountAlert {
   channels: string[]
 }
 
+// One notice in the account's global feed. The links are optional: a polling
+// notice points at the service, and an alert notice points at both the service
+// and the alert. readAt is absent until the account opens it.
+export interface FeedNotification {
+  id: number
+  audience: 'staff' | 'subscribers'
+  title: string
+  body: string
+  serviceSlug?: string
+  serviceName?: string
+  alertId?: number
+  alertVendorSlug?: string
+  createdAt: string
+  readAt?: string | null
+}
+
 // One row on the staff alerts screen: the subscription, plus who left it. A
 // guest has no account, so their name is empty and the address stands alone.
 // It is read only, so it carries no actions.

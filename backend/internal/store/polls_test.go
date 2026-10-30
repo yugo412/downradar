@@ -103,7 +103,7 @@ func TestRecordFailureRemembersTheWait(t *testing.T) {
 	id := testService(t, st, uniqueName("poll-backoff"))
 	until := time.Now().UTC().Add(5 * time.Minute).Truncate(time.Millisecond)
 
-	if err := st.RecordFailure(ctx, id, PollFailure{
+	if _, err := st.RecordFailure(ctx, id, PollFailure{
 		HTTPStatus: 429,
 		Error:      "the page asked to be left alone",
 		DurationMS: 42,
@@ -126,7 +126,7 @@ func TestRecordFailureRemembersTheWait(t *testing.T) {
 
 	// A page that answers, even badly, is not refusing: the wait is dropped and
 	// the next refusal starts the curve again.
-	if err := st.RecordFailure(ctx, id, PollFailure{HTTPStatus: 500, Error: "boom"}); err != nil {
+	if _, err := st.RecordFailure(ctx, id, PollFailure{HTTPStatus: 500, Error: "boom"}); err != nil {
 		t.Fatalf("RecordFailure: %v", err)
 	}
 	if next, refusals, _ := scheduleOf(t, st, id); next != nil || refusals != 0 {
@@ -140,7 +140,7 @@ func TestApplyReportClearsTheWait(t *testing.T) {
 
 	id := testService(t, st, uniqueName("poll-recovered"))
 	until := time.Now().UTC().Add(time.Hour)
-	if err := st.RecordFailure(ctx, id, PollFailure{
+	if _, err := st.RecordFailure(ctx, id, PollFailure{
 		HTTPStatus: 403,
 		Error:      "the page turned the poller away",
 		NextPollAt: &until,

@@ -337,25 +337,44 @@ type PollFailure struct {
 	Refusals   int
 }
 
-func (s *Store) RecordFailure(ctx context.Context, serviceID int64, f PollFailure) error {
+// RecordFailure writes one failed fetch down. The answer says whether this is
+// the first failure after a successful poll, which is the moment staff need to
+// hear about: a page that keeps failing is one event, not one per attempt.
+func (s *Store) RecordFailure(ctx context.Context, serviceID int64, f PollFailure) (bool, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	// No earlier fetch counts as a working page, so the first failure of a new
+	// row is worth a notice.
+	var wasOK bool
+	err = tx.QueryRow(ctx, `
+		select coalesce((
+			select r.ok from poll_runs r
+			where r.service_id = $1
+			order by r.created_at desc, r.id desc
+			limit 1), true)`, serviceID).Scan(&wasOK)
+	if err != nil {
+		return false, fmt.Errorf("apply: read the previous poll: %w", err)
+	}
 
 	if _, err := tx.Exec(ctx, `
 		insert into poll_runs (service_id, ok, http_status, error, duration_ms)
 		values ($1, false, $2, $3, $4)`,
 		serviceID, nullInt(f.HTTPStatus), f.Error, f.DurationMS,
 	); err != nil {
-		return fmt.Errorf("apply: record failure: %w", err)
+		return false, fmt.Errorf("apply: record failure: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
 		update services set last_polled_at = now(), next_poll_at = $2, poll_refusals = $3
 		where id = $1`, serviceID, f.NextPollAt, f.Refusals,
 	); err != nil {
-		return fmt.Errorf("apply: update last_polled_at: %w", err)
+		return false, fmt.Errorf("apply: update last_polled_at: %w", err)
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("apply: record failure commit: %w", err)
+	}
+	return wasOK, nil
 }

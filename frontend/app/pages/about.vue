@@ -57,6 +57,11 @@ useSeoMeta({
             also keeps more alerts than the single one a visitor without an account gets.
           </li>
           <li>
+            <strong>Keep up with what you follow.</strong> A signed in account has a bell in the header
+            with an unread count. It lists the status changes delivered to at least one of your alert
+            channels, and staff see operational notes there about polling and alert delivery.
+          </li>
+          <li>
             <strong>Take the data elsewhere.</strong> The
             <NuxtLink to="/api" class="link">public API</NuxtLink> serves the same status as read-only
             JSON, and an MCP server offers it to AI assistants. Both are free and need no key, and

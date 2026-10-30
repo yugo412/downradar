@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"downradar.info/backend/internal/adapters"
 	"downradar.info/backend/internal/store"
 )
@@ -70,9 +72,46 @@ func testStore(t *testing.T) *store.Store {
 	return st
 }
 
+func noticeSubscriber(t *testing.T, st *store.Store) *store.User {
+	t.Helper()
+
+	ctx := context.Background()
+	email := fmt.Sprintf("notice-%d@example.com", time.Now().UnixNano())
+	user, err := st.CreateUser(ctx, email, "Notice Person", "subscriber", "h")
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	t.Cleanup(func() { _ = st.DeleteUser(context.Background(), user.ID) })
+	return user
+}
+
+func removeNotification(t *testing.T, title string) {
+	t.Helper()
+
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		return
+	}
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Logf("clean up notification: %v", err)
+		return
+	}
+	defer func() { _ = conn.Close(ctx) }()
+	if _, err := conn.Exec(ctx, `delete from notifications where title = $1`, title); err != nil {
+		t.Logf("clean up notification: %v", err)
+	}
+}
+
 // changedVendor writes a vendor, subscribes an address to it, and moves it from
 // ok to major, which is one alert waiting to go out.
 func changedVendor(t *testing.T, st *store.Store, email string) string {
+	t.Helper()
+	return changedVendorFor(t, st, email, nil)
+}
+
+func changedVendorFor(t *testing.T, st *store.Store, email string, userID *int64) string {
 	t.Helper()
 	ctx := context.Background()
 
@@ -99,7 +138,7 @@ func changedVendor(t *testing.T, st *store.Store, email string) string {
 	if err != nil {
 		t.Fatalf("PublicService: %v", err)
 	}
-	if err := st.SubscribeAlert(ctx, id, nil, store.EmailOnly(email, "token-"+slug, store.WholeVendor)); err != nil {
+	if err := st.SubscribeAlert(ctx, id, userID, store.EmailOnly(email, "token-"+slug, store.WholeVendor)); err != nil {
 		t.Fatalf("SubscribeAlert: %v", err)
 	}
 
@@ -227,6 +266,97 @@ func TestDrainSendsWhatChanged(t *testing.T) {
 	}
 	if got := len(sender.sent()); got != 1 {
 		t.Errorf("sent after a second pass = %d, want 1", got)
+	}
+}
+
+func TestDrainWritesOneNoticeForASubscriber(t *testing.T) {
+	st := testStore(t)
+	user := noticeSubscriber(t, st)
+	slug := changedVendorFor(t, st, "notice@example.com", &user.ID)
+
+	_, name, err := st.PublicService(context.Background(), slug)
+	if err != nil {
+		t.Fatalf("PublicService: %v", err)
+	}
+	title := fmt.Sprintf("%s is now %s", name, badgeFor("major").Label)
+	t.Cleanup(func() { removeNotification(t, title) })
+
+	sender := &fakeSender{}
+	n := New(st, sender, "https://downradar.info", time.Second, quietLogger())
+	if err := n.drain(context.Background()); err != nil {
+		t.Fatalf("drain: %v", err)
+	}
+
+	feed, err := st.Notifications(context.Background(), user.ID, 10)
+	if err != nil {
+		t.Fatalf("Notifications: %v", err)
+	}
+	if len(feed) != 1 {
+		t.Fatalf("feed has %d notices, want 1", len(feed))
+	}
+	item := feed[0]
+	if item.Title != title {
+		t.Errorf("title = %q, want %q", item.Title, title)
+	}
+	if item.Audience != store.AudienceSubscribers {
+		t.Errorf("audience = %q, want subscribers", item.Audience)
+	}
+	if item.ServiceSlug != slug {
+		t.Errorf("service slug = %q, want %q", item.ServiceSlug, slug)
+	}
+	if item.AlertID == nil {
+		t.Error("the notice does not point at the alert")
+	}
+	if !strings.Contains(item.Body, "Operational") || !strings.Contains(item.Body, "Major outage") {
+		t.Errorf("body does not name both states: %q", item.Body)
+	}
+
+	// Every live channel writes the same event, but the feed keeps one copy.
+	if err := n.drain(context.Background()); err != nil {
+		t.Fatalf("second drain: %v", err)
+	}
+	feed, err = st.Notifications(context.Background(), user.ID, 10)
+	if err != nil {
+		t.Fatalf("Notifications after second drain: %v", err)
+	}
+	if len(feed) != 1 {
+		t.Errorf("feed has %d notices after a second pass, want 1", len(feed))
+	}
+}
+
+func TestDrainLeavesPausedAlertsOutOfTheFeed(t *testing.T) {
+	st := testStore(t)
+	user := noticeSubscriber(t, st)
+	slug := changedVendorFor(t, st, "paused-notice@example.com", &user.ID)
+
+	id, name, err := st.PublicService(context.Background(), slug)
+	if err != nil {
+		t.Fatalf("PublicService: %v", err)
+	}
+	title := fmt.Sprintf("%s is now %s", name, badgeFor("major").Label)
+	t.Cleanup(func() { removeNotification(t, title) })
+
+	if err := st.SetChannelPaused(context.Background(), user.ID, id, store.ChannelEmail, true); err != nil {
+		t.Fatalf("SetChannelPaused: %v", err)
+	}
+
+	sender := &fakeSender{}
+	n := New(st, sender, "https://downradar.info", time.Second, quietLogger())
+	if err := n.drain(context.Background()); err != nil {
+		t.Fatalf("drain: %v", err)
+	}
+	for _, sent := range sender.sent() {
+		if sent.to == "paused-notice@example.com" {
+			t.Errorf("a paused alert was still sent to %q", sent.to)
+		}
+	}
+
+	feed, err := st.Notifications(context.Background(), user.ID, 10)
+	if err != nil {
+		t.Fatalf("Notifications: %v", err)
+	}
+	if len(feed) != 0 {
+		t.Errorf("feed has %d notices for a paused alert, want 0", len(feed))
 	}
 }
 

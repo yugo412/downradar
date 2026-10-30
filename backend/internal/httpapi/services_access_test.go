@@ -579,7 +579,7 @@ func TestOnlyStaffSeeWhenARefusedPageIsTriedAgain(t *testing.T) {
 		t.Fatalf("AdminGetService: %v", err)
 	}
 	until := time.Now().UTC().Add(45 * time.Minute).Truncate(time.Millisecond)
-	if err := st.RecordFailure(ctx, row.ID, store.PollFailure{
+	if _, err := st.RecordFailure(ctx, row.ID, store.PollFailure{
 		HTTPStatus: 429,
 		Error:      "the page asked to be left alone",
 		NextPollAt: &until,

@@ -1,6 +1,7 @@
 // Package notify sends what a status change earns: an email, a Telegram, Slack
-// or Discord message, or a webhook call. The change writes its deliveries in the
-// same transaction that records it; this loop drains them and retries a failure.
+// or Discord message, or a webhook call, and mirrors a delivered alert into the
+// account's feed. The change writes its deliveries in the same transaction that
+// records it; this loop drains them and retries a failure.
 package notify
 
 import (
@@ -125,13 +126,20 @@ func (n *Notifier) drain(ctx context.Context) error {
 			if recErr := n.store.FailedAlert(ctx, alert.ID, alert.ToStatus, alert.ChangedAt, err.Error()); recErr != nil {
 				n.log.Error("failed to record the alert failure", "id", alert.ID, "error", recErr)
 			}
+			if alert.Attempts == 0 {
+				n.notifyAlertFailure(ctx, alert, err)
+			}
 			continue
 		}
 
 		n.recordChannelAttempt(ctx, alert.ChannelID, nil)
+		n.notifySubscriber(ctx, alert)
 		if err := n.store.SentAlert(ctx, alert.ID, alert.ToStatus, alert.ChangedAt); err != nil {
 			n.log.Error("failed to mark the alert sent", "id", alert.ID, "error", err)
 			continue
+		}
+		if alert.Attempts > 0 {
+			n.notifyAlertRecovery(ctx, alert)
 		}
 		n.log.Info("alert sent", "kind", alert.Kind, "vendor", alert.VendorSlug, "status", alert.ToStatus)
 	}
@@ -148,6 +156,73 @@ func (n *Notifier) recordChannelAttempt(ctx context.Context, channelID int64, de
 	}
 	if err := n.store.RecordChannelAttempt(ctx, channelID, message); err != nil {
 		n.log.Error("failed to record the channel attempt", "channel", channelID, "error", err)
+	}
+}
+
+// notifyAlertFailure writes the first failed attempt to the staff feed. A retry
+// that fails again is the same event, so only the first one is announced.
+func (n *Notifier) notifyAlertFailure(ctx context.Context, alert store.PendingAlert, deliveryErr error) {
+	n.notifyStaffDelivery(ctx, alert,
+		fmt.Sprintf("Alert delivery failed for %s", alert.VendorName),
+		fmt.Sprintf("An alert delivered by %s failed: %s.", alert.Kind, deliveryErr))
+}
+
+// notifyAlertRecovery closes the loop when a retry goes through after a failed
+// attempt. An alert that worked first time is not an event.
+func (n *Notifier) notifyAlertRecovery(ctx context.Context, alert store.PendingAlert) {
+	n.notifyStaffDelivery(ctx, alert,
+		fmt.Sprintf("Alert delivery recovered for %s", alert.VendorName),
+		fmt.Sprintf("An alert delivered by %s went through again.", alert.Kind))
+}
+
+func (n *Notifier) notifyStaffDelivery(ctx context.Context, alert store.PendingAlert, title, body string) {
+	serviceID := alert.ServiceID
+	alertID := alert.SubscriptionID
+	if _, err := n.store.CreateNotification(ctx, store.NotificationInput{
+		Audience:  store.AudienceStaff,
+		Title:     title,
+		Body:      body,
+		ServiceID: &serviceID,
+		AlertID:   &alertID,
+	}); err != nil {
+		n.log.Error("failed to record the alert delivery notice",
+			"vendor", alert.VendorSlug, "title", title, "error", err)
+	}
+}
+
+// notifySubscriber mirrors a delivered alert into the account's own feed. It is
+// written after a channel went through, so a paused or failed channel does not
+// leave a notice behind. The key covers the subscription, the component and the
+// change, so several live channels still write one notice.
+func (n *Notifier) notifySubscriber(ctx context.Context, alert store.PendingAlert) {
+	if alert.UserID == nil {
+		return
+	}
+
+	what := alert.VendorName
+	if alert.ComponentName != "" {
+		what = fmt.Sprintf("%s on %s", alert.ComponentName, alert.VendorName)
+	}
+	title := fmt.Sprintf("%s is now %s", what, badgeFor(alert.ToStatus).Label)
+	body := fmt.Sprintf("The status changed from %s to %s.",
+		badgeFor(alert.FromStatus).Label, badgeFor(alert.ToStatus).Label)
+
+	serviceID := alert.ServiceID
+	alertID := alert.SubscriptionID
+	key := fmt.Sprintf("alert:%d:%d:%d:%s:%s", alert.SubscriptionID, alert.ServiceID,
+		alert.ComponentID, alert.ChangedAt.UTC().Format(time.RFC3339Nano), alert.ToStatus)
+
+	if _, err := n.store.CreateNotification(ctx, store.NotificationInput{
+		Audience:   store.AudienceSubscribers,
+		Recipients: []int64{*alert.UserID},
+		Title:      title,
+		Body:       body,
+		ServiceID:  &serviceID,
+		AlertID:    &alertID,
+		DedupeKey:  key,
+	}); err != nil {
+		n.log.Error("failed to record the subscriber notification",
+			"vendor", alert.VendorSlug, "title", title, "error", err)
 	}
 }
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const updated = '27 October 2026, 02:29 UTC'
+const updated = '30 October 2026, 02:38 UTC'
 
 useSeoMeta({
   title: 'Privacy Policy',
@@ -30,6 +30,11 @@ useSeoMeta({
           and delivery attempts.
         </li>
         <li>
+          <strong>Notification details:</strong> the notices sent to your
+          account, which account received each one, and whether you have read
+          it.
+        </li>
+        <li>
           <strong>Messages:</strong> the name, address, subject and message you
           send through the contact form.
         </li>
@@ -57,6 +62,7 @@ useSeoMeta({
       <ul class="mt-3 list-disc space-y-2 pl-5">
         <li>To create accounts, sign you in, and send confirmation or reset links.</li>
         <li>To deliver the alerts you ask for to the channels you choose.</li>
+        <li>To show in-site notifications for the alerts you follow, and operational notices to staff.</li>
         <li>To reply when you write through the contact form.</li>
         <li>To apply rate limits, prevent abuse, investigate failures and keep the site secure.</li>
       </ul>
@@ -82,8 +88,10 @@ useSeoMeta({
         hosts it. If you sign in with or connect GitHub or Google, those
         providers take part in that flow. If you add an alert channel, the
         address or webhook you give is used to deliver through Telegram, Slack,
-        Discord, Lark or your own endpoint. We do not sell or rent personal
-        data, and we disclose it to anyone else only when the law requires it.
+        Discord, Lark or your own endpoint. Notification content and read state
+        stay inside the site and are not sent to a third party. We do not sell
+        or rent personal data, and we disclose it to anyone else only when the
+        law requires it.
       </p>
     </section>
 
@@ -93,10 +101,11 @@ useSeoMeta({
         An account and the alerts attached to it are kept until you remove them
         or delete the account from
         <NuxtLink to="/account/profile" class="link">your profile</NuxtLink>.
-        Deleting the account removes its alerts, channels and delivery records
-        with it. Server logs are kept for as long as they are useful for
-        troubleshooting and security, then discarded. Copies in backups may take
-        a little longer to disappear.
+        Deleting the account removes its alerts, channels, delivery records and
+        notification recipient rows with it. A notice that was sent to other
+        people stays without your copy. Server logs are kept for as long as they
+        are useful for troubleshooting and security, then discarded. Copies in
+        backups may take a little longer to disappear.
       </p>
     </section>
 
