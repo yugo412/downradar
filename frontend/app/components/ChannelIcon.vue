@@ -1,5 +1,5 @@
 <script setup lang="ts">
-type Channel = 'email' | 'webhook' | 'telegram' | 'slack' | 'discord' | 'lark' | 'rss'
+type Channel = 'email' | 'webhook' | 'telegram' | 'slack' | 'discord' | 'lark' | 'ntfy' | 'rss'
 
 defineProps<{ kind: Channel }>()
 </script>
@@ -51,6 +51,11 @@ defineProps<{ kind: Channel }>()
     <template v-else-if="kind === 'lark'">
       <path d="M4 15c4.6 0 7.7-2.6 9.2-7.3L14.5 4l1.1 3.7 4.4.8-3.3 2.7.7 4.2-4.1-2.2C11 16 7.4 17 4 17Z" />
       <circle cx="16.5" cy="8.5" r=".75" fill="currentColor" stroke="none" />
+    </template>
+    <template v-else-if="kind === 'ntfy'">
+      <rect x="3" y="4" width="18" height="16" rx="3" />
+      <path d="m7 9 3 3-3 3" />
+      <path d="M13 15h4" />
     </template>
     <template v-else-if="kind === 'rss'">
       <path d="M4 11a9 9 0 0 1 9 9" />

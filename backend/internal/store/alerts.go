@@ -22,8 +22,8 @@ const (
 )
 
 // The ways an alert can arrive, as the channel's kind column holds them. Email,
-// Telegram, Slack, Discord and Lark report on what was picked; a webhook hears
-// about the whole vendor.
+// Telegram, Slack, Discord, Lark and ntfy report on what was picked; a webhook
+// hears about the whole vendor.
 const (
 	ChannelEmail    = "email"
 	ChannelWebhook  = "webhook"
@@ -31,6 +31,7 @@ const (
 	ChannelSlack    = "slack"
 	ChannelDiscord  = "discord"
 	ChannelLark     = "lark"
+	ChannelNtfy     = "ntfy"
 )
 
 // The two kinds of webhook call that are written down: one the sender made for a
@@ -93,11 +94,13 @@ type AlertView struct {
 	SlackPaused    bool `json:"slackPaused"`
 	DiscordPaused  bool `json:"discordPaused"`
 	LarkPaused     bool `json:"larkPaused"`
+	NtfyPaused     bool `json:"ntfyPaused"`
 
 	// Telegram is the chat a message goes to and Kind the channel a view is about.
 	// TelegramBot is the subscriber's own bot, never handed back. Slack, Discord
 	// and Lark are the webhook URLs those messages go to; LarkSecret signs them
-	// when the bot requires it.
+	// when the bot requires it. Ntfy is a topic URL, and NtfyToken is the optional
+	// access token that publishes to it.
 	Telegram       string `json:"-"`
 	TelegramBot    string `json:"-"`
 	Slack          string `json:"-"`
@@ -106,6 +109,8 @@ type AlertView struct {
 	DiscordChannel string `json:"-"`
 	Lark           string `json:"-"`
 	LarkSecret     string `json:"-"`
+	Ntfy           string `json:"-"`
+	NtfyToken      string `json:"-"`
 	Kind           string `json:"-"`
 
 	// The kinds of channel the subscription arrives by, in a stable order; an
@@ -459,6 +464,8 @@ type PendingAlert struct {
 	DiscordURL  string
 	LarkURL     string
 	LarkSecret  string
+	NtfyURL     string
+	NtfyToken   string
 	Webhook     AlertWebhook
 	ServiceID   int64
 	ChannelID   int64
@@ -645,6 +652,11 @@ type AlertChange struct {
 	Lark      *AlertLark
 	LarkToken string
 
+	// Ntfy is the seventh way: a topic URL and the optional access token that
+	// publishes to it. It reports on what was picked, like the other chat ways.
+	Ntfy      *AlertNtfy
+	NtfyToken string
+
 	// Targets is what the ways that report on a pick send about: the vendor's own
 	// status, the components of it that were picked, or both.
 	Targets AlertTargets
@@ -809,6 +821,11 @@ func (s *Store) subscribeAlert(ctx context.Context, serviceID int64, userID *int
 	}
 	if change.Lark != nil {
 		if err := s.saveLarkChannel(ctx, tx, subscriptionID, *change.Lark, change.LarkToken); err != nil {
+			return "", fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
+		}
+	}
+	if change.Ntfy != nil {
+		if err := s.saveNtfyChannel(ctx, tx, subscriptionID, *change.Ntfy, change.NtfyToken); err != nil {
 			return "", fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
 		}
 	}
@@ -1031,6 +1048,105 @@ func parseLarkSettings(raw []byte) (string, error) {
 		return "", fmt.Errorf("alerts: read lark settings: %w", err)
 	}
 	return settings.Secret, nil
+}
+
+// AlertNtfy is the seventh way: the topic URL a notification is published to,
+// and the access token that proves the publisher may write to it. A public topic
+// needs no token.
+type AlertNtfy struct {
+	URL         string
+	AccessToken string
+}
+
+type ntfySettings struct {
+	AccessToken string `json:"accessToken,omitempty"`
+}
+
+func encodeNtfySettings(settings ntfySettings) ([]byte, error) {
+	return json.Marshal(settings)
+}
+
+func parseNtfySettings(raw []byte) (string, error) {
+	if len(raw) == 0 {
+		return "", nil
+	}
+
+	var settings ntfySettings
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		return "", fmt.Errorf("alerts: read ntfy settings: %w", err)
+	}
+	return settings.AccessToken, nil
+}
+
+// saveNtfyChannel makes the subscription's ntfy way say what this save asked
+// for. An empty topic stops it, and a save of the same topic without a token
+// keeps the one the topic already uses. A different topic starts without one, so
+// a token is never sent to a server it was not saved for.
+func (s *Store) saveNtfyChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, way AlertNtfy, token string) error {
+	if way.URL == "" {
+		return stopChannels(ctx, tx, subscriptionID, ChannelNtfy)
+	}
+
+	var channelID int64
+	var channelToken string
+	var address string
+	var raw []byte
+	err := tx.QueryRow(ctx, `
+		select id, token, address, coalesce(settings, '{}'::jsonb)
+		from alert_channels
+		where subscription_id = $1 and kind = 'ntfy'
+		order by (unsubscribed_at is null) desc, id
+		limit 1`, subscriptionID).Scan(&channelID, &channelToken, &address, &raw)
+
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		channelToken = token
+	case err != nil:
+		return fmt.Errorf("read the ntfy way: %w", err)
+	case way.AccessToken == "" && address == way.URL:
+		way.AccessToken, err = s.parseNtfySettings(raw)
+		if err != nil {
+			return err
+		}
+	case address != way.URL && way.AccessToken != "":
+		// The page carries the saved token back in its field, so a topic that
+		// changed must not send that token to its new server. A token typed for
+		// the new topic is different, and is kept.
+		saved, err := s.parseNtfySettings(raw)
+		if err != nil {
+			return err
+		}
+		if saved != "" && saved == way.AccessToken {
+			way.AccessToken = ""
+		}
+	}
+
+	settings, err := encodeNtfySettings(ntfySettings{AccessToken: way.AccessToken})
+	if err != nil {
+		return fmt.Errorf("write the ntfy way: %w", err)
+	}
+	settings, err = s.sealSettings(settings)
+	if err != nil {
+		return fmt.Errorf("seal the ntfy way: %w", err)
+	}
+
+	// A row id is never zero, so nothing found means nothing is there yet.
+	if channelID == 0 {
+		if _, err := tx.Exec(ctx, `
+			insert into alert_channels (subscription_id, kind, address, settings, token)
+			values ($1, 'ntfy', $2, $3, $4)`, subscriptionID, way.URL, settings, channelToken); err != nil {
+			return fmt.Errorf("add the ntfy way: %w", err)
+		}
+		return nil
+	}
+
+	if _, err := tx.Exec(ctx, `
+		update alert_channels
+		set address = $2, settings = $3, unsubscribed_at = null, updated_at = now()
+		where id = $1`, channelID, way.URL, settings); err != nil {
+		return fmt.Errorf("update the ntfy way: %w", err)
+	}
+	return dropChannelsApartFrom(ctx, tx, subscriptionID, ChannelNtfy, channelID)
 }
 
 type telegramSettings struct {
@@ -1407,6 +1523,32 @@ func (s *Store) LarkWebhook(ctx context.Context, userID, serviceID int64) (strin
 	return address, secret, nil
 }
 
+// NtfyTopic returns the saved topic URL and access token of an ntfy way, for a
+// notification tried from the page after it has been saved. Both are empty when
+// there is no ntfy way to publish to.
+func (s *Store) NtfyTopic(ctx context.Context, userID, serviceID int64) (string, string, error) {
+	var address string
+	var raw []byte
+	err := s.pool.QueryRow(ctx, `
+		select c.address, coalesce(c.settings, '{}'::jsonb)
+		from alert_channels c
+		join alert_subscriptions a on a.id = c.subscription_id
+		where a.user_id = $1 and a.service_id = $2 and c.kind = 'ntfy'
+		order by (c.unsubscribed_at is null) desc, c.id
+		limit 1`, userID, serviceID).Scan(&address, &raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", nil
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("alerts: the ntfy topic: %w", err)
+	}
+	token, err := s.parseNtfySettings(raw)
+	if err != nil {
+		return "", "", err
+	}
+	return address, token, nil
+}
+
 // TelegramBot returns the bot a chat on this vendor is set up with, for a message
 // tried from the page that does not ask for the token again. It is empty when
 // there is no chat to send to.
@@ -1648,6 +1790,7 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 	var slackRaw []byte
 	var discordRaw []byte
 	var larkRaw []byte
+	var ntfyRaw []byte
 	err := s.pool.QueryRow(ctx, `
 		select a.id, v.slug, v.name, coalesce(ch.address, ''), a.created_at,
 		       case when ch.total > 0 and ch.ended < ch.total and ch.live = 0
@@ -1660,8 +1803,9 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 		       coalesce(ch.slack_address, ''), coalesce(ch.slack_settings, '{}'::jsonb),
 		       coalesce(ch.discord_address, ''), coalesce(ch.discord_settings, '{}'::jsonb),
 		       coalesce(ch.lark_address, ''), coalesce(ch.lark_settings, '{}'::jsonb),
+		       coalesce(ch.ntfy_address, ''), coalesce(ch.ntfy_settings, '{}'::jsonb),
 		       ch.email_paused, ch.webhook_paused, ch.telegram_paused, ch.slack_paused,
-		       ch.discord_paused, ch.lark_paused
+		       ch.discord_paused, ch.lark_paused, ch.ntfy_paused
 		from alert_subscriptions a
 		join services v on v.id = a.service_id
 		left join lateral (
@@ -1695,6 +1839,10 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 			        filter (where c.kind = 'lark' and c.unsubscribed_at is null))[1] as lark_address,
 			       (array_agg(c.settings order by c.id)
 			        filter (where c.kind = 'lark' and c.unsubscribed_at is null))[1] as lark_settings,
+			       (array_agg(c.address order by c.id)
+			        filter (where c.kind = 'ntfy' and c.unsubscribed_at is null))[1] as ntfy_address,
+			       (array_agg(c.settings order by c.id)
+			        filter (where c.kind = 'ntfy' and c.unsubscribed_at is null))[1] as ntfy_settings,
 			       count(*) as total,
 			       count(*) filter (where c.unsubscribed_at is not null) as ended,
 			       count(*) filter (where c.unsubscribed_at is null and c.paused_at is null) as live,
@@ -1711,7 +1859,9 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 			       count(*) filter (where c.kind = 'discord' and c.unsubscribed_at is null
 			                          and c.paused_at is not null) > 0 as discord_paused,
 			       count(*) filter (where c.kind = 'lark' and c.unsubscribed_at is null
-			                          and c.paused_at is not null) > 0 as lark_paused
+			                          and c.paused_at is not null) > 0 as lark_paused,
+			       count(*) filter (where c.kind = 'ntfy' and c.unsubscribed_at is null
+			                          and c.paused_at is not null) > 0 as ntfy_paused
 			from alert_channels c
 			where c.subscription_id = a.id
 		) ch on true
@@ -1731,8 +1881,9 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 		&view.Slack, &slackRaw,
 		&view.Discord, &discordRaw,
 		&view.Lark, &larkRaw,
+		&view.Ntfy, &ntfyRaw,
 		&view.EmailPaused, &view.WebhookPaused, &view.TelegramPaused, &view.SlackPaused,
-		&view.DiscordPaused, &view.LarkPaused)
+		&view.DiscordPaused, &view.LarkPaused, &view.NtfyPaused)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -1774,6 +1925,13 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 			return nil, err
 		}
 		view.LarkSecret = secret
+	}
+	if view.Ntfy != "" {
+		token, err := s.parseNtfySettings(ntfyRaw)
+		if err != nil {
+			return nil, err
+		}
+		view.NtfyToken = token
 	}
 	return &view, nil
 }
@@ -1899,6 +2057,13 @@ func (s *Store) PendingAlerts(ctx context.Context, maxAttempts, limit int) ([]Pe
 				return nil, err
 			}
 			p.LarkSecret = secret
+		case ChannelNtfy:
+			p.NtfyURL = address
+			token, err := s.parseNtfySettings(settings)
+			if err != nil {
+				return nil, err
+			}
+			p.NtfyToken = token
 		default:
 			p.Email = address
 		}

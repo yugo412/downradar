@@ -7,7 +7,7 @@ useSeoMeta({
     'What DownRadar does, where its status data comes from, and what a visitor can do with it.',
   ogTitle: 'About DownRadar',
   ogDescription:
-    'Status read straight from each official status page, with email alerts and a free public API.',
+    'Status read straight from each official status page, with alerts by email, chat, webhook and ntfy, and a free public API.',
   ogType: 'website',
 })
 </script>
@@ -46,10 +46,12 @@ useSeoMeta({
             there is something to explain.
           </li>
           <li>
-            <strong>Be emailed when it changes.</strong> The bell on a service page takes an address and
+            <strong>Be told when it changes.</strong> The bell on a service page takes an address and
             mails you after a change settles, in either direction, so a recovery is announced as much
             as an outage. A vendor that flips back and forth gets one message for the state it ends in.
-            No account is needed, and every email carries a link that stops them.
+            No account is needed for email. An account can also send the same change to a webhook,
+            Telegram, Slack, Discord, Lark or an ntfy topic, and every email carries a link that stops
+            them.
           </li>
           <li>
             <strong>Keep your alerts in one place.</strong> With an account, everything you follow is

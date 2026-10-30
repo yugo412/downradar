@@ -184,7 +184,7 @@ async function subscribe() {
         <p class="mt-2 text-sm opacity-70">
           <NuxtLink to="/login" class="link">Sign in</NuxtLink>
           to keep the alert in one place and add a webhook, a chat, a Slack
-          channel or a Discord channel as well.
+          channel, a Discord channel, a Lark group or an ntfy topic as well.
         </p>
         <div class="mt-4 flex justify-end">
           <button type="button" class="btn btn-sm" @click="close">Close</button>

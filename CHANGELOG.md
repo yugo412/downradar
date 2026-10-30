@@ -9,6 +9,7 @@ semantic versioning.
 ### Added
 
 - Lark alerts, alongside email, webhook, Telegram, Slack and Discord.
+- ntfy alerts, for push notifications without a chat account.
 - Generated vendor summaries written from the official status data, refreshed
   only when the vendor state changes and shown above the open incidents.
 - RSS and JSON Feed for status changes.

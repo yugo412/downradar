@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const updated = '27 October 2026, 02:29 UTC'
+const updated = '30 October 2026, 13:44 UTC'
 
 useSeoMeta({
   title: 'Privacy Policy',
@@ -26,8 +26,8 @@ useSeoMeta({
         <li>
           <strong>Alert details:</strong> the address or webhook a message goes
           to, Telegram chat and bot details, Slack, Discord or Lark webhook URLs
-          and signing secrets, the vendor and components you watch, pause state,
-          and delivery attempts.
+          and signing secrets, ntfy topic URLs and access tokens, the vendor and
+          components you watch, pause state, and delivery attempts.
         </li>
         <li>
           <strong>Messages:</strong> the name, address, subject and message you
@@ -81,9 +81,10 @@ useSeoMeta({
         provider that drafts generated summaries, and the infrastructure that
         hosts it. If you sign in with or connect GitHub or Google, those
         providers take part in that flow. If you add an alert channel, the
-        address or webhook you give is used to deliver through Telegram, Slack,
-        Discord, Lark or your own endpoint. We do not sell or rent personal
-        data, and we disclose it to anyone else only when the law requires it.
+        address, webhook or topic you give is used to deliver through Telegram,
+        Slack, Discord, Lark, an ntfy server or your own endpoint. We do not sell
+        or rent personal data, and we disclose it to anyone else only when the law
+        requires it.
       </p>
     </section>
 

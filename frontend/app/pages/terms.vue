@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const updated = '27 October 2026, 02:42 UTC'
+const updated = '30 October 2026, 13:44 UTC'
 
 useSeoMeta({
   title: 'Terms of Service',
@@ -45,10 +45,10 @@ useSeoMeta({
       <h2 class="text-lg font-semibold">Alerts</h2>
       <p class="mt-3">
         Alert delivery depends on email providers, webhooks, Telegram, Slack,
-        Discord, Lark and the networks between them, so it is not guaranteed. Do
-        not rely on DownRadar for emergencies, safety-critical work or anything where
-        a missed message could cause harm. You are responsible for the endpoints
-        and secrets you configure.
+        Discord, Lark, ntfy and the networks between them, so it is not guaranteed.
+        Do not rely on DownRadar for emergencies, safety-critical work or anything
+        where a missed message could cause harm. You are responsible for the
+        endpoints, topics and secrets you configure.
       </p>
     </section>
 
@@ -76,8 +76,8 @@ useSeoMeta({
       <h2 class="text-lg font-semibold">Third-party services</h2>
       <p class="mt-3">
         Links and integrations with GitHub, Google, Telegram, Slack, Discord,
-        Lark and other services are governed by those services' own terms and
-        privacy policies. DownRadar does not control them.
+        Lark, ntfy and other services are governed by those services' own terms
+        and privacy policies. DownRadar does not control them.
       </p>
     </section>
 

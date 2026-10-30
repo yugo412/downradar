@@ -93,6 +93,14 @@ func (s *Store) parseLarkSettings(raw []byte) (string, error) {
 	return parseLarkSettings(plain)
 }
 
+func (s *Store) parseNtfySettings(raw []byte) (string, error) {
+	plain, err := s.openSettings(raw)
+	if err != nil {
+		return "", err
+	}
+	return parseNtfySettings(plain)
+}
+
 // SealLegacySettings encrypts settings written before the key existed, and
 // checks that values already sealed can be opened with the configured key. It
 // runs at startup, so a wrong key stops the install before a delivery can send

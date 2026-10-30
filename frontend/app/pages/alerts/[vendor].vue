@@ -24,7 +24,7 @@ if (vendorError.value?.statusCode === 404) {
 // feed is the last one: it is not an alert the site keeps, so nothing about it
 // is saved, but it is offered beside the others because that is where somebody
 // looking for it will look.
-type Way = 'email' | 'webhook' | 'telegram' | 'slack' | 'discord' | 'lark' | 'rss'
+type Way = 'email' | 'webhook' | 'telegram' | 'slack' | 'discord' | 'lark' | 'ntfy' | 'rss'
 
 function blankWebhook(): AlertWebhook {
   return { url: '', method: 'POST', headers: [], auth: 'standard', signed: false }
@@ -75,8 +75,8 @@ const webhookTab = ref<WebhookTab>('alert')
 
 // The panel that is open is part of the address, so a link to one opens it. The
 // hash is the way's own name: #email, #webhook, #telegram, #slack, #discord,
-// #lark, #rss.
-const ways = ['email', 'webhook', 'telegram', 'slack', 'discord', 'lark', 'rss'] as const
+// #lark, #ntfy, #rss.
+const ways = ['email', 'webhook', 'telegram', 'slack', 'discord', 'lark', 'ntfy', 'rss'] as const
 
 function isWay(value: string): value is Way {
   return (ways as readonly string[]).includes(value)
@@ -117,6 +117,13 @@ const discordURL = ref('')
 const larkURL = ref('')
 const larkSecret = ref('')
 
+// ntfy is a topic URL and, when the topic is protected, the access token that
+// publishes to it. The address starts from the public server so a subscriber
+// only has to add the topic; the token stays masked.
+const NTFY_DEFAULT_URL = 'https://ntfy.sh/'
+const ntfyURL = ref(NTFY_DEFAULT_URL)
+const ntfyToken = ref('')
+
 // Trying the chat, and what the chat service answered. It is a message like a
 // delivery, so what comes back is whether it arrived rather than a body.
 const trying = ref(false)
@@ -133,6 +140,10 @@ const discordAnswer = ref<{ ok: boolean; error: string } | null>(null)
 // Trying the Lark group, whose answer includes its own code when it refuses.
 const larkTrying = ref(false)
 const larkAnswer = ref<{ ok: boolean; code: number; error: string } | null>(null)
+
+// Trying the ntfy topic, which answers whether the notification was published.
+const ntfyTrying = ref(false)
+const ntfyAnswer = ref<{ ok: boolean; error: string } | null>(null)
 
 // Disconnecting is a save of its own: it stops one way and leaves the other
 // ways and what the alert watches exactly as they were.
@@ -156,6 +167,21 @@ const chatsOn = computed(() => chat.value.trim() !== '')
 const slackOn = computed(() => slackURL.value.trim() !== '')
 const discordOn = computed(() => discordURL.value.trim() !== '')
 const larkOn = computed(() => larkURL.value.trim() !== '')
+
+// A topic URL with no topic after the host is just the empty starting address,
+// so it does not count as a way of being told anything.
+const ntfyAddress = computed(() => {
+  const url = ntfyURL.value.trim()
+  if (url === '') return ''
+  try {
+    const parsed = new URL(url)
+    if (parsed.pathname.replace(/^\/+|\/+$/g, '') === '') return ''
+  } catch {
+    return url
+  }
+  return url
+})
+const ntfyOn = computed(() => ntfyAddress.value !== '')
 const anyWay = computed(
   () =>
     emailsOn.value ||
@@ -163,7 +189,8 @@ const anyWay = computed(
     chatsOn.value ||
     slackOn.value ||
     discordOn.value ||
-    larkOn.value,
+    larkOn.value ||
+    ntfyOn.value,
 )
 
 // What is wrong with the webhook URL as it stands. An empty one is not wrong:
@@ -266,12 +293,55 @@ const larkProblem = computed(() => {
   return ''
 })
 
-// An address, a chat, a Slack channel, a Discord channel or a Lark group with nothing picked
-// beside it would be a way of being told nothing, since each reports on what was
-// picked.
+// What is wrong with the ntfy topic as it stands. A self-hosted server can use
+// any host, so the page only checks for an address with a topic after it rather
+// than a particular server name. The empty starting address is not an error:
+// that is simply the way being off.
+const ntfyProblem = computed(() => {
+  const url = ntfyURL.value.trim()
+  if (url === '') return ''
+  if (url.length > 1024) return 'that ntfy topic URL is too long.'
+  if (ntfyToken.value.trim().length > 512) return 'that ntfy access token is too long.'
+
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return 'that does not look like an ntfy topic URL.'
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return 'an ntfy topic URL has to start with http:// or https://.'
+  }
+  return ''
+})
+
+// A subscriber only has to add the topic, so a fresh address starts with the
+// cursor at its end. A bare topic typed over the whole field is put back on
+// ntfy.sh when the field is left, and anything with a host but no scheme gets
+// the scheme it needs.
+function placeNtfyCursor(event: FocusEvent) {
+  const input = event.target as HTMLInputElement
+  if (input.value !== NTFY_DEFAULT_URL) return
+  input.setSelectionRange(input.value.length, input.value.length)
+}
+
+function normalizeNtfyURL() {
+  const url = ntfyURL.value.trim()
+  if (url === '' || url.includes('://')) return
+  ntfyURL.value = /^[A-Za-z0-9_-]+$/.test(url) ? NTFY_DEFAULT_URL + url : 'https://' + url
+}
+
+// An address, a chat, a Slack channel, a Discord channel, a Lark group or an ntfy
+// topic with nothing picked beside it would be a way of being told nothing, since
+// each reports on what was picked.
 const nothingToTellAbout = computed(
   () =>
-    (emailsOn.value || chatsOn.value || slackOn.value || discordOn.value || larkOn.value) &&
+    (emailsOn.value ||
+      chatsOn.value ||
+      slackOn.value ||
+      discordOn.value ||
+      larkOn.value ||
+      ntfyOn.value) &&
     !whole.value &&
     picked.value.length === 0,
 )
@@ -287,15 +357,28 @@ const slackChannel = computed(() => String(state.value?.slackChannel ?? ''))
 const savedDiscord = computed(() => String(state.value?.discord ?? ''))
 const discordChannel = computed(() => String(state.value?.discordChannel ?? ''))
 const savedLark = computed(() => String(state.value?.lark ?? ''))
+const savedNtfy = computed(() => String(state.value?.ntfy ?? ''))
 const emailPaused = computed(() => state.value?.emailPaused === true)
 const webhookPaused = computed(() => state.value?.webhookPaused === true)
 const telegramPaused = computed(() => state.value?.telegramPaused === true)
 const slackPaused = computed(() => state.value?.slackPaused === true)
 const discordPaused = computed(() => state.value?.discordPaused === true)
 const larkPaused = computed(() => state.value?.larkPaused === true)
+const ntfyPaused = computed(() => state.value?.ntfyPaused === true)
 const larkDelivery = computed(() =>
   (state.value?.channelStatus ?? []).find((status) => status.kind === 'lark'),
 )
+const ntfyDelivery = computed(() =>
+  (state.value?.channelStatus ?? []).find((status) => status.kind === 'ntfy'),
+)
+
+// A token belongs to the topic it was saved for, so changing the topic clears
+// the one the page was holding. The first change is the page filling itself in,
+// which must keep the token it just read.
+watch(ntfyURL, (url, before) => {
+  if (before === '' || url.trim() === savedNtfy.value) return
+  ntfyToken.value = ''
+})
 
 // Whether the site has a Slack or Discord app to install in one click. Without
 // one the panel keeps the manual webhook path and says why the button is not
@@ -321,6 +404,7 @@ const nothingArriving = computed(() => {
     { set: savedSlack.value !== '', paused: slackPaused.value },
     { set: savedDiscord.value !== '', paused: discordPaused.value },
     { set: savedLark.value !== '', paused: larkPaused.value },
+    { set: savedNtfy.value !== '', paused: ntfyPaused.value },
   ].filter((way) => way.set)
   return state.value?.subscribed === true && ways.length > 0 && ways.every((way) => way.paused)
 })
@@ -445,62 +529,30 @@ async function load() {
     discordURL.value = res.subscribed ? res.discord ?? '' : ''
     larkURL.value = res.subscribed ? res.lark ?? '' : ''
     larkSecret.value = res.subscribed ? res.larkSecret ?? '' : ''
+    ntfyURL.value = res.subscribed ? res.ntfy || NTFY_DEFAULT_URL : NTFY_DEFAULT_URL
+    ntfyToken.value = res.subscribed ? res.ntfyToken ?? '' : ''
     testAnswer.value = null
     slackAnswer.value = null
     discordAnswer.value = null
     larkAnswer.value = null
+    ntfyAnswer.value = null
 
     whole.value = res.subscribed ? res.wholeService ?? true : true
     picked.value = res.subscribed ? res.components ?? [] : []
 
-    // The way that is already set up decides which panel opens.
-    if (
-      res.subscribed &&
-      !res.email &&
-      res.webhook &&
-      !res.telegram &&
-      !res.slack &&
-      !res.discord
-    ) {
-      way.value = 'webhook'
-    } else if (
-      res.subscribed &&
-      !res.email &&
-      !res.webhook &&
-      res.telegram &&
-      !res.slack &&
-      !res.discord
-    ) {
-      way.value = 'telegram'
-    } else if (
-      res.subscribed &&
-      !res.email &&
-      !res.webhook &&
-      !res.telegram &&
-      res.slack &&
-      !res.discord
-    ) {
-      way.value = 'slack'
-    } else if (
-      res.subscribed &&
-      !res.email &&
-      !res.webhook &&
-      !res.telegram &&
-      !res.slack &&
-      res.discord &&
-      !res.lark
-    ) {
-      way.value = 'discord'
-    } else if (
-      res.subscribed &&
-      !res.email &&
-      !res.webhook &&
-      !res.telegram &&
-      !res.slack &&
-      !res.discord &&
-      res.lark
-    ) {
-      way.value = 'lark'
+    // The way that is already set up decides which panel opens. With more than
+    // one there is no single answer, so the page keeps the panel it opened with.
+    const setWays: Way[] = []
+    if (res.email) setWays.push('email')
+    if (res.webhook?.url) setWays.push('webhook')
+    if (res.telegram) setWays.push('telegram')
+    if (res.slack) setWays.push('slack')
+    if (res.discord) setWays.push('discord')
+    if (res.lark) setWays.push('lark')
+    if (res.ntfy) setWays.push('ntfy')
+    if (res.subscribed && setWays.length === 1) {
+      const only = setWays[0]
+      if (only) way.value = only
     }
   } catch (err) {
     error.value = apiError(err, 'Could not load this alert.')
@@ -604,7 +656,14 @@ function showDiscordResult() {
 // writes the channel with the picks below.
 async function connectSlack() {
   if (!slackEnabled.value || slackNothingToPost.value || busy.value) return
-  if (hookProblem.value || slackProblem.value || discordProblem.value || larkProblem.value) return
+  if (
+    hookProblem.value ||
+    slackProblem.value ||
+    discordProblem.value ||
+    larkProblem.value ||
+    ntfyProblem.value
+  )
+    return
 
   if (anyWay.value) {
     await save()
@@ -656,7 +715,14 @@ async function disconnectSlack() {
 // to Discord.
 async function connectDiscord() {
   if (!discordEnabled.value || discordNothingToPost.value || busy.value) return
-  if (hookProblem.value || slackProblem.value || discordProblem.value || larkProblem.value) return
+  if (
+    hookProblem.value ||
+    slackProblem.value ||
+    discordProblem.value ||
+    larkProblem.value ||
+    ntfyProblem.value
+  )
+    return
 
   if (anyWay.value) {
     await save()
@@ -704,8 +770,9 @@ async function disconnectDiscord() {
 }
 
 // What a save sends: the whole alert every time, so what is off stays off. An
-// empty URL is a webhook, a Slack channel, a Discord channel or a Lark group being stopped
-// rather than one being left as it was, and the same goes for the chat.
+// empty URL is a webhook, a Slack channel, a Discord channel, a Lark group or an
+// ntfy topic being stopped rather than one being left as it was, and the same
+// goes for the chat.
 // generateSecret asks for a fresh signing secret in the same save, which is the
 // only way one is made.
 function alertBody(generateSecret = false) {
@@ -724,6 +791,7 @@ function alertBody(generateSecret = false) {
     slack: { url: slackURL.value.trim() },
     discord: { url: discordURL.value.trim() },
     lark: { url: larkURL.value.trim(), secret: larkSecret.value.trim() },
+    ntfy: { url: ntfyAddress.value, accessToken: ntfyToken.value.trim() },
     wholeService: whole.value,
     components: picked.value,
   }
@@ -732,7 +800,14 @@ function alertBody(generateSecret = false) {
 type SaveAnswer = { status: string; webhookSecret?: string }
 
 async function save() {
-  if (hookProblem.value || slackProblem.value || discordProblem.value || larkProblem.value) return
+  if (
+    hookProblem.value ||
+    slackProblem.value ||
+    discordProblem.value ||
+    larkProblem.value ||
+    ntfyProblem.value
+  )
+    return
 
   // A signed webhook needs a secret before it can be saved. The dialog is opened
   // instead of refusing at the banner: making the secret is the same save, and
@@ -776,7 +851,15 @@ function closeSecret() {
 }
 
 async function generateSecret() {
-  if (hookProblem.value || slackProblem.value || discordProblem.value || larkProblem.value || !callsOn.value) return
+  if (
+    hookProblem.value ||
+    slackProblem.value ||
+    discordProblem.value ||
+    larkProblem.value ||
+    ntfyProblem.value ||
+    !callsOn.value
+  )
+    return
 
   secretBusy.value = true
   secretError.value = ''
@@ -825,6 +908,7 @@ async function setPaused(way: Way, event: Event) {
     else if (way === 'slack') current.slackPaused = !on
     else if (way === 'discord') current.discordPaused = !on
     else if (way === 'lark') current.larkPaused = !on
+    else if (way === 'ntfy') current.ntfyPaused = !on
   } catch (err) {
     error.value = apiError(err)
     box.checked = !on
@@ -980,6 +1064,33 @@ async function tryLark() {
   }
 }
 
+// A notification is published to the ntfy topic the page is holding, saved or
+// not, so a topic can be checked before it is relied on.
+async function tryNtfy() {
+  if ((!ntfyOn.value && !savedNtfy.value) || ntfyProblem.value) return
+
+  ntfyTrying.value = true
+  ntfyAnswer.value = null
+  error.value = ''
+
+  try {
+    ntfyAnswer.value = await $fetch<{ ok: boolean; error: string }>(
+      `/api/v1/vendors/${slug.value}/alerts/ntfy/test`,
+      {
+        method: 'POST',
+        body: { url: ntfyAddress.value, accessToken: ntfyToken.value.trim() },
+      },
+    )
+  } catch (err) {
+    ntfyAnswer.value = {
+      ok: false,
+      error: apiError(err, 'The notification could not be sent.'),
+    }
+  } finally {
+    ntfyTrying.value = false
+  }
+}
+
 // The sample body is meant to be pasted somewhere else, so the page hands it
 // over as it is. The button says it was copied for a moment, then goes back to
 // being pressable.
@@ -1029,8 +1140,9 @@ async function refreshCalls() {
         </h1>
         <p class="mt-1 text-sm opacity-70">
           One alert per service, delivered by email, webhook, Telegram, Slack,
-          Discord, Lark or a mix of them. Email, Telegram, Slack, Discord and
-          Lark report on what you pick. A webhook always carries the whole service.
+          Discord, Lark, ntfy or a mix of them. Email, Telegram, Slack, Discord,
+          Lark and ntfy report on what you pick. A webhook always carries the whole
+          service.
         </p>
       </header>
 
@@ -1113,6 +1225,16 @@ async function refreshCalls() {
                   :busy="pausing === 'lark'"
                   @select="selectWay('lark')"
                   @pause="setPaused('lark', $event)"
+                />
+                <AlertWayRow
+                  label="ntfy"
+                  icon="ntfy"
+                  :active="way === 'ntfy'"
+                  :on="savedNtfy !== ''"
+                  :paused="ntfyPaused"
+                  :busy="pausing === 'ntfy'"
+                  @select="selectWay('ntfy')"
+                  @pause="setPaused('ntfy', $event)"
                 />
                 <li>
                   <button
@@ -2144,6 +2266,173 @@ async function refreshCalls() {
 
             </div>
 
+            <div v-show="way === 'ntfy'">
+              <h3 class="font-semibold">ntfy</h3>
+              <p class="mt-1 text-sm opacity-70">
+                A push notification on your phone whenever one of the things you
+                pick changes, in either direction. No chat account is needed.
+              </p>
+
+              <details class="mt-3 min-w-0 rounded-box border border-base-300">
+                <summary class="cursor-pointer px-4 py-3 text-sm font-medium">
+                  How to set up ntfy
+                </summary>
+                <div class="min-w-0 border-t border-base-300 px-4 py-3">
+                  <ol class="list-decimal space-y-1 pl-5 text-sm opacity-70">
+                    <li>
+                      Install the ntfy app on your phone, or open it in a browser.
+                    </li>
+                    <li>Subscribe to a topic, or make one with a name only you know.</li>
+                    <li>
+                      Add a topic name after the address below. A name only you
+                      know is best.
+                    </li>
+                    <li>If the topic is protected, paste its access token too.</li>
+                  </ol>
+                  <p class="mt-2 text-sm opacity-70">
+                    The topic can be on
+                    <a
+                      href="https://ntfy.sh"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="link"
+                    >ntfy.sh</a>
+                    or on a server you host yourself. Replace the address to use
+                    another server.
+                  </p>
+                </div>
+              </details>
+
+              <!-- The address is shown because it is what the subscriber edits;
+                   the access token is the secret, so that field stays masked. -->
+              <div class="mt-3">
+                <label for="ntfy-url" class="label-text mb-1 block text-sm font-medium">
+                  Topic URL
+                </label>
+                <label class="input w-full" :class="{ 'input-error': !!ntfyProblem }">
+                  <svg
+                    class="h-[1em] opacity-50"
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                  >
+                    <g
+                      stroke-linejoin="round"
+                      stroke-linecap="round"
+                      stroke-width="2.5"
+                      fill="none"
+                      stroke="currentColor"
+                    >
+                      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                    </g>
+                  </svg>
+                  <input
+                    id="ntfy-url"
+                    v-model="ntfyURL"
+                    type="url"
+                    inputmode="url"
+                    autocomplete="off"
+                    spellcheck="false"
+                    placeholder="https://ntfy.sh/your-topic"
+                    class="grow"
+                    @focus="placeNtfyCursor"
+                    @blur="normalizeNtfyURL"
+                  />
+                </label>
+                <p v-if="ntfyProblem" class="mt-2 text-sm text-error">{{ ntfyProblem }}</p>
+                <p class="mt-2 text-sm opacity-70">
+                  The address starts from ntfy.sh; add the topic at the end. Leave
+                  it empty to stop the notifications for good.
+                </p>
+              </div>
+
+              <div class="mt-3">
+                <PasswordInput
+                  v-model="ntfyToken"
+                  label="Access token"
+                  secret="access token"
+                  autocomplete="off"
+                  placeholder="Only if the topic is protected"
+                >
+                  <p class="mt-2 text-sm opacity-70">
+                    Optional. Paste the access token that may publish to this
+                    topic. It is kept with this alert and shown masked.
+                  </p>
+                </PasswordInput>
+              </div>
+
+              <div class="mt-4 rounded-box border border-base-300">
+                <div class="flex items-center justify-between border-b border-base-300 px-5 py-3">
+                  <span class="text-sm font-medium">What to notify about</span>
+                  <StatusBadge :status="vendor.status" size="xs" />
+                </div>
+                <AlertTargets
+                  v-model:whole="whole"
+                  v-model:picked="picked"
+                  :slug="slug"
+                  :name="vendor.name"
+                  :status="vendor.status"
+                  :components="vendor.componentsList ?? []"
+                />
+              </div>
+
+              <div class="mt-3 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  class="btn btn-outline btn-sm"
+                  :disabled="ntfyTrying || (!ntfyOn && !savedNtfy) || !!ntfyProblem"
+                  @click="tryNtfy"
+                >
+                  <span v-if="ntfyTrying" class="loading loading-spinner loading-xs" />
+                  Send a test notification
+                </button>
+                <span v-if="!ntfyAnswer" class="text-xs opacity-70">
+                  A notification goes to this topic now, saved or not.
+                </span>
+              </div>
+
+              <div
+                v-if="ntfyAnswer"
+                class="mt-3 rounded-box border border-base-300 bg-base-200 p-3"
+              >
+                <p class="flex flex-wrap items-center gap-2 text-sm">
+                  <span class="font-medium">What ntfy answered</span>
+                  <span
+                    class="badge badge-sm"
+                    :class="ntfyAnswer.ok ? 'badge-success' : 'badge-error'"
+                  >
+                    {{ ntfyAnswer.ok ? 'published' : 'refused' }}
+                  </span>
+                </p>
+                <p v-if="ntfyAnswer.error" class="mt-2 text-sm text-error">
+                  {{ ntfyAnswer.error }}
+                </p>
+                <p v-else class="mt-2 text-sm opacity-70">
+                  The notification was published to that topic.
+                </p>
+              </div>
+
+              <div
+                v-if="ntfyDelivery?.attemptAt"
+                class="mt-3 rounded-box border border-base-300 bg-base-200 p-3"
+              >
+                <template v-if="ntfyDelivery.error">
+                  <p class="text-sm font-medium text-error">
+                    Last delivery failed
+                    <LiveAgo :at="ntfyDelivery.attemptAt" />
+                  </p>
+                  <p class="mt-1 break-words text-xs text-error">
+                    {{ ntfyDelivery.error }}
+                  </p>
+                </template>
+                <p v-else class="text-sm">
+                  <span class="font-medium text-success">Last delivered</span>
+                  <LiveAgo :at="ntfyDelivery.successAt ?? ntfyDelivery.attemptAt" />
+                </p>
+              </div>
+            </div>
+
             <!-- The feed is the one way here that nothing is kept for, so it has
                  no field to save: what it is, is an address. It sits last
                  because it is the way with nothing to set up. -->
@@ -2162,7 +2451,7 @@ async function refreshCalls() {
               <button
                 type="button"
                 class="btn btn-primary btn-sm"
-                :disabled="busy || nothingToTellAbout || (!anyWay && !state?.subscribed) || !!hookProblem || !!slackProblem || !!discordProblem || !!larkProblem"
+                :disabled="busy || nothingToTellAbout || (!anyWay && !state?.subscribed) || !!hookProblem || !!slackProblem || !!discordProblem || !!larkProblem || !!ntfyProblem"
                 @click="save"
               >
                 <span v-if="busy" class="loading loading-spinner loading-xs" />
@@ -2175,7 +2464,7 @@ async function refreshCalls() {
             </p>
             <p v-else-if="!anyWay && !state?.subscribed" class="mt-2 text-sm opacity-70">
               An alert needs an address, a webhook, a chat, a Slack channel, a
-              Discord channel or a Lark group to arrive on.
+              Discord channel, a Lark group or an ntfy topic to arrive on.
             </p>
           </div>
         </div>
