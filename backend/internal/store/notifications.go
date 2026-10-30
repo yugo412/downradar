@@ -27,9 +27,9 @@ const (
 )
 
 // NotificationInput is one thing to put into the feed. Audience is used unless
-// Recipients is given, so a broadcast and a notice to a particular account take
-// the same path. The links are optional; the notice stays if the service or
-// alert is later removed, though the link is cleared with it.
+// Recipients is given, so an audience-wide notice and a notice to a particular
+// account take the same path. The links are optional; the notice stays if the
+// service or alert is later removed, though the link is cleared with it.
 type NotificationInput struct {
 	Audience   string
 	Recipients []int64
@@ -38,6 +38,9 @@ type NotificationInput struct {
 	ServiceID  *int64
 	AlertID    *int64
 	CreatedBy  *int64
+	// DedupeKey makes one event that arrives through several alert channels
+	// write a single notice. An empty key is not deduplicated.
+	DedupeKey string
 }
 
 // NotificationView is one notice as its recipient sees it. ServiceSlug and
@@ -69,7 +72,7 @@ func clipText(value string, limit int) string {
 
 // CreateNotification writes one notice and gives it to its recipients. A notice
 // with nobody to read it is not written at all, so the feed does not grow rows
-// that no page can reach.
+// that no page can reach. A DedupeKey that was already written is a no-op.
 func (s *Store) CreateNotification(ctx context.Context, in NotificationInput) (int, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -110,13 +113,23 @@ func (s *Store) createNotificationTx(ctx context.Context, tx pgx.Tx, in Notifica
 		return 0, nil
 	}
 
+	var dedupe any
+	if in.DedupeKey != "" {
+		dedupe = in.DedupeKey
+	}
+
 	var id int64
-	if err := tx.QueryRow(ctx, `
-		insert into notifications (audience, title, body, service_id, alert_id, created_by)
-		values ($1, $2, $3, $4, $5, $6)
+	err = tx.QueryRow(ctx, `
+		insert into notifications (audience, title, body, service_id, alert_id, created_by, dedupe_key)
+		values ($1, $2, $3, $4, $5, $6, $7)
+		on conflict (dedupe_key) do nothing
 		returning id`,
-		in.Audience, in.Title, in.Body, in.ServiceID, in.AlertID, in.CreatedBy,
-	).Scan(&id); err != nil {
+		in.Audience, in.Title, in.Body, in.ServiceID, in.AlertID, in.CreatedBy, dedupe,
+	).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
 		return 0, fmt.Errorf("notifications: insert: %w", err)
 	}
 
@@ -224,6 +237,21 @@ func (s *Store) SetNotificationRead(ctx context.Context, userID, id int64, read 
 		where notification_id = $1 and user_id = $2`, id, userID, read)
 	if err != nil {
 		return fmt.Errorf("notifications: set read %d: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// DeleteNotification removes one notice from one account's feed. A notice is
+// shared with its other recipients, so only this account's row goes away.
+func (s *Store) DeleteNotification(ctx context.Context, userID, id int64) error {
+	tag, err := s.pool.Exec(ctx, `
+		delete from notification_recipients
+		where notification_id = $1 and user_id = $2`, id, userID)
+	if err != nil {
+		return fmt.Errorf("notifications: delete %d: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound

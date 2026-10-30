@@ -7,23 +7,12 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"downradar.info/backend/internal/store"
 )
 
-const (
-	maxNotificationTitle = 160
-	maxNotificationBody  = 4000
-)
-
 type notificationReadRequest struct {
 	Read *bool `json:"read"`
-}
-
-type broadcastRequest struct {
-	Title string `json:"title"`
-	Body  string `json:"body"`
 }
 
 // listNotifications is the feed for the signed in account. The unread count is
@@ -93,6 +82,25 @@ func (h *handlers) setNotificationRead(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"read": *body.Read})
 }
 
+func (h *handlers) deleteNotification(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id < 1 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid notification id"})
+		return
+	}
+
+	err = h.store.DeleteNotification(r.Context(), h.user(r).ID, id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Notification not found"})
+		return
+	}
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *handlers) markNotificationsRead(w http.ResponseWriter, r *http.Request) {
 	updated, err := h.store.SetAllNotificationsRead(r.Context(), h.user(r).ID)
 	if err != nil {
@@ -100,50 +108,4 @@ func (h *handlers) markNotificationsRead(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]int{"updated": updated})
-}
-
-// sendBroadcast is the staff side of the same feed: one announcement written
-// once and handed to every active subscriber account.
-func (h *handlers) sendBroadcast(w http.ResponseWriter, r *http.Request) {
-	var body broadcastRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
-		return
-	}
-
-	title := clean(sanitize(body.Title))
-	text := clean(sanitize(body.Body))
-	if title == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "A title is required"})
-		return
-	}
-	if utf8.RuneCountInString(title) > maxNotificationTitle {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "The title is too long",
-		})
-		return
-	}
-	if text == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "A message is required"})
-		return
-	}
-	if utf8.RuneCountInString(text) > maxNotificationBody {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "The message is too long",
-		})
-		return
-	}
-
-	user := h.user(r)
-	sent, err := h.store.CreateNotification(r.Context(), store.NotificationInput{
-		Audience:  store.AudienceSubscribers,
-		Title:     title,
-		Body:      text,
-		CreatedBy: &user.ID,
-	})
-	if err != nil {
-		h.fail(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]int{"sent": sent})
 }

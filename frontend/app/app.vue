@@ -138,17 +138,6 @@ async function resend() {
               Alerts
             </NuxtLink>
 
-            <NuxtLink
-              v-if="user"
-              to="/notifications"
-              class="btn btn-ghost btn-sm hidden gap-1 md:inline-flex"
-            >
-              Notifications
-              <span v-if="unread > 0" class="badge badge-primary badge-sm">
-                {{ unread > 99 ? '99+' : unread }}
-              </span>
-            </NuxtLink>
-
             <!-- A subscriber looks after the services they added from the same
                  list, which is the menu entry the staff reach through Service. -->
             <NuxtLink
@@ -246,6 +235,26 @@ async function resend() {
               </div>
             </div>
 
+            <!-- The bell is the only entry to the feed. It sits after the
+                 account menu and carries the unread count, so the feed itself
+                 stays a page rather than a popover. -->
+            <div v-if="user" class="indicator">
+              <span
+                v-if="unread > 0"
+                class="indicator-item badge badge-primary badge-xs"
+                aria-hidden="true"
+              >
+                {{ unread > 99 ? '99+' : unread }}
+              </span>
+              <NuxtLink
+                to="/notifications"
+                class="btn btn-ghost btn-sm btn-circle"
+                :aria-label="unread > 0 ? `Notifications, ${unread} unread` : 'Notifications'"
+              >
+                <BellIcon class="h-5 w-5" />
+              </NuxtLink>
+            </div>
+
             <!-- Narrow screens get one panel instead of the dropdowns, for a
                  visitor with an account and one without alike. The panel is a
                  child of the nav but positions against the header, which is why
@@ -279,17 +288,6 @@ async function resend() {
             >
               <NuxtLink to="/alerts" class="block rounded-btn px-3 py-2 text-sm hover:bg-base-200">
                 Alerts
-              </NuxtLink>
-
-              <NuxtLink
-                v-if="user"
-                to="/notifications"
-                class="flex items-center justify-between rounded-btn px-3 py-2 text-sm hover:bg-base-200"
-              >
-                <span>Notifications</span>
-                <span v-if="unread > 0" class="badge badge-primary badge-sm">
-                  {{ unread > 99 ? '99+' : unread }}
-                </span>
               </NuxtLink>
 
               <NuxtLink

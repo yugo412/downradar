@@ -17,8 +17,8 @@ import (
 )
 
 // isolatedNotificationRouter gives the notification tests a schema of their own.
-// A broadcast legitimately reaches every subscriber, so another package running
-// at the same time would otherwise be able to add rows to these feeds.
+// The feed and its unread count are per account, so another package running at
+// the same time could otherwise add rows to these feeds.
 func isolatedNotificationRouter(t *testing.T) (*store.Store, http.Handler) {
 	t.Helper()
 
@@ -69,9 +69,10 @@ func TestTheNotificationFeedAndItsReadState(t *testing.T) {
 	title := notificationTitle("zz-http-notice")
 
 	if _, err := st.CreateNotification(t.Context(), store.NotificationInput{
-		Audience: store.AudienceSubscribers,
-		Title:    title,
-		Body:     "Something the account should read.",
+		Audience:   store.AudienceSubscribers,
+		Recipients: []int64{subscriber.ID},
+		Title:      title,
+		Body:       "Something the account should read.",
 	}); err != nil {
 		t.Fatalf("CreateNotification: %v", err)
 	}
@@ -120,9 +121,10 @@ func TestTheNotificationFeedAndItsReadState(t *testing.T) {
 
 	second := notificationTitle("zz-http-notice-second")
 	if _, err := st.CreateNotification(t.Context(), store.NotificationInput{
-		Audience: store.AudienceSubscribers,
-		Title:    second,
-		Body:     "One more for the feed.",
+		Audience:   store.AudienceSubscribers,
+		Recipients: []int64{subscriber.ID},
+		Title:      second,
+		Body:       "One more for the feed.",
 	}); err != nil {
 		t.Fatalf("second CreateNotification: %v", err)
 	}
@@ -159,70 +161,76 @@ func TestTheNotificationFeedAndItsReadState(t *testing.T) {
 	}
 }
 
-func TestOnlyStaffMayBroadcastAndSubscribersReceiveIt(t *testing.T) {
+func TestDeletingANotificationOnlyRemovesTheCallersCopy(t *testing.T) {
 	st, router := isolatedNotificationRouter(t)
 
-	admin := testUser(t, st, auth.RoleAdmin)
-	subscriber := testUser(t, st, auth.RoleSubscriber)
-	adminCookie := sessionFor(t, st, admin)
-	subscriberCookie := sessionFor(t, st, subscriber)
-	title := notificationTitle("zz-http-broadcast")
-	body := fmt.Sprintf(`{"title":%q,"body":"A new feature is here."}`, title)
+	first := testUser(t, st, auth.RoleSubscriber)
+	second := testUser(t, st, auth.RoleSubscriber)
+	firstCookie := sessionFor(t, st, first)
+	secondCookie := sessionFor(t, st, second)
+	title := notificationTitle("zz-http-notice-delete")
 
-	if rec := call(t, router, http.MethodPost, "/api/v1/staff/notifications",
-		body, subscriberCookie); rec.Code != http.StatusForbidden {
-		t.Errorf("subscriber broadcast = %d, want 403", rec.Code)
+	if _, err := st.CreateNotification(t.Context(), store.NotificationInput{
+		Audience:   store.AudienceSubscribers,
+		Recipients: []int64{first.ID, second.ID},
+		Title:      title,
+		Body:       "Both accounts can see this notice.",
+	}); err != nil {
+		t.Fatalf("CreateNotification: %v", err)
 	}
 
-	if rec := call(t, router, http.MethodPost, "/api/v1/staff/notifications",
-		`{"title":"","body":""}`, adminCookie); rec.Code != http.StatusBadRequest {
-		t.Errorf("empty broadcast = %d, want 400", rec.Code)
-	}
-
-	rec := call(t, router, http.MethodPost, "/api/v1/staff/notifications", body, adminCookie)
+	rec := call(t, router, http.MethodGet, "/api/v1/notifications", "", firstCookie)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("broadcast = %d, want 200: %s", rec.Code, strings.TrimSpace(rec.Body.String()))
-	}
-	var sent struct {
-		Sent int `json:"sent"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &sent); err != nil {
-		t.Fatalf("decode broadcast: %v", err)
-	}
-	if sent.Sent < 1 {
-		t.Errorf("broadcast sent = %d, want at least the test subscriber", sent.Sent)
-	}
-
-	rec = call(t, router, http.MethodGet, "/api/v1/notifications", "", subscriberCookie)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("subscriber feed = %d, want 200", rec.Code)
+		t.Fatalf("feed = %d, want 200: %s", rec.Code, strings.TrimSpace(rec.Body.String()))
 	}
 	var feed notificationFeed
 	if err := json.Unmarshal(rec.Body.Bytes(), &feed); err != nil {
-		t.Fatalf("decode subscriber feed: %v", err)
+		t.Fatalf("decode feed: %v", err)
 	}
-	found := false
-	for _, notice := range feed.Notifications {
-		if notice.Title == title {
-			found = true
-		}
+	if len(feed.Notifications) != 1 {
+		t.Fatalf("feed has %d items, want 1", len(feed.Notifications))
 	}
-	if !found {
-		t.Error("the subscriber did not receive the broadcast")
+	id := feed.Notifications[0].ID
+
+	rec = call(t, router, http.MethodDelete,
+		fmt.Sprintf("/api/v1/notifications/%d", id), "", firstCookie)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete = %d, want 204: %s", rec.Code, strings.TrimSpace(rec.Body.String()))
 	}
 
-	rec = call(t, router, http.MethodGet, "/api/v1/notifications", "", adminCookie)
+	rec = call(t, router, http.MethodGet, "/api/v1/notifications", "", firstCookie)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("admin feed = %d, want 200", rec.Code)
+		t.Fatalf("feed after delete = %d, want 200", rec.Code)
 	}
 	feed = notificationFeed{}
 	if err := json.Unmarshal(rec.Body.Bytes(), &feed); err != nil {
-		t.Fatalf("decode admin feed: %v", err)
+		t.Fatalf("decode feed after delete: %v", err)
 	}
-	for _, notice := range feed.Notifications {
-		if notice.Title == title {
-			t.Error("staff received the subscriber broadcast")
-		}
+	if feed.Count != 0 || feed.Unread != 0 {
+		t.Errorf("feed after delete = %d items, %d unread, want none", feed.Count, feed.Unread)
+	}
+
+	rec = call(t, router, http.MethodGet, "/api/v1/notifications", "", secondCookie)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("other feed = %d, want 200", rec.Code)
+	}
+	feed = notificationFeed{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &feed); err != nil {
+		t.Fatalf("decode other feed: %v", err)
+	}
+	if feed.Count != 1 {
+		t.Errorf("the other account has %d items after the delete, want 1", feed.Count)
+	}
+
+	rec = call(t, router, http.MethodDelete,
+		fmt.Sprintf("/api/v1/notifications/%d", id), "", secondCookie)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("second delete = %d, want 204", rec.Code)
+	}
+	rec = call(t, router, http.MethodDelete,
+		fmt.Sprintf("/api/v1/notifications/%d", id), "", secondCookie)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("deleting an already removed notice = %d, want 404", rec.Code)
 	}
 }
 
@@ -233,5 +241,8 @@ func TestNotificationsNeedASession(t *testing.T) {
 		if rec := call(t, router, http.MethodGet, path, "", ""); rec.Code != http.StatusUnauthorized {
 			t.Errorf("%s = %d, want 401", path, rec.Code)
 		}
+	}
+	if rec := call(t, router, http.MethodDelete, "/api/v1/notifications/1", "", ""); rec.Code != http.StatusUnauthorized {
+		t.Errorf("delete without a session = %d, want 401", rec.Code)
 	}
 }

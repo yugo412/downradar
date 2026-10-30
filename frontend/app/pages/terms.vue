@@ -53,8 +53,9 @@ useSeoMeta({
       <p class="mt-3">
         In-site notifications appear only in the account feed while you are signed
         in. They are not a separate delivery channel and do not replace an alert.
-        Staff may send announcements to subscriber accounts, and operational
-        notices may be shown to staff.
+        They follow an alert once at least one of its channels delivers, so a
+        paused or failed channel does not create one by itself. Staff see
+        operational notices about polling and alert delivery.
       </p>
     </section>
 
