@@ -114,12 +114,16 @@ async function resend() {
           <!-- ClientOnly is required, not cosmetic: the session is fetched in the
                browser, so rendering this from the server would either leak one
                visitor's session into the cached page or break hydration. The
-               theme button is in here for the same kind of reason: the server
+               theme switch is in here for the same kind of reason: the server
                cannot know the system's colour scheme, and the page it renders
-               is cached and handed to every visitor, so an icon rendered on
+               is cached and handed to every visitor, so a switch rendered on
                the server would be the one of whoever the cached page was
                rendered for. -->
           <ClientOnly>
+            <!-- The first control is the theme switch, so it is the first thing
+                 a visitor meets in the header. -->
+            <ThemeToggle />
+
             <!-- These stand on their own rather than under the account menu,
                  and are hidden on a narrow screen: there the copies inside the
                  panel below are the ones that show. Alerts and Services are
@@ -358,11 +362,6 @@ async function resend() {
                 </NuxtLink>
               </template>
             </div>
-
-            <!-- The button that switches the theme. It is drawn by the browser,
-                 so the icon is the one that belongs to the theme actually on
-                 the page, whichever that is. -->
-            <ThemeToggle />
           </ClientOnly>
         </nav>
       </div>
