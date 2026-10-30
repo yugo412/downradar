@@ -13,6 +13,8 @@ semantic versioning.
 
 ### Changed
 
+- Vendor pages split components, incidents, recent status and staff fetch logs
+  into tabs, with relative timestamps and open incidents collapsed above them.
 - A service that no profile could match is paused after 20 failed detection attempts, and can be resumed or tried again from its row.
 
 ## [0.7.0]
@@ -40,7 +42,6 @@ semantic versioning.
   rows and the webhook panel is split into tabs.
 - The status filter uses the daisyUI filter component, and the components table
   can be sorted by name, state or since.
-- Open incidents are collapsed by default on vendor pages.
 - The first visit follows the system colour scheme, and theme changes use one
   view transition.
 - Feed URLs and their copy button are joined, and staff can correct a service

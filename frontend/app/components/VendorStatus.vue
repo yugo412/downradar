@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ComponentStatus, VendorDetail } from '~/types/api'
 
-const props = defineProps<{ vendor: VendorDetail }>()
+const props = defineProps<{ vendor: VendorDetail; ownerId?: number }>()
 
 const components = computed(() => props.vendor.componentsList ?? [])
 const incidents = computed(() => props.vendor.incidents ?? [])
@@ -48,6 +48,73 @@ const naturalAsc: Record<SortKey, boolean> = {
 
 const route = useRoute()
 const router = useRouter()
+
+// The parts of the page are tabs rather than one long scroll, and the open tab
+// is part of the address. The public tabs can be read from the query on the
+// server; the log is staff and owner only, so it joins after the session is
+// known and is never part of the cached page.
+type PublicTab = 'components' | 'incidents' | 'recent'
+type Tab = PublicTab | 'logs'
+
+const { user, canManageServices } = useAuth()
+const tabGroup = useId()
+
+const publicTabs = computed<{ value: PublicTab; label: string }[]>(() => [
+  { value: 'components', label: 'Components' },
+  { value: 'incidents', label: 'Incidents' },
+  { value: 'recent', label: 'Recent status' },
+])
+
+function isPublicTab(value: string): value is PublicTab {
+  return publicTabs.value.some((tab) => tab.value === value)
+}
+
+function requestedTab(): Tab {
+  const wanted = String(route.query.tab ?? '')
+  return isPublicTab(wanted) ? wanted : 'components'
+}
+
+const tab = ref<Tab>(requestedTab())
+
+function selectTab(next: Tab) {
+  tab.value = next
+  const query = { ...route.query }
+  if (next === 'components') {
+    delete query.tab
+  } else {
+    query.tab = next
+  }
+  router.replace({ query })
+}
+
+const showLogs = computed(
+  () => canManageServices.value || (props.ownerId != null && props.ownerId === user.value?.id),
+)
+
+function syncTabFromQuery() {
+  const wanted = String(route.query.tab ?? '')
+  if (wanted === 'logs') {
+    tab.value = showLogs.value ? 'logs' : 'components'
+    return
+  }
+  tab.value = isPublicTab(wanted) ? wanted : 'components'
+}
+
+watch(() => route.query.tab, syncTabFromQuery)
+
+watch(showLogs, (allowed) => {
+  if (!allowed && tab.value === 'logs') {
+    selectTab('components')
+  } else if (allowed && String(route.query.tab ?? '') === 'logs') {
+    tab.value = 'logs'
+  }
+})
+
+onMounted(() => {
+  if (showLogs.value && String(route.query.tab ?? '') === 'logs') {
+    tab.value = 'logs'
+  }
+})
 
 function isSortKey(value: string): value is SortKey {
   return sortColumns.some((column) => column.key === value)
@@ -173,7 +240,7 @@ const shownComponents = computed(() => {
 
     <details
       v-if="openIncidents.length"
-      class="collapse collapse-arrow mb-8 rounded-box border border-base-300 bg-base-100 shadow-sm"
+      class="collapse collapse-arrow mb-6 rounded-box border border-base-300 bg-base-100 shadow-sm"
     >
       <summary class="collapse-title flex items-center gap-2 font-semibold">
         <span class="badge badge-warning badge-sm">{{ openIncidents.length }}</span>
@@ -186,127 +253,224 @@ const shownComponents = computed(() => {
       </div>
     </details>
 
-    <section class="mb-8">
-      <h2 class="mb-3 text-lg font-semibold">Components</h2>
+    <div class="tabs tabs-lift w-full" role="tablist" aria-label="Service details">
+      <template v-for="t in publicTabs" :key="t.value">
+        <label
+          class="tab flex-none cursor-pointer whitespace-nowrap"
+          :class="{ 'tab-active': tab === t.value }"
+        >
+          <input
+            type="radio"
+            class="sr-only"
+            :name="tabGroup"
+            :checked="tab === t.value"
+            @change="selectTab(t.value)"
+          />
+          {{ t.label }}
+        </label>
+        <div class="tab-content basis-full bg-base-100 border-base-300 p-6">
+          <section v-if="t.value === 'components' && tab === 'components'">
+            <h2 class="mb-3 text-lg font-semibold">Components</h2>
 
-      <input
-        v-if="components.length"
-        v-model="search"
-        type="search"
-        class="input input-bordered mb-3 w-full"
-        placeholder="Search components"
-        aria-label="Search components"
-      />
-
-      <StatusFilter
-        v-model="statusFilter"
-        :statuses="statusOptions"
-        label="Filter components by state"
-        class="mb-3"
-      />
-
-      <div class="overflow-x-auto bg-base-100 border border-base-300 rounded-box shadow-sm">
-        <table class="table">
-          <thead>
-            <tr>
-              <th
-                v-for="col in sortColumns"
-                :key="col.key"
-                :aria-sort="sortState(col.key)"
-                :class="col.key === 'since' ? 'text-right' : ''"
-              >
-                <button
-                  type="button"
-                  class="inline-flex cursor-pointer select-none items-center gap-1 whitespace-nowrap"
-                  @click="sortBy(col.key)"
-                >
-                  {{ col.label }}
-                  <span
-                    aria-hidden="true"
-                    :class="sortKey === col.key ? '' : 'opacity-40'"
-                  >
-                    {{ sortKey === col.key ? (sortAsc ? '↑' : '↓') : '↕' }}
-                  </span>
-                </button>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="c in shownComponents" :key="c.sourceId">
-              <td class="font-medium">{{ c.name }}</td>
-              <td><StatusBadge :status="c.status" size="sm" /></td>
-              <td class="whitespace-nowrap text-right text-sm opacity-60">
-                <LiveAgo :at="c.changedAt" />
-              </td>
-            </tr>
-            <tr v-if="!shownComponents.length">
-              <td colspan="3" class="text-center opacity-60">
-                <template v-if="!components.length">No components reported yet.</template>
-                <template v-else-if="!matched.length">
-                  No component matches “{{ search.trim() }}”.
-                </template>
-                <template v-else>No component is in the states you picked.</template>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <section v-if="incidents.length" class="mb-8">
-      <h2 class="mb-3 text-lg font-semibold">Incidents</h2>
-      <ul class="timeline timeline-vertical timeline-compact">
-        <li v-for="i in incidents" :key="i.sourceId">
-          <div class="timeline-middle">
-            <span
-              class="inline-block h-3 w-3 rounded-full"
-              :class="i.resolvedAt ? 'bg-success' : 'bg-error'"
+            <input
+              v-if="components.length"
+              v-model="search"
+              type="search"
+              class="input input-bordered mb-3 w-full"
+              placeholder="Search components"
+              aria-label="Search components"
             />
-          </div>
-          <div class="timeline-end timeline-box mb-3">
-            <div class="flex flex-wrap items-center gap-2">
-              <span class="font-medium">{{ i.name }}</span>
-              <span class="badge badge-ghost badge-sm">{{ i.status }}</span>
-              <span v-if="i.impact" class="badge badge-sm">{{ i.impact }}</span>
-            </div>
-            <p class="mt-1 text-xs opacity-60">
-              <LocalTime :at="i.startedAt" />
-              <span v-if="i.resolvedAt"> → <LocalTime :at="i.resolvedAt" /></span>
-              <span v-else> → ongoing</span>
-            </p>
-            <a
-              v-if="i.url"
-              :href="i.url"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="link text-xs"
-            >
-              Official notice
-            </a>
-          </div>
-          <hr />
-        </li>
-      </ul>
-    </section>
 
-    <section v-if="events.length">
-      <h2 class="mb-3 text-lg font-semibold">Recent status changes</h2>
-      <ul class="timeline timeline-vertical timeline-compact">
-        <li v-for="(e, idx) in events" :key="idx">
-          <div class="timeline-middle">
-            <span class="inline-block h-2.5 w-2.5 rounded-full bg-current opacity-60" />
-          </div>
-          <div class="timeline-end timeline-box mb-2">
-            <div class="flex flex-wrap items-center gap-2">
-              <StatusBadge :status="e.status" size="sm" />
-              <span v-if="e.component" class="text-sm opacity-80">{{ e.component }}</span>
-              <span class="text-xs opacity-50"><LocalTime :at="e.changedAt" /></span>
+            <StatusFilter
+              v-model="statusFilter"
+              :statuses="statusOptions"
+              label="Filter components by state"
+              class="mb-3"
+            />
+
+            <div class="overflow-x-auto bg-base-100 border border-base-300 rounded-box shadow-sm">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th
+                      v-for="col in sortColumns"
+                      :key="col.key"
+                      :aria-sort="sortState(col.key)"
+                      :class="col.key === 'since' ? 'text-right' : ''"
+                    >
+                      <button
+                        type="button"
+                        class="inline-flex cursor-pointer select-none items-center gap-1 whitespace-nowrap"
+                        @click="sortBy(col.key)"
+                      >
+                        {{ col.label }}
+                        <span
+                          aria-hidden="true"
+                          :class="sortKey === col.key ? '' : 'opacity-40'"
+                        >
+                          {{ sortKey === col.key ? (sortAsc ? '↑' : '↓') : '↕' }}
+                        </span>
+                      </button>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="c in shownComponents" :key="c.sourceId">
+                    <td class="font-medium">{{ c.name }}</td>
+                    <td><StatusBadge :status="c.status" size="sm" /></td>
+                    <td class="whitespace-nowrap text-right text-sm opacity-60">
+                      <LiveAgo :at="c.changedAt" />
+                    </td>
+                  </tr>
+                  <tr v-if="!shownComponents.length">
+                    <td colspan="3" class="text-center opacity-60">
+                      <template v-if="!components.length">No components reported yet.</template>
+                      <template v-else-if="!matched.length">
+                        No component matches “{{ search.trim() }}”.
+                      </template>
+                      <template v-else>No component is in the states you picked.</template>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
+          </section>
+
+          <section v-else-if="t.value === 'incidents' && tab === 'incidents'">
+            <h2 class="mb-3 text-lg font-semibold">Incidents</h2>
+
+            <ul v-if="incidents.length" class="timeline timeline-vertical">
+              <li
+                v-for="(i, idx) in incidents"
+                :key="i.sourceId"
+                class="[--timeline-col-start:4.5rem] [--timeline-col-end:1fr]"
+              >
+                <hr v-if="idx > 0" />
+                <div class="timeline-start justify-self-start whitespace-nowrap text-xs opacity-60">
+                  <LiveAgo :at="i.startedAt" long />
+                </div>
+                <div class="timeline-middle">
+                  <svg
+                    v-if="i.resolvedAt"
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    class="h-5 w-5 text-success"
+                    aria-hidden="true"
+                  >
+                    <path
+                      fill-rule="evenodd"
+                      d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z"
+                      clip-rule="evenodd"
+                    />
+                  </svg>
+                  <svg
+                    v-else
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    class="h-5 w-5 text-error"
+                    aria-hidden="true"
+                  >
+                    <path
+                      fill-rule="evenodd"
+                      d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-5a.75.75 0 01.75.75v4.5a.75.75 0 01-1.5 0v-4.5A.75.75 0 0110 5zm0 10a1 1 0 100-2 1 1 0 000 2z"
+                      clip-rule="evenodd"
+                    />
+                  </svg>
+                </div>
+                <div class="timeline-end timeline-box mb-3 w-full">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <span class="font-medium">{{ i.name }}</span>
+                    <span class="badge badge-ghost badge-sm">{{ i.status }}</span>
+                    <span v-if="i.impact" class="badge badge-sm">{{ i.impact }}</span>
+                  </div>
+                  <p class="mt-1 text-xs opacity-60">
+                    <template v-if="i.resolvedAt">
+                      Resolved <LiveAgo :at="i.resolvedAt" long />
+                    </template>
+                    <template v-else>Ongoing</template>
+                  </p>
+                  <a
+                    v-if="i.url"
+                    :href="i.url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="link text-xs"
+                  >
+                    Official notice
+                  </a>
+                </div>
+                <hr />
+              </li>
+            </ul>
+            <p v-else class="text-sm opacity-60">No incidents reported.</p>
+          </section>
+
+          <section v-else-if="t.value === 'recent' && tab === 'recent'">
+            <h2 class="mb-3 text-lg font-semibold">Recent status changes</h2>
+            <ul v-if="events.length" class="timeline timeline-vertical">
+              <li
+                v-for="(e, idx) in events"
+                :key="idx"
+                class="[--timeline-col-start:4.5rem] [--timeline-col-end:1fr]"
+              >
+                <hr v-if="idx > 0" />
+                <div class="timeline-start justify-self-start whitespace-nowrap text-xs opacity-60">
+                  <LiveAgo :at="e.changedAt" long />
+                </div>
+                <div class="timeline-middle">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    class="h-5 w-5 text-base-content/30"
+                    aria-hidden="true"
+                  >
+                    <path
+                      fill-rule="evenodd"
+                      d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z"
+                      clip-rule="evenodd"
+                    />
+                  </svg>
+                </div>
+                <div class="timeline-end timeline-box mb-2 w-full">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <StatusBadge :status="e.status" size="sm" />
+                    <span v-if="e.component" class="text-sm opacity-80">{{ e.component }}</span>
+                  </div>
+                </div>
+                <hr />
+              </li>
+            </ul>
+            <p v-else class="text-sm opacity-60">No status changes recorded yet.</p>
+          </section>
+        </div>
+      </template>
+
+      <ClientOnly>
+        <template v-if="showLogs">
+          <label
+            class="tab flex-none cursor-pointer whitespace-nowrap"
+            :class="{ 'tab-active': tab === 'logs' }"
+          >
+            <input
+              type="radio"
+              class="sr-only"
+              :name="tabGroup"
+              :checked="tab === 'logs'"
+              @change="selectTab('logs')"
+            />
+            Logs
+          </label>
+          <div class="tab-content basis-full bg-base-100 border-base-300 p-6">
+            <section v-if="tab === 'logs'">
+              <FetchLog :slug="vendor.slug" :owner-id="ownerId" flush />
+            </section>
           </div>
-          <hr />
-        </li>
-      </ul>
-    </section>
+        </template>
+      </ClientOnly>
+    </div>
 
     <p v-if="vendor.lastPolledAt" class="mt-8 text-xs opacity-50">
       Last checked <LiveAgo :at="vendor.lastPolledAt" />.
