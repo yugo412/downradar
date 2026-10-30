@@ -47,6 +47,7 @@ const CHANNEL_LABELS: Record<string, string> = {
   slack: 'Slack',
   discord: 'Discord',
   lark: 'Lark',
+  ntfy: 'ntfy',
 }
 
 function channelNames(alert: StaffAlert) {

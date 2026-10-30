@@ -235,6 +235,7 @@ export interface AlertState {
   slackPaused?: boolean
   discordPaused?: boolean
   larkPaused?: boolean
+  ntfyPaused?: boolean
   wholeService?: boolean
   components?: string[]
   webhook?: AlertWebhook | null
@@ -263,6 +264,10 @@ export interface AlertState {
   // when the group requires a signature. Both are shown masked on the page.
   lark?: string
   larkSecret?: string
+  // The topic URL an ntfy notification is published to and the optional access
+  // token that proves the publisher may write to it. Both are shown masked.
+  ntfy?: string
+  ntfyToken?: string
   calls?: WebhookCall[]
   // The last real delivery of each channel, not a history. Tests do not move it.
   channelStatus?: ChannelDeliveryStatus[]

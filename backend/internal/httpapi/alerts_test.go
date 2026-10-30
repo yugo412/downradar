@@ -204,6 +204,9 @@ type bellState struct {
 	Lark          string                        `json:"lark"`
 	LarkSecret    string                        `json:"larkSecret"`
 	LarkPaused    bool                          `json:"larkPaused"`
+	Ntfy          string                        `json:"ntfy"`
+	NtfyToken     string                        `json:"ntfyToken"`
+	NtfyPaused    bool                          `json:"ntfyPaused"`
 	Calls         []store.WebhookCall           `json:"calls"`
 	ChannelStatus []store.ChannelDeliveryStatus `json:"channelStatus"`
 }
@@ -253,6 +256,124 @@ func TestLarkWaySavesAndPauses(t *testing.T) {
 	}
 	if state = readBell(t, router, slug, cookie); !state.LarkPaused {
 		t.Error("the Lark way did not pause")
+	}
+}
+
+// An ntfy topic is saved like the other subscriber ways: its URL and access token
+// come back masked on the owner's page, its switch pauses only it, and a token is
+// not carried to a different topic.
+func TestNtfyWaySavesAndPauses(t *testing.T) {
+	st, router := testRouter(t)
+	slug := alertVendor(t, st)
+
+	subscriber := testUser(t, st, auth.RoleSubscriber)
+	cookie := sessionFor(t, st, subscriber)
+
+	topic := "https://ntfy.example.com/downradar-test"
+	rec := call(t, router, http.MethodPost, "/api/v1/vendors/"+slug+"/alerts",
+		`{"ntfy":{"url":"`+topic+`","accessToken":"tk_secret"},"wholeService":true}`, cookie)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("saving an ntfy way = %d, want 201: %s", rec.Code, rec.Body.String())
+	}
+
+	state := readBell(t, router, slug, cookie)
+	if state.Ntfy != topic || state.NtfyToken != "tk_secret" {
+		t.Errorf("ntfy = %q, %q, want the saved topic and token", state.Ntfy, state.NtfyToken)
+	}
+	if state.NtfyPaused {
+		t.Error("a new ntfy way is paused")
+	}
+
+	rec = call(t, router, http.MethodPost, "/api/v1/vendors/"+slug+"/alerts/pause",
+		`{"kind":"ntfy","paused":true}`, cookie)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("pausing the ntfy way = %d, want 204: %s", rec.Code, rec.Body.String())
+	}
+	if state = readBell(t, router, slug, cookie); !state.NtfyPaused {
+		t.Error("the ntfy way did not pause")
+	}
+
+	// A different topic starts without the old token, so it is never sent to a
+	// server it was not saved for, even when the page still holds it in its field.
+	rec = call(t, router, http.MethodPost, "/api/v1/vendors/"+slug+"/alerts",
+		`{"ntfy":{"url":"https://ntfy.example.com/another","accessToken":"tk_secret"},"wholeService":true}`, cookie)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("changing the ntfy topic = %d, want 201: %s", rec.Code, rec.Body.String())
+	}
+	state = readBell(t, router, slug, cookie)
+	if state.Ntfy != "https://ntfy.example.com/another" || state.NtfyToken != "" {
+		t.Errorf("ntfy = %q, %q, want the new topic without the old token", state.Ntfy, state.NtfyToken)
+	}
+
+	// A token typed for the new topic is kept.
+	rec = call(t, router, http.MethodPost, "/api/v1/vendors/"+slug+"/alerts",
+		`{"ntfy":{"url":"https://ntfy.example.com/another","accessToken":"tk_new"},"wholeService":true}`, cookie)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("saving a token for the new topic = %d, want 201: %s", rec.Code, rec.Body.String())
+	}
+	state = readBell(t, router, slug, cookie)
+	if state.NtfyToken != "tk_new" {
+		t.Errorf("ntfy token = %q, want the token saved for the new topic", state.NtfyToken)
+	}
+}
+
+func TestNtfyTopicMustNameATopic(t *testing.T) {
+	st, router := testRouter(t)
+	slug := alertVendor(t, st)
+
+	subscriber := testUser(t, st, auth.RoleSubscriber)
+	cookie := sessionFor(t, st, subscriber)
+
+	rec := call(t, router, http.MethodPost, "/api/v1/vendors/"+slug+"/alerts",
+		`{"ntfy":{"url":"https://ntfy.example.com"},"wholeService":true}`, cookie)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("a topic URL without a topic = %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// A test notification uses the saved topic and its token when the page sends an
+// empty body, so the page never has to hand back a secret to check it.
+func TestNtfyTestUsesTheSavedTopic(t *testing.T) {
+	st, router := testRouter(t)
+	slug := alertVendor(t, st)
+
+	var called bool
+	var authorization string
+	var title string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		called = true
+		authorization = r.Header.Get("Authorization")
+		title = r.Header.Get("Title")
+		if !strings.Contains(string(body), "This is a test message") {
+			t.Errorf("body = %q, want a test message", body)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	subscriber := testUser(t, st, auth.RoleSubscriber)
+	cookie := sessionFor(t, st, subscriber)
+
+	rec := call(t, router, http.MethodPost, "/api/v1/vendors/"+slug+"/alerts",
+		`{"ntfy":{"url":"`+server.URL+`/topic","accessToken":"tk_saved"},"wholeService":true}`, cookie)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("saving an ntfy way = %d, want 201: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = call(t, router, http.MethodPost, "/api/v1/vendors/"+slug+"/alerts/ntfy/test",
+		`{}`, cookie)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("trying the saved topic = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if !called {
+		t.Fatal("the saved topic was not called")
+	}
+	if authorization != "Bearer tk_saved" {
+		t.Errorf("Authorization = %q, want the saved token", authorization)
+	}
+	if !strings.HasPrefix(title, "Test: ") {
+		t.Errorf("Title = %q, want a test title", title)
 	}
 }
 

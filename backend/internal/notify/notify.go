@@ -1,6 +1,7 @@
-// Package notify sends what a status change earns: an email, a Telegram, Slack
-// or Discord message, or a webhook call. The change writes its deliveries in the
-// same transaction that records it; this loop drains them and retries a failure.
+// Package notify sends what a status change earns: an email, a Telegram, Slack,
+// Discord, Lark or ntfy message, or a webhook call. The change writes its
+// deliveries in the same transaction that records it; this loop drains them and
+// retries a failure.
 package notify
 
 import (
@@ -112,6 +113,8 @@ func (n *Notifier) drain(ctx context.Context) error {
 			err = n.sendDiscord(ctx, alert)
 		case store.ChannelLark:
 			err = n.sendLark(ctx, alert)
+		case store.ChannelNtfy:
+			err = n.sendNtfy(ctx, alert)
 		default:
 			err = n.sendEmail(ctx, alert)
 		}

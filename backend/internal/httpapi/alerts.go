@@ -61,6 +61,13 @@ type larkRequest struct {
 	Secret string `json:"secret"`
 }
 
+// ntfyRequest is a topic URL and the optional access token that publishes to it.
+// An empty URL stops the notifications.
+type ntfyRequest struct {
+	URL         string `json:"url"`
+	AccessToken string `json:"accessToken"`
+}
+
 type alertRequest struct {
 	// Email is the address the alert should go to. An empty one stops the emails;
 	// a request that says nothing about it, which is what the bell sends, leaves
@@ -87,6 +94,10 @@ type alertRequest struct {
 	// Lark is the sixth way: a custom bot webhook, and the secret that signs a
 	// request when the group requires it.
 	Lark *larkRequest `json:"lark"`
+
+	// Ntfy is the seventh way: a topic URL and the optional access token that
+	// publishes to it.
+	Ntfy *ntfyRequest `json:"ntfy"`
 
 	// What the email reports on: WholeService is the vendor's own status, Components
 	// names the ones the vendor page shows. Naming neither is the old shape and means
@@ -206,13 +217,26 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		lark = &store.AlertLark{URL: webhookURL, Secret: secret}
 	}
 
+	// An ntfy topic is named by its publish URL. The access token is optional;
+	// when it is present it proves the subscriber may publish to the topic.
+	var ntfy *store.AlertNtfy
+	saveNtfy := body.Ntfy != nil
+	if body.Ntfy != nil {
+		topicURL, accessToken, problem := parseNtfy(body.Ntfy.URL, body.Ntfy.AccessToken)
+		if problem != "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": problem})
+			return
+		}
+		ntfy = &store.AlertNtfy{URL: topicURL, AccessToken: accessToken}
+	}
+
 	// A request that names no way at all would write a subscription with nothing
 	// to send, which is not an alert. Clearing a way is naming it: an empty
 	// address is how somebody stops the emails.
 	if body.Email == nil && body.Webhook == nil && body.Telegram == nil && body.Slack == nil &&
-		body.Discord == nil && body.Lark == nil {
+		body.Discord == nil && body.Lark == nil && body.Ntfy == nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "An email address, a webhook, a chat, a Slack channel, a Discord channel or a Lark group is required",
+			"error": "an email address, a webhook, a chat, a Slack channel, a Discord channel, a Lark group or an ntfy topic is required",
 		})
 		return
 	}
@@ -261,7 +285,7 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 	// itself.
 	watchesByPick := (saveEmail && address != "") || (telegram != nil && telegram.ChatID != "") ||
 		(slack != nil && slack.URL != "") || (discord != nil && discord.URL != "") ||
-		(lark != nil && lark.URL != "")
+		(lark != nil && lark.URL != "") || (ntfy != nil && ntfy.URL != "")
 	if watchesByPick && !whole && len(componentIDs) == 0 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "Pick at least one thing to be told about",
@@ -328,6 +352,12 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		if saveLark {
 			writeJSON(w, http.StatusConflict, map[string]string{
 				"error": "Lark is for subscribers. Sign in to add one.",
+			})
+			return
+		}
+		if saveNtfy {
+			writeJSON(w, http.StatusConflict, map[string]string{
+				"error": "ntfy is for subscribers. Sign in to add one.",
 			})
 			return
 		}
@@ -443,6 +473,14 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		}
 		change.Lark, change.LarkToken = lark, token
 	}
+	if ntfy != nil {
+		token, err := auth.NewToken()
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		change.Ntfy, change.NtfyToken = ntfy, token
+	}
 
 	secret := ""
 	var saveErr error
@@ -485,6 +523,7 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		"slack", slack != nil && slack.URL != "",
 		"discord", discord != nil && discord.URL != "",
 		"lark", lark != nil && lark.URL != "",
+		"ntfy", ntfy != nil && ntfy.URL != "",
 		"signed_in", userID != nil, "webhook_secret", secret != "",
 		"whole", whole, "components", len(componentIDs))
 	writeJSON(w, http.StatusCreated, answer)
@@ -604,6 +643,30 @@ func parseLark(rawURL, rawSecret string) (string, string, string) {
 		return "", "", "That does not look like a Lark webhook URL"
 	}
 	return webhookURL, secret, ""
+}
+
+// parseNtfy reads a topic URL and the optional access token that publishes to it.
+// The page checks for a topic at the end of the address; here it only has to be
+// an http(s) address with a path, because a self-hosted server can use any host.
+func parseNtfy(rawURL, rawToken string) (string, string, string) {
+	topicURL := strings.TrimSpace(rawURL)
+	token := strings.TrimSpace(rawToken)
+	if topicURL == "" {
+		return "", token, ""
+	}
+	if len(topicURL) > 1024 {
+		return "", "", "that ntfy topic URL is too long"
+	}
+	if len(token) > 512 {
+		return "", "", "that ntfy access token is too long"
+	}
+
+	parsed, err := url.Parse(topicURL)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") ||
+		strings.Trim(parsed.Path, "/") == "" {
+		return "", "", "that does not look like an ntfy topic URL"
+	}
+	return topicURL, token, ""
 }
 
 // parseFields reads a list of names and values, and drops the empty rows a screen
@@ -953,6 +1016,66 @@ func (h *handlers) testLark(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// testNtfy publishes through the topic the page holds, or the one that is saved,
+// so a subscriber can check the notification before relying on it. A saved topic
+// brings its access token back, which the page only ever shows masked.
+func (h *handlers) testNtfy(w http.ResponseWriter, r *http.Request) {
+	if !h.alertsEnabled || h.notifier == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "Alerts are not available right now",
+		})
+		return
+	}
+
+	var body ntfyRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
+		return
+	}
+
+	topicURL, token, problem := parseNtfy(body.URL, body.AccessToken)
+	if problem != "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": problem})
+		return
+	}
+
+	serviceID, name, err := h.store.PublicService(r.Context(), r.PathValue("slug"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Vendor not found"})
+		return
+	}
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	// A saved topic is tried with its token when the fields are empty, so the
+	// page does not have to hand back what it shows masked.
+	if topicURL == "" {
+		topicURL, token, err = h.store.NtfyTopic(r.Context(), h.user(r).ID, serviceID)
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		if topicURL == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "an ntfy topic URL is required",
+			})
+			return
+		}
+	}
+
+	result, err := h.notifier.TestNtfy(r.Context(), serviceID, topicURL, token)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	h.log.Info("ntfy tried from the alert page", "vendor", name,
+		"user", h.user(r).Email, "ok", result.OK, "error", result.Error)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": result.OK, "error": result.Error})
+}
+
 // statusOrNil writes "no answer" as a null rather than a zero, so a call that was
 // never answered does not read as one that got a 0.
 func statusOrNil(status int) *int {
@@ -980,9 +1103,10 @@ func (h *handlers) setAlertChannelPaused(w http.ResponseWriter, r *http.Request)
 	}
 	if body.Kind != store.ChannelEmail && body.Kind != store.ChannelWebhook &&
 		body.Kind != store.ChannelTelegram && body.Kind != store.ChannelSlack &&
-		body.Kind != store.ChannelDiscord && body.Kind != store.ChannelLark {
+		body.Kind != store.ChannelDiscord && body.Kind != store.ChannelLark &&
+		body.Kind != store.ChannelNtfy {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "Kind must be email, webhook, telegram, slack, discord or lark",
+			"error": "kind must be email, webhook, telegram, slack, discord, lark or ntfy",
 		})
 		return
 	}
@@ -1279,6 +1403,7 @@ func (h *handlers) getUserAlert(w http.ResponseWriter, r *http.Request) {
 		"slackPaused":     view.SlackPaused,
 		"discordPaused":   view.DiscordPaused,
 		"larkPaused":      view.LarkPaused,
+		"ntfyPaused":      view.NtfyPaused,
 		"wholeService":    view.WholeService,
 		"components":      view.ComponentIDs,
 		"webhook":         view.Webhook,
@@ -1289,6 +1414,8 @@ func (h *handlers) getUserAlert(w http.ResponseWriter, r *http.Request) {
 		"discordChannel":  view.DiscordChannel,
 		"lark":            view.Lark,
 		"larkSecret":      view.LarkSecret,
+		"ntfy":            view.Ntfy,
+		"ntfyToken":       view.NtfyToken,
 		"telegramEnabled": h.telegramEnabled,
 		"slackEnabled":    h.slack != nil && h.alertsEnabled,
 		"discordEnabled":  h.discord != nil && h.alertsEnabled,
@@ -1335,6 +1462,9 @@ func maskDestination(kind, address string) string {
 	}
 	if kind == store.ChannelDiscord {
 		return "your Discord channel"
+	}
+	if kind == store.ChannelNtfy {
+		return "your ntfy topic"
 	}
 
 	local, domain, ok := strings.Cut(address, "@")

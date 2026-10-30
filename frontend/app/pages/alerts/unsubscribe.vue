@@ -24,8 +24,8 @@ const { data, error } = await useFetch<AlertSubscription>(
 
 // What the link stops, in the words the way it came by uses: an address gets
 // emails, a chat, a Slack channel, a Discord channel or a Lark group gets
-// messages, and the page says which so somebody opening a forwarded link knows
-// what they are about to stop.
+// messages, an ntfy topic gets notifications, and the page says which so somebody
+// opening a forwarded link knows what they are about to stop.
 const channel = computed(() => {
   if (data.value?.kind === 'telegram') {
     return { title: 'Telegram alerts', what: 'messages', where: 'a chat' }
@@ -38,6 +38,9 @@ const channel = computed(() => {
   }
   if (data.value?.kind === 'lark') {
     return { title: 'Lark alerts', what: 'messages', where: 'your Lark group' }
+  }
+  if (data.value?.kind === 'ntfy') {
+    return { title: 'ntfy alerts', what: 'notifications', where: 'your ntfy topic' }
   }
   return { title: 'Email alerts', what: 'emails', where: data.value?.destination ?? 'an address' }
 })

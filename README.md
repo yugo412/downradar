@@ -233,8 +233,8 @@ A signed out visitor can ask for an email alert on a whole vendor from the bell.
 Signed in subscribers get the same bell plus a page per service and `/alerts`,
 where they choose what to watch and how it arrives.
 
-- **Ways:** email, webhook, Telegram, Slack, Discord, Lark, or a mix. Each is set on the page; an empty field turns it off, and one Save writes the whole alert.
-- **Targets:** email, Telegram, Slack, Discord and Lark report on what is ticked: the vendor's status, components, or both. A webhook always carries the whole vendor. A change in either direction is sent; a first sighting is a baseline, not a change.
+- **Ways:** email, webhook, Telegram, Slack, Discord, Lark, ntfy, or a mix. Each is set on the page; an empty field turns it off, and one Save writes the whole alert.
+- **Targets:** email, Telegram, Slack, Discord, Lark and ntfy report on what is ticked: the vendor's status, components, or both. A webhook always carries the whole vendor. A change in either direction is sent; a first sighting is a baseline, not a change.
 - **Pause:** each way has a switch in its row in the way list. Pausing keeps its address, URL or chat and stops only that way. `/alerts` can pause, resume or delete the whole subscription. A pending delivery for a paused or ended way is dropped.
 - **Limits:** signed out gets one alert, tied to the address. A subscriber uses the limit in `user_limits`, counted per vendor rather than per target; staff are uncapped. The alert address need not be the account's.
 - **Channels and tokens:** each channel has its own token, so an unsubscribe link stops only the channel it came from. An alert holds at most one of each way.
@@ -247,6 +247,7 @@ where they choose what to watch and how it arrives.
 - **Slack:** use an incoming webhook URL, or Add to Slack for the site's app. Messages use Block Kit; the URL stays masked, the channel name is shown, and the channel can be tested before saving.
 - **Discord:** use an incoming webhook URL, or Add to Discord for the site's app. The post is an embed with the status, a link to the vendor page and a link that stops that channel.
 - **Lark:** use a custom bot's webhook from the group, plus its signing secret when signature verification is on. The card carries the status, a link to the vendor page and a link that stops the channel. The page shows the last real delivery result; tests do not replace it.
+- **ntfy:** add a topic to the prefilled `https://ntfy.sh/` address, or replace it with a server you host yourself, plus an access token when the topic is protected. The token is kept sealed, sent as a bearer token and dropped when the topic changes, and the page can publish a test notification before saving.
 - **Delivery:** a status change writes one delivery per channel in the same transaction; a loop drains them and retries failures. A slow endpoint cannot hold up polling, and a restart loses nothing.
 - **SMTP:** alerts are off without `SMTP_ADDR`, and the API refuses subscriptions while off. Port 465 uses TLS from the first byte; other ports use STARTTLS when offered. Email wording lives in `internal/mail/templates`.
 
