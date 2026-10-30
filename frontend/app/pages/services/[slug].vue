@@ -157,7 +157,11 @@ async function onSaved(service: AdminService) {
 
       <p v-if="pauseError" role="alert" class="alert alert-error mb-4">{{ pauseError }}</p>
 
-      <VendorStatus v-if="detail" :vendor="detail" />
+      <VendorStatus
+        v-if="detail"
+        :vendor="detail"
+        :owner-id="meta.service.ownerId"
+      />
 
       <p
         v-else
@@ -166,7 +170,7 @@ async function onSaved(service: AdminService) {
         Nothing has been read from this vendor yet.
       </p>
 
-      <FetchLog :slug="slug" :owner-id="meta.service.ownerId" />
+      <FetchLog v-if="!detail" :slug="slug" :owner-id="meta.service.ownerId" />
 
       <ServiceEditor v-if="editing" :slug="slug" @close="editing = false" @saved="onSaved" />
     </template>

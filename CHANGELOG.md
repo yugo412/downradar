@@ -4,6 +4,13 @@ All notable changes to DownRadar are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases use
 semantic versioning.
 
+## [0.8.0]
+
+### Changed
+
+- Vendor pages split components, incidents, recent status and staff fetch logs
+  into tabs, with relative timestamps and open incidents collapsed above them.
+
 ## [0.7.0]
 
 ### Added
@@ -29,7 +36,6 @@ semantic versioning.
   rows and the webhook panel is split into tabs.
 - The status filter uses the daisyUI filter component, and the components table
   can be sorted by name, state or since.
-- Open incidents are collapsed by default on vendor pages.
 - The first visit follows the system colour scheme, and theme changes use one
   view transition.
 - Feed URLs and their copy button are joined, and staff can correct a service

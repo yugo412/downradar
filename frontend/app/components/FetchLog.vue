@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { PollRun } from '~/types/api'
 
-const props = defineProps<{ slug: string; ownerId?: number }>()
+const props = defineProps<{ slug: string; ownerId?: number; flush?: boolean }>()
 
 const { user, canManageServices } = useAuth()
 
@@ -49,7 +49,7 @@ watch(
 </script>
 
 <template>
-  <section v-if="allowed" class="mt-10">
+  <section v-if="allowed" :class="flush ? '' : 'mt-10'">
     <h2 class="text-lg font-semibold" :class="wait ? 'mb-1' : 'mb-3'">Fetch log</h2>
     <p v-if="wait" class="mb-3 text-sm opacity-70" :title="formatLocal(nextPollAt)">
       The page refused the last poll. Next attempt {{ wait }}.
