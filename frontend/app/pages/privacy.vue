@@ -62,7 +62,7 @@ useSeoMeta({
       <ul class="mt-3 list-disc space-y-2 pl-5">
         <li>To create accounts, sign you in, and send confirmation or reset links.</li>
         <li>To deliver the alerts you ask for to the channels you choose.</li>
-        <li>To show in-site notifications for the alerts you follow, and operational notices to staff.</li>
+        <li>To show in-site notifications for the alerts you follow, site-wide announcements, and operational notices to staff.</li>
         <li>To reply when you write through the contact form.</li>
         <li>To apply rate limits, prevent abuse, investigate failures and keep the site secure.</li>
       </ul>

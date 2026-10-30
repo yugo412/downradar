@@ -411,6 +411,10 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	mux.HandleFunc("PATCH /api/v1/users/{id}", h.requireRole(admins, h.updateUser))
 	mux.HandleFunc("DELETE /api/v1/users/{id}", h.requireRole(admins, h.deleteUser))
 
+	// A broadcast is an admin tool: it writes into every account's existing
+	// feed rather than into a delivery list of its own.
+	mux.HandleFunc("POST /api/v1/notifications/broadcast", h.requireRole(admins, h.broadcastNotification))
+
 	return recoverer(log, requestLogger(log, securityHeaders(mux)))
 }
 

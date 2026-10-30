@@ -160,6 +160,54 @@ func TestNotificationsFollowTheAudienceAndReadState(t *testing.T) {
 	}
 }
 
+func TestEveryoneAudienceReachesEveryEnabledAccount(t *testing.T) {
+	st := isolatedNotificationStore(t)
+	ctx := context.Background()
+
+	admin := noticeUser(t, st, auth.RoleAdmin)
+	moderator := noticeUser(t, st, auth.RoleModerator)
+	subscriber := noticeUser(t, st, auth.RoleSubscriber)
+	disabled := noticeUser(t, st, auth.RoleSubscriber)
+	if err := st.SetUserDisabled(ctx, disabled.ID, true); err != nil {
+		t.Fatalf("SetUserDisabled: %v", err)
+	}
+
+	title := uniqueName("zz-notice-everyone")
+	t.Cleanup(func() {
+		_, _ = st.pool.Exec(ctx, `delete from notifications where title = $1`, title)
+	})
+
+	written, err := st.CreateNotification(ctx, NotificationInput{
+		Audience: AudienceEveryone,
+		Title:    title,
+		Body:     "A site-wide announcement.",
+	})
+	if err != nil {
+		t.Fatalf("CreateNotification: %v", err)
+	}
+	if written != 3 {
+		t.Errorf("wrote %d rows, want the three enabled accounts", written)
+	}
+
+	for _, account := range []*User{admin, moderator, subscriber} {
+		feed, err := st.Notifications(ctx, account.ID, 100)
+		if err != nil {
+			t.Fatalf("Notifications for %s: %v", account.Role, err)
+		}
+		if findNotification(t, feed, title) == nil {
+			t.Errorf("the %s did not receive the site-wide notice", account.Role)
+		}
+	}
+
+	feed, err := st.Notifications(ctx, disabled.ID, 100)
+	if err != nil {
+		t.Fatalf("Notifications for the disabled account: %v", err)
+	}
+	if findNotification(t, feed, title) != nil {
+		t.Error("a disabled account received the site-wide notice")
+	}
+}
+
 func TestNotificationsCanBeAddressedToOneAccount(t *testing.T) {
 	st := isolatedNotificationStore(t)
 	ctx := context.Background()
