@@ -186,56 +186,6 @@ const vendors = computed<Vendor[]>(() => {
   return [...catalogue, ...myVendors.value.filter((v) => !catalogueSlugs.value.has(v.slug))]
 })
 
-// The heading names what is actually wrong instead of asking a question nobody
-// answers, rotating through up to five of them, worst first. It reads the public
-// catalogue rather than the list below it: a private service belongs to one
-// person and this page is cached and served to everyone.
-//
-// Only the six health states count. A vendor whose page could not be matched is
-// not down, it is unknown to us, and its name is not the sort of thing to put in
-// a heading.
-const down = computed(() =>
-  (data.value?.vendors ?? [])
-    .filter((v) => HEALTH_STATES.includes(v.status) && !isHealthy(v.status))
-    .sort((a, b) => severity(b.status) - severity(a.status) || a.name.localeCompare(b.name))
-    .slice(0, 5),
-)
-
-// daisyUI's text rotate is as wide as its longest line, so a short name leaves a
-// gap between it and the rest of the sentence. The box is narrowed to whichever
-// line is on screen, read from the box itself rather than counted off a clock, so
-// the two cannot drift apart. It is watched frame by frame, which is what keeps
-// it in step with the animation and costs nothing while the tab is in the
-// background: this is the one place where a frame is the right unit, unlike the
-// shared clock behind "N ago", which ticks once a second for a hundred values.
-const rotating = useTemplateRef<HTMLElement>('rotating')
-
-onMounted(() => {
-  const box = rotating.value
-  const track = box?.firstElementChild as HTMLElement | null
-  if (!box || !track || track.children.length < 2) return
-
-  const lines = [...track.children] as HTMLElement[]
-  let frame = 0
-
-  const narrow = () => {
-    const boxRect = box.getBoundingClientRect()
-    const shown = lines.find((line) => {
-      const rect = line.getBoundingClientRect()
-      return rect.top >= boxRect.top - 1 && rect.bottom <= boxRect.bottom + 1
-    })
-
-    if (shown) {
-      const width = Math.round(shown.getBoundingClientRect().width)
-      if (box.offsetWidth !== width) box.style.width = `${width}px`
-    }
-    frame = requestAnimationFrame(narrow)
-  }
-
-  narrow()
-  onBeforeUnmount(() => cancelAnimationFrame(frame))
-})
-
 const matched = computed(() => {
   const q = query.value.trim().toLowerCase()
   if (!q) return vendors.value
@@ -370,18 +320,7 @@ useSeoMeta({
 <template>
   <div class="mx-auto max-w-6xl px-4 py-8">
     <section class="mb-8">
-      <h1 class="text-3xl font-bold tracking-tight">
-        <template v-if="down.length">
-          Is
-          <span ref="rotating" class="text-rotate">
-            <span>
-              <span v-for="v in down" :key="v.slug" :class="statusMeta(v.status).ink">{{ v.name }}</span>
-            </span>
-          </span>
-          down right now?
-        </template>
-        <template v-else>Is it down right now?</template>
-      </h1>
+      <h1 class="text-3xl font-bold tracking-tight">Is it down right now?</h1>
       <p class="mt-2 opacity-70">
         Status taken directly from each service's official status page. No crowdsourced guessing.
       </p>
