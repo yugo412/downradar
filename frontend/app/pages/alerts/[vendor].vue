@@ -2258,7 +2258,7 @@ async function refreshCalls() {
                     {{ larkDelivery.error }}
                   </p>
                 </template>
-                <p v-else class="text-sm">
+                <p v-else class="flex items-center gap-1 text-sm">
                   <span class="font-medium text-success">Last delivered</span>
                   <LiveAgo :at="larkDelivery.successAt ?? larkDelivery.attemptAt" />
                 </p>
@@ -2426,7 +2426,7 @@ async function refreshCalls() {
                     {{ ntfyDelivery.error }}
                   </p>
                 </template>
-                <p v-else class="text-sm">
+                <p v-else class="flex items-center gap-1 text-sm">
                   <span class="font-medium text-success">Last delivered</span>
                   <LiveAgo :at="ntfyDelivery.successAt ?? ntfyDelivery.attemptAt" />
                 </p>
