@@ -52,15 +52,52 @@ const search = ref(searchInput.value.trim())
 // are applied here, because a chip carries how many rows are in that health,
 // which cannot be counted from a list that is already narrowed to it.
 const { data, pending, error, refresh } = useFetch<{ services: AdminService[]; count: number }>(
-  () => `/api/v1/services?filter=${stage.value}&q=${encodeURIComponent(search.value)}`,
+  () => `/api/v1/services?filter=all&q=${encodeURIComponent(search.value)}`,
 )
 
-const services = computed(() => {
+// The list is fetched whole so every stage tab can count its rows without a
+// second request. The tab then narrows the rows here, the way the health and
+// profile filters already do.
+const allServices = computed(() => {
   const rows = data.value?.services ?? []
   // A subscriber cannot restore or purge a row once it is off the site, so it
   // leaves their list when it leaves the site. Staff still see it and decide.
   return canManageServices.value ? rows : rows.filter((service) => service.active)
 })
+
+function inStage(service: AdminService, target: Stage): boolean {
+  if (target === 'all') return true
+  if (target === 'removed') return !service.active
+  return service.active && service.status === target
+}
+
+const services = computed(() => allServices.value.filter((service) => inStage(service, stage.value)))
+
+// What every tab says before it is opened. The search has already narrowed the
+// rows the API returned, so a count is what that stage would show under the
+// search, without the health and profile chips on top of it.
+const stageCounts = computed(() => {
+  const counts: Record<Stage, number> = {
+    all: 0,
+    proposed: 0,
+    no_match: 0,
+    published: 0,
+    rejected: 0,
+    removed: 0,
+  }
+  for (const service of allServices.value) {
+    counts.all += 1
+    counts[service.active ? service.status : 'removed'] += 1
+  }
+  return counts
+})
+
+// Staff see every stage. A subscriber only ever sees one stage at a time, which
+// they cannot switch from here, so their tab bar keeps just the one they asked
+// for and the page looks the same as it did before the tabs.
+const visibleStages = computed(() =>
+  canManageServices.value ? stages : stages.filter((s) => s.value === stage.value),
+)
 
 // The adapter names, for the profile picker. Taken from the catalogue rather than
 // from the rows on screen, so a profile can still be picked after a search that
@@ -96,7 +133,7 @@ const created = computed(() => String(route.query.created ?? ''))
 // The query carries the slug of a service that was just added, so the notice can
 // say what became of it. A vendor that no profile could read is saved as
 // no_match and waits for an adapter, which is worth explaining there.
-const createdService = computed(() => services.value.find((s) => s.slug === created.value) ?? null)
+const createdService = computed(() => allServices.value.find((s) => s.slug === created.value) ?? null)
 const createdName = computed(() => createdService.value?.name ?? created.value)
 const createdParked = computed(() => createdService.value?.status === 'no_match')
 
@@ -200,16 +237,21 @@ const clearable = computed(
     stage.value !== 'all' ||
     stateFilter.value.length > 0 ||
     profile.value !== '' ||
+    search.value !== '' ||
     sortKey.value !== '',
 )
 
 // Clear puts the list back to what the page opens with: every stage, every
-// health, every profile, and the order the API sent. The search box is left
-// alone, because a term somebody typed is their own to remove.
+// health, every profile, the search box, and the order the API sent.
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+
 function clearList() {
+  clearTimeout(searchTimer)
   stage.value = 'all'
   stateFilter.value = []
   profile.value = ''
+  searchInput.value = ''
+  search.value = ''
   sortKey.value = ''
   sortAsc.value = true
 }
@@ -241,8 +283,6 @@ function syncUrl() {
   }
   router.replace({ query })
 }
-
-let searchTimer: ReturnType<typeof setTimeout> | undefined
 
 watch(searchInput, (value) => {
   clearTimeout(searchTimer)
@@ -475,6 +515,8 @@ async function onSaved() {
         <option v-for="name in profileOptions" :key="name" :value="name">{{ name }}</option>
       </select>
 
+      <button v-if="clearable" type="button" class="link text-xs" @click="clearList">Clear</button>
+
       <span v-if="pending" class="loading loading-spinner loading-sm opacity-60" />
       <span v-else-if="search" class="text-xs opacity-60">
         {{ filtered.length }} match{{ filtered.length === 1 ? '' : 'es' }}
@@ -484,24 +526,10 @@ async function onSaved() {
     <StatusFilter
       v-model="stateFilter"
       :statuses="stateOptions"
-      :clearable="clearable"
       label="Filter services by status"
       class="mb-4"
       @clear="clearList"
     />
-
-    <div v-if="canManageServices" role="tablist" class="tabs tabs-box mb-4">
-      <button
-        v-for="s in stages"
-        :key="s.value"
-        role="tab"
-        class="tab"
-        :class="{ 'tab-active': stage === s.value }"
-        @click="stage = s.value"
-      >
-        {{ s.label }}
-      </button>
-    </div>
 
     <p v-if="actionNotice" role="status" class="alert alert-success mb-4">{{ actionNotice }}</p>
     <p v-if="actionError" role="alert" class="alert alert-error mb-4">{{ actionError }}</p>
@@ -510,85 +538,186 @@ async function onSaved() {
       Could not load the services. Try again in a moment.
     </div>
 
-    <div v-else-if="pending && !services.length" class="flex justify-center py-16">
+    <div v-else-if="pending && !allServices.length" class="flex justify-center py-16">
       <span class="loading loading-spinner" />
     </div>
 
-    <template v-else>
-      <!-- A phone cannot hold five columns without scrolling sideways, so the
-           table is for wide screens and the same rows are cards below. -->
-      <div class="hidden overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm md:block">
-        <table class="table">
-          <thead>
-            <tr>
-              <th v-for="col in sortColumns" :key="col.key" :aria-sort="sortState(col.key)">
-                <button type="button" class="cursor-pointer whitespace-nowrap" @click="sortBy(col.key)">
-                  {{ col.label }}
-                  <span v-if="sortKey === col.key" aria-hidden="true">
-                    {{ sortAsc ? '↑' : '↓' }}
-                  </span>
-                </button>
-              </th>
-              <th>Source</th>
-              <th class="text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="s in paged" :key="s.slug" class="align-top">
-              <td>
-                <NuxtLink :to="detailLink(s)" class="link link-hover font-medium">
-                  {{ s.name }}
-                </NuxtLink>
-                <div class="font-mono text-xs opacity-50">/{{ s.slug }}</div>
+    <div v-else class="tabs tabs-lift w-full" role="tablist" aria-label="Service stages">
+      <template v-for="s in visibleStages" :key="s.value">
+        <label
+          class="tab flex-none cursor-pointer gap-1.5 whitespace-nowrap"
+          :class="{ 'tab-active': stage === s.value }"
+        >
+          <input
+            type="radio"
+            class="sr-only"
+            name="service-stage"
+            :checked="stage === s.value"
+            @change="stage = s.value"
+          />
+          {{ s.label }}
+          <span class="badge badge-sm tab-count">{{ stageCounts[s.value] }}</span>
+        </label>
+        <div class="tab-content basis-full bg-base-100 border-base-300 p-6">
+          <template v-if="stage === s.value">
+            <!-- A phone cannot hold five columns without scrolling sideways, so the
+                 table is for wide screens and the same rows are cards below. -->
+            <div class="hidden overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm md:block">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th v-for="col in sortColumns" :key="col.key" :aria-sort="sortState(col.key)">
+                      <button type="button" class="cursor-pointer whitespace-nowrap" @click="sortBy(col.key)">
+                        {{ col.label }}
+                        <span v-if="sortKey === col.key" aria-hidden="true">
+                          {{ sortAsc ? '↑' : '↓' }}
+                        </span>
+                      </button>
+                    </th>
+                    <th>Source</th>
+                    <th class="text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="s in paged" :key="s.slug" class="align-top">
+                    <td>
+                      <NuxtLink :to="detailLink(s)" class="link link-hover font-medium">
+                        {{ s.name }}
+                      </NuxtLink>
+                      <div class="font-mono text-xs opacity-50">/{{ s.slug }}</div>
+                      <div v-if="s.ownerId && canManageServices" class="mt-1">
+                        <span class="badge badge-ghost badge-sm" :title="s.ownerEmail">
+                          {{ s.status === 'proposed' ? `suggested by ${s.ownerName}` : `added by ${s.ownerName}` }}
+                        </span>
+                      </div>
+                    </td>
+                    <td>
+                      <div class="flex flex-wrap items-center gap-1">
+                        <span
+                          class="badge badge-sm whitespace-nowrap"
+                          :class="serviceStatusClass(s.status, s.active)"
+                        >{{ serviceStatusLabel(s.status, s.active) }}</span>
+                        <span
+                          v-if="s.visibility === 'private'"
+                          class="badge badge-ghost badge-sm"
+                          title="Only you and the staff can see it"
+                        >Private</span>
+                        <span
+                          v-if="s.paused"
+                          class="badge badge-warning badge-sm"
+                          :title="
+                            s.status === 'no_match'
+                              ? 'Detection is paused; the page is not checked for a profile'
+                              : 'Scheduled polls are paused; the last known state is kept'
+                          "
+                        >Paused</span>
+                      </div>
+                    </td>
+                    <td>
+                      <span v-if="s.profile" class="font-mono text-xs">{{ s.profile }}</span>
+                      <span v-else class="text-xs opacity-50">none</span>
+                    </td>
+                    <td class="whitespace-nowrap text-sm opacity-60" :title="formatLocal(s.updatedAt)">
+                      <LiveAgo :at="s.updatedAt" />
+                    </td>
+                    <td class="max-w-xs">
+                      <a
+                        v-if="s.url"
+                        :href="s.url"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="link break-all text-xs"
+                      >
+                        {{ s.url }}
+                      </a>
+                      <span v-else class="text-xs opacity-50">no url</span>
+                    </td>
+                    <td>
+                      <div class="flex justify-end">
+                        <ServiceActions
+                          :service="s"
+                          :can-edit="canManageServices || ownsService(s)"
+                          :can-manage="canManageServices"
+                          :can-remove="canRemove(s)"
+                          :can-purge="canPurge(s)"
+                          :retrying="retrying === s.slug"
+                          :pausing="pausing === s.slug"
+                          @edit="editing = s"
+                          @pause="togglePolling(s)"
+                          @publish="editing = { ...s, status: 'published' }"
+                          @retry="retryDetection(s)"
+                          @restore="restore(s)"
+                          @remove="removing = s"
+                          @purge="purging = s"
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <ul class="flex flex-col gap-3 md:hidden">
+              <li
+                v-for="s in paged"
+                :key="s.slug"
+                class="rounded-box border border-base-300 bg-base-100 p-4 shadow-sm"
+              >
+                <div class="flex items-start justify-between gap-3">
+                  <div class="min-w-0">
+                    <NuxtLink :to="detailLink(s)" class="link link-hover font-medium">
+                      {{ s.name }}
+                    </NuxtLink>
+                    <div class="font-mono text-xs opacity-50">/{{ s.slug }}</div>
+                  </div>
+                  <div class="flex shrink-0 flex-wrap items-center justify-end gap-1">
+                    <span
+                      class="badge badge-sm whitespace-nowrap"
+                      :class="serviceStatusClass(s.status, s.active)"
+                    >
+                      {{ serviceStatusLabel(s.status, s.active) }}
+                    </span>
+                    <span
+                      v-if="s.visibility === 'private'"
+                      class="badge badge-ghost badge-sm"
+                      title="Only you and the staff can see it"
+                    >Private</span>
+                    <span
+                      v-if="s.paused"
+                      class="badge badge-warning badge-sm"
+                      title="Scheduled polls are paused; the last known state is kept"
+                    >Paused</span>
+                  </div>
+                </div>
+
+                <div class="mt-2 flex flex-wrap items-center gap-2 text-xs opacity-70">
+                  <span class="font-mono">{{ s.profile || 'none' }}</span>
+                  <span aria-hidden="true">&middot;</span>
+                  <a
+                    v-if="s.url"
+                    :href="s.url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="link break-all"
+                  >
+                    {{ s.url }}
+                  </a>
+                  <span v-else>no url</span>
+                </div>
+
+                <!-- Its own line: with the profile and the url above it, the time wraps
+                     around the middle of a phone screen and reads as part of the link. -->
+                <div class="mt-1 text-xs opacity-70" :title="formatLocal(s.updatedAt)">
+                  updated <LiveAgo :at="s.updatedAt" />
+                </div>
+
                 <div v-if="s.ownerId && canManageServices" class="mt-1">
                   <span class="badge badge-ghost badge-sm" :title="s.ownerEmail">
-                    {{ s.status === 'proposed' ? `suggested by ${s.ownerName}` : `added by ${s.ownerName}` }}
+                    added by {{ s.ownerName }}
                   </span>
                 </div>
-              </td>
-              <td>
-                <div class="flex flex-wrap items-center gap-1">
-                  <span
-                    class="badge badge-sm whitespace-nowrap"
-                    :class="serviceStatusClass(s.status, s.active)"
-                  >{{ serviceStatusLabel(s.status, s.active) }}</span>
-                  <span
-                    v-if="s.visibility === 'private'"
-                    class="badge badge-ghost badge-sm"
-                    title="Only you and the staff can see it"
-                  >Private</span>
-                  <span
-                    v-if="s.paused"
-                    class="badge badge-warning badge-sm"
-                    :title="
-                      s.status === 'no_match'
-                        ? 'Detection is paused; the page is not checked for a profile'
-                        : 'Scheduled polls are paused; the last known state is kept'
-                    "
-                  >Paused</span>
-                </div>
-              </td>
-              <td>
-                <span v-if="s.profile" class="font-mono text-xs">{{ s.profile }}</span>
-                <span v-else class="text-xs opacity-50">none</span>
-              </td>
-              <td class="whitespace-nowrap text-sm opacity-60" :title="formatLocal(s.updatedAt)">
-                <LiveAgo :at="s.updatedAt" />
-              </td>
-              <td class="max-w-xs">
-                <a
-                  v-if="s.url"
-                  :href="s.url"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="link break-all text-xs"
-                >
-                  {{ s.url }}
-                </a>
-                <span v-else class="text-xs opacity-50">no url</span>
-              </td>
-              <td>
-                <div class="flex justify-end">
+
+                <div class="mt-3">
                   <ServiceActions
                     :service="s"
                     :can-edit="canManageServices || ownsService(s)"
@@ -606,131 +735,50 @@ async function onSaved() {
                     @purge="purging = s"
                   />
                 </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+              </li>
+            </ul>
 
-      <ul class="flex flex-col gap-3 md:hidden">
-        <li
-          v-for="s in paged"
-          :key="s.slug"
-          class="rounded-box border border-base-300 bg-base-100 p-4 shadow-sm"
-        >
-          <div class="flex items-start justify-between gap-3">
-            <div class="min-w-0">
-              <NuxtLink :to="detailLink(s)" class="link link-hover font-medium">
-                {{ s.name }}
-              </NuxtLink>
-              <div class="font-mono text-xs opacity-50">/{{ s.slug }}</div>
+            <div v-if="sorted.length" class="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <p class="text-xs opacity-60">
+                Showing {{ firstRow }}&ndash;{{ lastRow }} of {{ sorted.length }}
+              </p>
+              <div v-if="pageCount > 1" class="join">
+                <button
+                  type="button"
+                  class="btn btn-sm join-item"
+                  :disabled="currentPage === 1"
+                  @click="page = currentPage - 1"
+                >
+                  Previous
+                </button>
+                <button type="button" class="btn btn-sm join-item" disabled>
+                  Page {{ currentPage }} of {{ pageCount }}
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-sm join-item"
+                  :disabled="currentPage === pageCount"
+                  @click="page = currentPage + 1"
+                >
+                  Next
+                </button>
+              </div>
             </div>
-            <div class="flex shrink-0 flex-wrap items-center justify-end gap-1">
-              <span
-                class="badge badge-sm whitespace-nowrap"
-                :class="serviceStatusClass(s.status, s.active)"
-              >
-                {{ serviceStatusLabel(s.status, s.active) }}
-              </span>
-              <span
-                v-if="s.visibility === 'private'"
-                class="badge badge-ghost badge-sm"
-                title="Only you and the staff can see it"
-              >Private</span>
-              <span
-                v-if="s.paused"
-                class="badge badge-warning badge-sm"
-                title="Scheduled polls are paused; the last known state is kept"
-              >Paused</span>
-            </div>
-          </div>
 
-          <div class="mt-2 flex flex-wrap items-center gap-2 text-xs opacity-70">
-            <span class="font-mono">{{ s.profile || 'none' }}</span>
-            <span aria-hidden="true">&middot;</span>
-            <a
-              v-if="s.url"
-              :href="s.url"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="link break-all"
+            <p
+              v-if="!filtered.length"
+              class="rounded-box border border-base-300 bg-base-100 p-6 text-center text-sm opacity-70 shadow-sm"
             >
-              {{ s.url }}
-            </a>
-            <span v-else>no url</span>
-          </div>
-
-          <!-- Its own line: with the profile and the url above it, the time wraps
-               around the middle of a phone screen and reads as part of the link. -->
-          <div class="mt-1 text-xs opacity-70" :title="formatLocal(s.updatedAt)">
-            updated <LiveAgo :at="s.updatedAt" />
-          </div>
-
-          <div v-if="s.ownerId && canManageServices" class="mt-1">
-            <span class="badge badge-ghost badge-sm" :title="s.ownerEmail">
-              added by {{ s.ownerName }}
-            </span>
-          </div>
-
-          <div class="mt-3">
-            <ServiceActions
-              :service="s"
-              :can-edit="canManageServices || ownsService(s)"
-              :can-manage="canManageServices"
-              :can-remove="canRemove(s)"
-              :can-purge="canPurge(s)"
-              :retrying="retrying === s.slug"
-              :pausing="pausing === s.slug"
-              @edit="editing = s"
-              @pause="togglePolling(s)"
-              @publish="editing = { ...s, status: 'published' }"
-              @retry="retryDetection(s)"
-              @restore="restore(s)"
-              @remove="removing = s"
-              @purge="purging = s"
-            />
-          </div>
-        </li>
-      </ul>
-
-      <div v-if="sorted.length" class="mt-4 flex flex-wrap items-center justify-between gap-3">
-        <p class="text-xs opacity-60">
-          Showing {{ firstRow }}&ndash;{{ lastRow }} of {{ sorted.length }}
-        </p>
-        <div v-if="pageCount > 1" class="join">
-          <button
-            type="button"
-            class="btn btn-sm join-item"
-            :disabled="currentPage === 1"
-            @click="page = currentPage - 1"
-          >
-            Previous
-          </button>
-          <button type="button" class="btn btn-sm join-item" disabled>
-            Page {{ currentPage }} of {{ pageCount }}
-          </button>
-          <button
-            type="button"
-            class="btn btn-sm join-item"
-            :disabled="currentPage === pageCount"
-            @click="page = currentPage + 1"
-          >
-            Next
-          </button>
+              <template v-if="search">Nothing matches &ldquo;{{ search }}&rdquo;.</template>
+              <template v-else-if="stage !== 'all' || stateFilter.length || profile">
+                Nothing here for that filter.
+              </template>
+              <template v-else>Nothing here.</template>
+            </p>
+          </template>
         </div>
-      </div>
-
-      <p
-        v-if="!filtered.length"
-        class="rounded-box border border-base-300 bg-base-100 p-6 text-center text-sm opacity-70 shadow-sm"
-      >
-        <template v-if="search">Nothing matches &ldquo;{{ search }}&rdquo;.</template>
-        <template v-else-if="stage !== 'all' || stateFilter.length || profile">
-          Nothing here for that filter.
-        </template>
-        <template v-else>Nothing here.</template>
-      </p>
-    </template>
+      </template>
+    </div>
 
     <ServiceEditor
       v-if="editing"

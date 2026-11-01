@@ -30,10 +30,28 @@ const searchInput = ref(String(route.query.q ?? ''))
 const search = ref(searchInput.value.trim())
 
 const { data, pending, error, refresh } = useFetch<{ users: AdminUser[]; count: number }>(
-  () => `/api/v1/users?role=${filter.value === 'all' ? '' : filter.value}&q=${encodeURIComponent(search.value)}`,
+  () => `/api/v1/users?q=${encodeURIComponent(search.value)}`,
 )
 
-const users = computed(() => data.value?.users ?? [])
+// The whole list is fetched once so each role tab can count its own rows. The
+// tab narrows the rows here rather than asking the API for another page.
+const allUsers = computed(() => data.value?.users ?? [])
+const users = computed(() =>
+  filter.value === 'all'
+    ? allUsers.value
+    : allUsers.value.filter((u) => u.role === filter.value),
+)
+
+const filterCounts = computed(() => {
+  const counts: Record<Filter, number> = {
+    all: allUsers.value.length,
+    admin: 0,
+    moderator: 0,
+    subscriber: 0,
+  }
+  for (const account of allUsers.value) counts[account.role] += 1
+  return counts
+})
 
 // Sorting happens here rather than in the query, because every row is already in
 // the page and a click should not wait for a round trip. A header sorts by itself
@@ -128,12 +146,19 @@ function sortState(key: SortKey) {
 }
 
 // Everything Clear would put back: the role, or an order.
-const clearable = computed(() => filter.value !== 'all' || sortKey.value !== '')
+const clearable = computed(
+  () => filter.value !== 'all' || search.value !== '' || sortKey.value !== '',
+)
 
-// Clear puts the list back to what the page opens with. The search box is left
-// alone, because a term somebody typed is their own to remove.
+// Clear puts the list back to what the page opens with: every role, the search
+// box, and the order the API sent.
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+
 function clearList() {
+  clearTimeout(searchTimer)
   filter.value = 'all'
+  searchInput.value = ''
+  search.value = ''
   sortKey.value = ''
   sortAsc.value = true
 }
@@ -151,8 +176,6 @@ function syncUrl() {
   }
   router.replace({ query })
 }
-
-let searchTimer: ReturnType<typeof setTimeout> | undefined
 
 watch(searchInput, (value) => {
   clearTimeout(searchTimer)
@@ -260,85 +283,140 @@ async function onSaved() {
         placeholder="Search by name or email"
         aria-label="Search accounts"
       />
+      <button
+        v-if="clearable"
+        type="button"
+        class="link text-xs"
+        @click="clearList"
+      >
+        Clear
+      </button>
       <span v-if="pending" class="loading loading-spinner loading-sm opacity-60" />
       <span v-else-if="search" class="text-xs opacity-60">
         {{ users.length }} match{{ users.length === 1 ? '' : 'es' }}
       </span>
     </div>
 
-    <div class="mb-4 flex flex-wrap items-center gap-3">
-      <div role="tablist" class="tabs tabs-box">
-        <button
-          v-for="f in filters"
-          :key="f.value"
-          role="tab"
-          class="tab"
-          :class="{ 'tab-active': filter === f.value }"
-          @click="filter = f.value"
-        >
-          {{ f.label }}
-        </button>
-      </div>
-
-      <!-- Clear also drops the sort, which no visible control shows the way back
-           from; the search box is its own to empty and is left alone. -->
-      <button v-if="clearable" type="button" class="link text-xs" @click="clearList">Clear</button>
-    </div>
-
     <div v-if="error" role="alert" class="alert alert-error">
       Could not load the accounts. Try again in a moment.
     </div>
 
-    <div v-else-if="pending && !users.length" class="flex justify-center py-16">
+    <div v-else-if="pending && !allUsers.length" class="flex justify-center py-16">
       <span class="loading loading-spinner" />
     </div>
 
-    <template v-else>
-      <!-- A phone cannot hold five columns without scrolling sideways, so the
-           table is for wide screens and the same rows are cards below. -->
-      <div class="hidden overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm md:block">
-        <table class="table">
-          <thead>
-            <tr>
-              <th v-for="col in sortColumns" :key="col.key" :aria-sort="sortState(col.key)">
-                <button type="button" class="cursor-pointer whitespace-nowrap" @click="sortBy(col.key)">
-                  {{ col.label }}
-                  <span v-if="sortKey === col.key" aria-hidden="true">
-                    {{ sortAsc ? '↑' : '↓' }}
+    <div v-else class="tabs tabs-lift w-full" role="tablist" aria-label="Account roles">
+      <template v-for="f in filters" :key="f.value">
+        <label
+          class="tab flex-none cursor-pointer gap-1.5 whitespace-nowrap"
+          :class="{ 'tab-active': filter === f.value }"
+        >
+          <input
+            type="radio"
+            class="sr-only"
+            name="user-role"
+            :checked="filter === f.value"
+            @change="filter = f.value"
+          />
+          {{ f.label }}
+          <span class="badge badge-sm tab-count">{{ filterCounts[f.value] }}</span>
+        </label>
+        <div class="tab-content basis-full bg-base-100 border-base-300 p-6">
+          <template v-if="filter === f.value">
+            <!-- A phone cannot hold five columns without scrolling sideways, so the
+                 table is for wide screens and the same rows are cards below. -->
+            <div class="hidden overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm md:block">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th v-for="col in sortColumns" :key="col.key" :aria-sort="sortState(col.key)">
+                      <button type="button" class="cursor-pointer whitespace-nowrap" @click="sortBy(col.key)">
+                        {{ col.label }}
+                        <span v-if="sortKey === col.key" aria-hidden="true">
+                          {{ sortAsc ? '↑' : '↓' }}
+                        </span>
+                      </button>
+                    </th>
+                    <th class="text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="u in paged" :key="u.id" class="align-top">
+                    <td>
+                      <div class="font-medium">
+                        {{ u.name }}
+                        <span
+                          v-if="u.verifiedAt"
+                          class="ml-1 text-success"
+                          role="img"
+                          aria-label="Email confirmed"
+                          title="Email confirmed"
+                        >✓</span>
+                        <span v-if="isMe(u)" class="badge badge-ghost badge-sm ml-1">you</span>
+                      </div>
+                      <div class="text-xs break-all opacity-60">{{ u.email }}</div>
+                    </td>
+                    <td>
+                      <span class="badge badge-sm whitespace-nowrap" :class="roleClass(u.role)">
+                        {{ u.role }}
+                      </span>
+                    </td>
+                    <td class="text-sm opacity-70">{{ u.alerts }}</td>
+                    <td>
+                      <span v-if="u.disabledAt" class="badge badge-error badge-sm">disabled</span>
+                      <span v-else class="badge badge-success badge-sm">active</span>
+                    </td>
+                    <td>
+                      <div class="flex justify-end">
+                        <UserActions
+                          :user="u"
+                          :me="isMe(u)"
+                          @edit="editing = u"
+                          @toggle="setDisabled(u, !u.disabledAt)"
+                          @remove="removing = u"
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <ul class="flex flex-col gap-3 md:hidden">
+              <li
+                v-for="u in paged"
+                :key="u.id"
+                class="rounded-box border border-base-300 bg-base-100 p-4 shadow-sm"
+              >
+                <div class="flex items-start justify-between gap-3">
+                  <div class="min-w-0">
+                    <div class="font-medium">
+                      {{ u.name }}
+                      <span
+                        v-if="u.verifiedAt"
+                        class="ml-1 text-success"
+                        role="img"
+                        aria-label="Email confirmed"
+                        title="Email confirmed"
+                      >✓</span>
+                      <span v-if="isMe(u)" class="badge badge-ghost badge-sm ml-1">you</span>
+                    </div>
+                    <div class="text-xs break-all opacity-60">{{ u.email }}</div>
+                  </div>
+                  <span class="badge badge-sm shrink-0 whitespace-nowrap" :class="roleClass(u.role)">
+                    {{ u.role }}
                   </span>
-                </button>
-              </th>
-              <th class="text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="u in paged" :key="u.id" class="align-top">
-              <td>
-                <div class="font-medium">
-                  {{ u.name }}
-                  <span
-                    v-if="u.verifiedAt"
-                    class="ml-1 text-success"
-                    role="img"
-                    aria-label="Email confirmed"
-                    title="Email confirmed"
-                  >✓</span>
-                  <span v-if="isMe(u)" class="badge badge-ghost badge-sm ml-1">you</span>
                 </div>
-                <div class="text-xs break-all opacity-60">{{ u.email }}</div>
-              </td>
-              <td>
-                <span class="badge badge-sm whitespace-nowrap" :class="roleClass(u.role)">
-                  {{ u.role }}
-                </span>
-              </td>
-              <td class="text-sm opacity-70">{{ u.alerts }}</td>
-              <td>
-                <span v-if="u.disabledAt" class="badge badge-error badge-sm">disabled</span>
-                <span v-else class="badge badge-success badge-sm">active</span>
-              </td>
-              <td>
-                <div class="flex justify-end">
+
+                <div class="mt-2 flex flex-wrap items-center gap-2">
+                  <span v-if="u.disabledAt" class="badge badge-error badge-sm">disabled</span>
+                  <span v-else class="badge badge-success badge-sm">active</span>
+                  <span class="text-xs opacity-60">
+                    {{ u.alerts }} alert{{ u.alerts === 1 ? '' : 's' }}
+                  </span>
+                </div>
+
+                <div class="mt-3">
                   <UserActions
                     :user="u"
                     :me="isMe(u)"
@@ -347,94 +425,48 @@ async function onSaved() {
                     @remove="removing = u"
                   />
                 </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+              </li>
+            </ul>
 
-      <ul class="flex flex-col gap-3 md:hidden">
-        <li
-          v-for="u in paged"
-          :key="u.id"
-          class="rounded-box border border-base-300 bg-base-100 p-4 shadow-sm"
-        >
-          <div class="flex items-start justify-between gap-3">
-            <div class="min-w-0">
-              <div class="font-medium">
-                {{ u.name }}
-                <span
-                  v-if="u.verifiedAt"
-                  class="ml-1 text-success"
-                  role="img"
-                  aria-label="Email confirmed"
-                  title="Email confirmed"
-                >✓</span>
-                <span v-if="isMe(u)" class="badge badge-ghost badge-sm ml-1">you</span>
+            <div v-if="sorted.length" class="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <p class="text-xs opacity-60">
+                Showing {{ firstRow }}&ndash;{{ lastRow }} of {{ sorted.length }}
+              </p>
+              <div v-if="pageCount > 1" class="join">
+                <button
+                  type="button"
+                  class="btn btn-sm join-item"
+                  :disabled="currentPage === 1"
+                  @click="page = currentPage - 1"
+                >
+                  Previous
+                </button>
+                <button type="button" class="btn btn-sm join-item" disabled>
+                  Page {{ currentPage }} of {{ pageCount }}
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-sm join-item"
+                  :disabled="currentPage === pageCount"
+                  @click="page = currentPage + 1"
+                >
+                  Next
+                </button>
               </div>
-              <div class="text-xs break-all opacity-60">{{ u.email }}</div>
             </div>
-            <span class="badge badge-sm shrink-0 whitespace-nowrap" :class="roleClass(u.role)">
-              {{ u.role }}
-            </span>
-          </div>
 
-          <div class="mt-2 flex flex-wrap items-center gap-2">
-            <span v-if="u.disabledAt" class="badge badge-error badge-sm">disabled</span>
-            <span v-else class="badge badge-success badge-sm">active</span>
-            <span class="text-xs opacity-60">
-              {{ u.alerts }} alert{{ u.alerts === 1 ? '' : 's' }}
-            </span>
-          </div>
-
-          <div class="mt-3">
-            <UserActions
-              :user="u"
-              :me="isMe(u)"
-              @edit="editing = u"
-              @toggle="setDisabled(u, !u.disabledAt)"
-              @remove="removing = u"
-            />
-          </div>
-        </li>
-      </ul>
-
-      <div v-if="sorted.length" class="mt-4 flex flex-wrap items-center justify-between gap-3">
-        <p class="text-xs opacity-60">
-          Showing {{ firstRow }}&ndash;{{ lastRow }} of {{ sorted.length }}
-        </p>
-        <div v-if="pageCount > 1" class="join">
-          <button
-            type="button"
-            class="btn btn-sm join-item"
-            :disabled="currentPage === 1"
-            @click="page = currentPage - 1"
-          >
-            Previous
-          </button>
-          <button type="button" class="btn btn-sm join-item" disabled>
-            Page {{ currentPage }} of {{ pageCount }}
-          </button>
-          <button
-            type="button"
-            class="btn btn-sm join-item"
-            :disabled="currentPage === pageCount"
-            @click="page = currentPage + 1"
-          >
-            Next
-          </button>
+            <p
+              v-if="!users.length"
+              class="rounded-box border border-base-300 bg-base-100 p-6 text-center text-sm opacity-70 shadow-sm"
+            >
+              <template v-if="search">Nothing matches &ldquo;{{ search }}&rdquo;.</template>
+              <template v-else-if="filter !== 'all'">Nothing here for that filter.</template>
+              <template v-else>No accounts yet.</template>
+            </p>
+          </template>
         </div>
-      </div>
-
-      <p
-        v-if="!users.length"
-        class="rounded-box border border-base-300 bg-base-100 p-6 text-center text-sm opacity-70 shadow-sm"
-      >
-        <template v-if="search">Nothing matches &ldquo;{{ search }}&rdquo;.</template>
-        <template v-else-if="filter !== 'all'">Nothing here for that filter.</template>
-        <template v-else>No accounts yet.</template>
-      </p>
-    </template>
+      </template>
+    </div>
 
     <p class="mt-4 text-xs opacity-60">
       Disabling keeps everything and can be undone. Deleting cannot: it removes the account and
