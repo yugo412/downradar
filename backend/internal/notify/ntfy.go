@@ -97,7 +97,6 @@ func (n *Notifier) ntfyMessage(alert store.PendingAlert, test bool) ntfyMessage 
 	actions := fmt.Sprintf("view, Open status page, %s", url)
 	if !test {
 		unsubscribe := fmt.Sprintf("%s/alerts/unsubscribe?token=%s", n.publicURL, alert.Token)
-		body = append(body, "", "Stop these alerts: "+unsubscribe)
 		actions += fmt.Sprintf("; view, Stop alerts, %s", unsubscribe)
 	}
 

@@ -103,8 +103,8 @@ func TestDrainPublishesToNtfy(t *testing.T) {
 	if strings.Contains(call.body, "Open the status page") {
 		t.Errorf("body = %q, want the link only on the action", call.body)
 	}
-	if !strings.Contains(call.body, "Stop these alerts:") {
-		t.Errorf("body = %q, want the way out", call.body)
+	if strings.Contains(call.body, "Stop these alerts") {
+		t.Errorf("body = %q, want the action to be the only way out", call.body)
 	}
 }
 

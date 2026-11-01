@@ -11,6 +11,10 @@ semantic versioning.
 - Hund.io status pages, read from the page itself.
 - Instatus status pages, read from the API the page publishes.
 
+### Changed
+
+- ntfy messages carry the way to stop alerts as an action only, with the body ending on the change itself.
+
 ## [0.7.0]
 
 ### Added
