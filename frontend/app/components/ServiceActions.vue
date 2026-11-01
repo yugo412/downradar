@@ -29,19 +29,28 @@ const emit = defineEmits<{
     <button v-if="canEdit" type="button" class="link" @click="emit('edit')">Edit</button>
 
     <button
-      v-if="canManage && service.active && service.status === 'published'"
+      v-if="
+        canManage &&
+        service.active &&
+        (service.status === 'published' || service.status === 'no_match')
+      "
       type="button"
       class="link inline-flex items-center gap-1"
       :disabled="pausing"
       :title="
         service.paused
-          ? 'Start scheduled polls again and refresh its page.'
-          : 'Stop scheduled polls and keep the last known state on its page.'
+          ? (service.status === 'no_match'
+            ? 'Let the hourly detection attempts continue.'
+            : 'Start scheduled polls again and refresh its page.')
+          : (service.status === 'no_match'
+            ? 'Stop trying to match a profile for this page.'
+            : 'Stop scheduled polls and keep the last known state on its page.')
       "
       @click="emit('pause')"
     >
       <span v-if="pausing" class="loading loading-spinner loading-xs" />
-      {{ service.paused ? 'Resume polling' : 'Pause polling' }}
+      {{ service.paused ? 'Resume' : 'Pause' }}
+      {{ service.status === 'no_match' ? 'detection' : 'polling' }}
     </button>
 
     <button

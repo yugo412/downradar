@@ -285,6 +285,9 @@ func (s *Store) UpdateService(ctx context.Context, slug string, p ServicePatch) 
 			visibility = coalesce($15::text, visibility),
 			slug       = coalesce($16::text, slug),
 			paused     = coalesce($17::boolean, paused),
+			-- Resuming starts the failure count over: the person asked for another
+			-- try, so the attempts before it no longer count against the limit.
+			detection_attempts = case when $17::boolean is false then 0 else detection_attempts end,
 			updated_at = now()
 		where slug = $1`,
 		slug, p.Name, p.URL, p.Profile, p.Category, p.LogoURL, p.Endpoint,
