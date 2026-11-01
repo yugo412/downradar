@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const props = defineProps<{ at?: string | null }>()
+const props = defineProps<{ at?: string | null; long?: boolean }>()
 
 const now = useNow()
 const ready = ref(false)
@@ -8,7 +8,9 @@ onMounted(() => {
   ready.value = true
 })
 
-const label = computed(() => timeAgo(props.at, now.value))
+const label = computed(() =>
+  props.long ? timeAgoLong(props.at, now.value) : timeAgo(props.at, now.value),
+)
 </script>
 
 <template>
