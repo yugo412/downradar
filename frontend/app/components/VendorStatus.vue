@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ComponentStatus, VendorDetail } from '~/types/api'
+import type { AlertState, ChannelDeliveryStatus, ComponentStatus, VendorDetail } from '~/types/api'
 
 const props = defineProps<{ vendor: VendorDetail; ownerId?: number }>()
 
@@ -54,7 +54,7 @@ const router = useRouter()
 // server; the log is staff and owner only, so it joins after the session is
 // known and is never part of the cached page.
 type PublicTab = 'components' | 'incidents' | 'recent'
-type Tab = PublicTab | 'logs'
+type Tab = PublicTab | 'alert' | 'logs'
 
 const { user, canManageServices } = useAuth()
 const tabGroup = useId()
@@ -87,6 +87,140 @@ function selectTab(next: Tab) {
   router.replace({ query })
 }
 
+// The alert belongs to the visitor, so its state is read in the browser and the
+// cached page never carries it. The bell in the header asks the same endpoint
+// when the page opens; this asks when the tab is opened.
+const alertState = ref<AlertState | null>(null)
+const alertLoading = ref(false)
+const alertError = ref('')
+
+watch(
+  [tab, user],
+  () => {
+    if (tab.value !== 'alert' || !user.value) {
+      alertState.value = null
+      alertError.value = ''
+      return
+    }
+    void loadAlert()
+  },
+  { immediate: true },
+)
+
+async function loadAlert() {
+  alertLoading.value = true
+  alertError.value = ''
+  try {
+    alertState.value = await $fetch<AlertState>(`/api/v1/vendors/${props.vendor.slug}/alerts`)
+  } catch (err) {
+    alertError.value = apiError(err, 'Could not read your alert.')
+  } finally {
+    alertLoading.value = false
+  }
+}
+
+const watchedComponents = computed(() => {
+  const ids = alertState.value?.components ?? []
+  return ids.map((id) => components.value.find((c) => c.sourceId === id)?.name ?? id)
+})
+
+type AlertChannelRow = {
+  kind: string
+  label: string
+  detail: string
+  reportsOn: string
+  paused: boolean
+  lastSuccessAt: string | null
+  lastAttemptAt: string | null
+  lastError: string
+}
+
+function deliveryOf(kind: string): ChannelDeliveryStatus | undefined {
+  return alertState.value?.channelStatus?.find((status) => status.kind === kind)
+}
+
+const targetsText = computed(() => {
+  const state = alertState.value
+  const whole = Boolean(state?.wholeService)
+  const names = watchedComponents.value
+  if (whole && names.length) return `The whole service and the components ${names.join(', ')}`
+  if (whole) return 'The whole service'
+  if (names.length) return `The components ${names.join(', ')}`
+  return 'No target is set'
+})
+
+function channelRow(
+  kind: string,
+  label: string,
+  detail: string,
+  paused: boolean,
+  reportsOn = targetsText.value,
+): AlertChannelRow {
+  const delivery = deliveryOf(kind)
+  return {
+    kind,
+    label,
+    detail,
+    reportsOn,
+    paused,
+    lastSuccessAt: delivery?.successAt ?? null,
+    lastAttemptAt: delivery?.attemptAt ?? null,
+    lastError: delivery?.error ?? '',
+  }
+}
+
+const alertChannels = computed<AlertChannelRow[]>(() => {
+  const state = alertState.value
+  if (!state?.subscribed) return []
+
+  const rows: AlertChannelRow[] = []
+  if (state.email) {
+    rows.push(channelRow('email', 'Email', state.email, Boolean(state.emailPaused)))
+  }
+  if (state.webhook) {
+    const auth = state.webhook.auth === 'standard' ? 'Standard Webhooks' : 'Custom headers'
+    rows.push(
+      channelRow(
+        'webhook',
+        'Webhook',
+        [state.webhook.method, state.webhook.url, auth].filter(Boolean).join(' · '),
+        Boolean(state.webhookPaused),
+        'The whole service and every component',
+      ),
+    )
+  }
+  if (state.telegram) {
+    rows.push(channelRow('telegram', 'Telegram', state.telegram, Boolean(state.telegramPaused)))
+  }
+  if (state.slack) {
+    rows.push(
+      channelRow(
+        'slack',
+        'Slack',
+        state.slackChannel || 'Connected channel',
+        Boolean(state.slackPaused),
+      ),
+    )
+  }
+  if (state.discord) {
+    rows.push(
+      channelRow(
+        'discord',
+        'Discord',
+        state.discordChannel || 'Connected channel',
+        Boolean(state.discordPaused),
+      ),
+    )
+  }
+  if (state.lark) {
+    rows.push(channelRow('lark', 'Lark', state.lark || 'Group webhook', Boolean(state.larkPaused)))
+  }
+  if (state.ntfy) {
+    rows.push(channelRow('ntfy', 'ntfy', state.ntfy || 'Topic', Boolean(state.ntfyPaused)))
+  }
+  return rows
+})
+
 const showLogs = computed(
   () => canManageServices.value || (props.ownerId != null && props.ownerId === user.value?.id),
 )
@@ -95,6 +229,10 @@ function syncTabFromQuery() {
   const wanted = String(route.query.tab ?? '')
   if (wanted === 'logs') {
     tab.value = showLogs.value ? 'logs' : 'components'
+    return
+  }
+  if (wanted === 'alert') {
+    tab.value = user.value ? 'alert' : 'components'
     return
   }
   tab.value = isPublicTab(wanted) ? wanted : 'components'
@@ -110,9 +248,22 @@ watch(showLogs, (allowed) => {
   }
 })
 
+// The alert tab cannot be opened while signed out, so the query is followed back
+// to the public tabs when the session ends, and restored when it arrives.
+watch(user, (current) => {
+  if (!current && tab.value === 'alert') {
+    selectTab('components')
+  } else if (current && String(route.query.tab ?? '') === 'alert') {
+    tab.value = 'alert'
+  }
+})
+
 onMounted(() => {
   if (showLogs.value && String(route.query.tab ?? '') === 'logs') {
     tab.value = 'logs'
+  }
+  if (user.value && String(route.query.tab ?? '') === 'alert') {
+    tab.value = 'alert'
   }
 })
 
@@ -451,6 +602,105 @@ const shownComponents = computed(() => {
           </section>
         </div>
       </template>
+
+      <ClientOnly>
+        <label
+          class="tab flex-none whitespace-nowrap"
+          :class="{
+            'tab-active': tab === 'alert',
+            'tab-disabled': !user,
+            'cursor-pointer': user,
+          }"
+          :aria-disabled="!user"
+          :title="user ? undefined : 'Sign in to set an alert'"
+        >
+          <input
+            type="radio"
+            class="sr-only"
+            :name="tabGroup"
+            :checked="tab === 'alert'"
+            :disabled="!user"
+            @change="selectTab('alert')"
+          />
+          Alert
+        </label>
+        <div class="tab-content basis-full bg-base-100 border-base-300 p-6">
+          <section v-if="user && tab === 'alert'">
+            <h2 class="mb-3 text-lg font-semibold">Alert</h2>
+
+            <div v-if="alertLoading" class="flex justify-center py-6">
+              <span class="loading loading-spinner loading-sm" />
+            </div>
+            <p v-else-if="alertError" role="alert" class="alert alert-error">{{ alertError }}</p>
+            <template v-else-if="alertState?.subscribed">
+              <div class="flex flex-wrap items-center gap-2">
+                <p class="text-sm">You have an alert for this service.</p>
+                <span
+                  class="badge badge-sm"
+                  :class="alertState?.paused ? 'badge-warning' : 'badge-success'"
+                >
+                  {{ alertState?.paused ? 'Paused' : 'Active' }}
+                </span>
+              </div>
+
+              <h3 class="mt-4 text-sm font-medium">Channels</h3>
+              <ul class="mt-2 divide-y divide-base-300 rounded-box border border-base-300">
+                <li v-for="channel in alertChannels" :key="channel.kind" class="px-4 py-3">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <span class="font-medium">{{ channel.label }}</span>
+                    <span
+                      class="badge badge-sm"
+                      :class="channel.paused ? 'badge-warning' : 'badge-success'"
+                    >
+                      {{ channel.paused ? 'Paused' : 'Active' }}
+                    </span>
+                  </div>
+                  <p class="mt-1 text-xs break-all opacity-70">
+                    <span class="font-medium">Sends to:</span> {{ channel.detail }}
+                  </p>
+                  <p class="mt-0.5 text-xs opacity-60">
+                    <span class="font-medium">Reports on:</span> {{ channel.reportsOn }}
+                  </p>
+                  <template v-if="channel.lastError">
+                    <p class="mt-1 text-xs text-error">
+                      Last delivery failed
+                      <LiveAgo v-if="channel.lastAttemptAt" :at="channel.lastAttemptAt" />
+                    </p>
+                    <p class="mt-0.5 break-words text-xs text-error">{{ channel.lastError }}</p>
+                  </template>
+                  <p
+                    v-else-if="channel.lastSuccessAt || channel.lastAttemptAt"
+                    class="mt-1 text-xs opacity-50"
+                  >
+                    Last delivered
+                    <LiveAgo :at="channel.lastSuccessAt ?? channel.lastAttemptAt" />
+                  </p>
+                </li>
+              </ul>
+              <p v-if="!alertChannels.length" class="mt-2 text-sm opacity-70">
+                It has no way to reach you right now.
+              </p>
+
+              <NuxtLink :to="`/alerts/${vendor.slug}`" class="btn btn-sm mt-4">
+                Manage alert
+              </NuxtLink>
+            </template>
+            <template v-else>
+              <p class="text-sm">You do not have an alert for this service yet.</p>
+              <NuxtLink :to="`/alerts/${vendor.slug}`" class="btn btn-sm mt-4">
+                Set up an alert
+              </NuxtLink>
+            </template>
+          </section>
+        </div>
+
+        <template #fallback>
+          <label class="tab tab-disabled flex-none whitespace-nowrap" title="Sign in to set an alert">
+            Alert
+          </label>
+          <div class="tab-content basis-full bg-base-100 border-base-300 p-6" />
+        </template>
+      </ClientOnly>
 
       <ClientOnly>
         <template v-if="showLogs">

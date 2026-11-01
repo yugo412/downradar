@@ -10,6 +10,8 @@ semantic versioning.
 
 - Hund.io status pages, read from the page itself.
 - Instatus status pages, read from the API the page publishes.
+- An Alert tab on vendor pages, showing the signed-in visitor's alert and the
+  channels it arrives by.
 
 ### Changed
 
