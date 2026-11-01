@@ -11,6 +11,10 @@ semantic versioning.
 - Hund.io status pages, read from the page itself.
 - Instatus status pages, read from the API the page publishes.
 
+### Changed
+
+- A service that no profile could match is paused after 20 failed detection attempts, and can be resumed or tried again from its row.
+
 ## [0.7.0]
 
 ### Added

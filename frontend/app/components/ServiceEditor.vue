@@ -34,7 +34,7 @@ const canPause = computed(
   () =>
     canManageServices.value &&
     Boolean(service.value?.active) &&
-    service.value?.status === 'published',
+    (service.value?.status === 'published' || service.value?.status === 'no_match'),
 )
 
 async function togglePause() {
@@ -120,12 +120,18 @@ async function save(payload: ServicePayload) {
             class="mb-5 flex flex-wrap items-start justify-between gap-3 rounded-box border border-base-300 p-4"
           >
             <div>
-              <p class="text-sm font-medium">Scheduled polling</p>
+              <p class="text-sm font-medium">
+                {{ service.status === 'no_match' ? 'Profile detection' : 'Scheduled polling' }}
+              </p>
               <p class="text-sm opacity-70">
                 {{
-                  service.paused
-                    ? 'Paused. The last known state stays on the page.'
-                    : 'Running on its usual schedule.'
+                  service.status === 'no_match'
+                    ? (service.paused
+                      ? 'Paused. The page is not checked for a profile.'
+                      : 'Trying to match a profile on its usual schedule.')
+                    : (service.paused
+                      ? 'Paused. The last known state stays on the page.'
+                      : 'Running on its usual schedule.')
                 }}
               </p>
             </div>
@@ -135,13 +141,18 @@ async function save(payload: ServicePayload) {
               :disabled="pausing || busy"
               :title="
                 service.paused
-                  ? 'Start scheduled polls again and refresh its page.'
-                  : 'Stop scheduled polls and keep the last known state on its page.'
+                  ? (service.status === 'no_match'
+                    ? 'Let the hourly detection attempts continue.'
+                    : 'Start scheduled polls again and refresh its page.')
+                  : (service.status === 'no_match'
+                    ? 'Stop trying to match a profile for this page.'
+                    : 'Stop scheduled polls and keep the last known state on its page.')
               "
               @click="togglePause"
             >
               <span v-if="pausing" class="loading loading-spinner loading-xs" />
-              {{ service.paused ? 'Resume polling' : 'Pause polling' }}
+              {{ service.paused ? 'Resume' : 'Pause' }}
+              {{ service.status === 'no_match' ? 'detection' : 'polling' }}
             </button>
             <p v-if="pauseError" role="alert" class="w-full text-sm text-error">
               {{ pauseError }}

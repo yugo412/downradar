@@ -166,7 +166,7 @@ func TestParkDetectionParksTheVendorAndRecordsTheAttempt(t *testing.T) {
 	}
 
 	reason := "no profile matched https://status.example.com (statuspage-v2: no page)"
-	if err := st.ParkDetection(ctx, id, reason); err != nil {
+	if _, _, err := st.ParkDetection(ctx, id, reason); err != nil {
 		t.Fatalf("ParkDetection: %v", err)
 	}
 
@@ -203,6 +203,122 @@ func TestParkDetectionParksTheVendorAndRecordsTheAttempt(t *testing.T) {
 		if row.Slug == slug {
 			t.Error("a parked vendor must not be in the poll rotation")
 		}
+	}
+}
+
+func detectionAttempts(t *testing.T, st *Store, id int64) int {
+	t.Helper()
+
+	var attempts int
+	if err := st.pool.QueryRow(context.Background(),
+		`select detection_attempts from services where id = $1`, id).Scan(&attempts); err != nil {
+		t.Fatalf("read detection_attempts: %v", err)
+	}
+	return attempts
+}
+
+// A page nothing reads is offered again every hour, but not forever: once the
+// failures reach the limit the row is paused so the queue leaves it alone.
+func TestParkDetectionPausesAfterRepeatedFailures(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	slug := fmt.Sprintf("zz-test-limit-%d", time.Now().UnixNano())
+	id := parkedService(t, st, slug)
+
+	for i := 1; i <= DetectionAttemptLimit; i++ {
+		attempts, paused, err := st.ParkDetection(ctx, id, "no profile matched")
+		if err != nil {
+			t.Fatalf("ParkDetection %d: %v", i, err)
+		}
+		if attempts != i {
+			t.Errorf("attempt %d recorded as %d", i, attempts)
+		}
+		if want := i >= DetectionAttemptLimit; paused != want {
+			t.Errorf("paused after attempt %d = %v, want %v", i, paused, want)
+		}
+	}
+
+	row, err := st.AdminGetService(ctx, slug)
+	if err != nil {
+		t.Fatalf("AdminGetService: %v", err)
+	}
+	if !row.Paused {
+		t.Error("the row was not paused after the last allowed attempt")
+	}
+	if pending := pendingSlugs(t, st); pending[slug] {
+		t.Error("a paused vendor must not be offered to detection")
+	}
+
+	// Resume is a manual start, so the queue and the count both begin again.
+	resumed := false
+	if err := st.UpdateService(ctx, slug, ServicePatch{Paused: &resumed}); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	row, err = st.AdminGetService(ctx, slug)
+	if err != nil {
+		t.Fatalf("AdminGetService after resume: %v", err)
+	}
+	if row.Paused {
+		t.Error("the row is still paused after a resume")
+	}
+	if attempts := detectionAttempts(t, st, id); attempts != 0 {
+		t.Errorf("detection attempts after resume = %d, want zero", attempts)
+	}
+	if pending := pendingSlugs(t, st); !pending[slug] {
+		t.Error("a resumed vendor should be offered to detection again")
+	}
+}
+
+// Retry resets the count but keeps the pause, so a failed manual attempt does
+// not quietly start the hourly queue again. A match lifts both.
+func TestResetDetectionAttemptsKeepsThePause(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	slug := fmt.Sprintf("zz-test-reset-%d", time.Now().UnixNano())
+	id := parkedService(t, st, slug)
+
+	for i := 0; i < DetectionAttemptLimit; i++ {
+		if _, _, err := st.ParkDetection(ctx, id, "no profile matched"); err != nil {
+			t.Fatalf("ParkDetection %d: %v", i, err)
+		}
+	}
+	if err := st.ResetDetectionAttempts(ctx, id); err != nil {
+		t.Fatalf("ResetDetectionAttempts: %v", err)
+	}
+
+	row, err := st.AdminGetService(ctx, slug)
+	if err != nil {
+		t.Fatalf("AdminGetService: %v", err)
+	}
+	if !row.Paused {
+		t.Error("a retry reset the pause, want it kept until a match or a resume")
+	}
+	if attempts := detectionAttempts(t, st, id); attempts != 0 {
+		t.Errorf("detection attempts after a retry = %d, want zero", attempts)
+	}
+
+	attempts, paused, err := st.ParkDetection(ctx, id, "no profile matched")
+	if err != nil {
+		t.Fatalf("ParkDetection after retry: %v", err)
+	}
+	if attempts != 1 || !paused {
+		t.Errorf("after a failed retry attempts/paused = %d/%v, want 1/true", attempts, paused)
+	}
+
+	if err := st.SetDetectedProfile(ctx, id, "statusio", 120, 30); err != nil {
+		t.Fatalf("SetDetectedProfile: %v", err)
+	}
+	row, err = st.AdminGetService(ctx, slug)
+	if err != nil {
+		t.Fatalf("AdminGetService after match: %v", err)
+	}
+	if row.Paused {
+		t.Error("a matched profile left the row paused")
+	}
+	if attempts := detectionAttempts(t, st, id); attempts != 0 {
+		t.Errorf("detection attempts after a match = %d, want zero", attempts)
 	}
 }
 
