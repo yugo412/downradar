@@ -15,6 +15,8 @@ semantic versioning.
 
 - Vendor pages split components, incidents, recent status and staff fetch logs
   into tabs, with relative timestamps and open incidents collapsed above them.
+- The services, users and alerts lists use lifted tabs, with a count on every
+  tab.
 - A service that no profile could match is paused after 20 failed detection attempts, and can be resumed or tried again from its row.
 - ntfy messages carry the way to stop alerts as an action only, with the body ending on the change itself.
 

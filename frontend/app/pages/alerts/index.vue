@@ -187,12 +187,12 @@ const statusFilter = ref(
 const searchInput = ref(String(route.query.q ?? ''))
 const search = ref(searchInput.value.trim())
 
-// The search and the row state narrow first, so a chip carries what the cards
-// under it would be.
-const matched = computed(() => {
+// The search narrows first, so a chip carries what the cards under it would be.
+// Each tab then asks for its own state, which is what lets the lifted tabs
+// count their rows before they are opened.
+const searched = computed(() => {
   const needle = search.value.trim().toLowerCase()
   return alerts.value.filter((alert) => {
-    if (rowState.value !== 'all' && alert.state !== rowState.value) return false
     if (!needle) return true
     return (
       alert.vendorName.toLowerCase().includes(needle) ||
@@ -202,6 +202,23 @@ const matched = computed(() => {
       (alert.components ?? []).some((name) => name.toLowerCase().includes(needle))
     )
   })
+})
+
+function matchedFor(state: RowState) {
+  return state === 'all' ? searched.value : searched.value.filter((alert) => alert.state === state)
+}
+
+const matched = computed(() => matchedFor(rowState.value))
+
+const rowCounts = computed(() => {
+  const counts: Record<RowState, number> = {
+    all: searched.value.length,
+    active: 0,
+    paused: 0,
+    unsubscribed: 0,
+  }
+  for (const alert of searched.value) counts[alert.state] += 1
+  return counts
 })
 
 const statusOptions = computed(() =>
@@ -317,15 +334,23 @@ function sortState(key: SortKey) {
 
 // Everything Clear would put back: a state, a health, or an order.
 const clearable = computed(
-  () => rowState.value !== 'all' || statusFilter.value.length > 0 || sortKey.value !== '',
+  () =>
+    rowState.value !== 'all' ||
+    statusFilter.value.length > 0 ||
+    search.value !== '' ||
+    sortKey.value !== '',
 )
 
 // Clear puts the list back to what the page opens with: every row, every health,
-// and the order the API sent. The search box is left alone, because a term
-// somebody typed is their own to remove.
+// the search box, and the order the API sent.
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+
 function clearList() {
+  clearTimeout(searchTimer)
   rowState.value = 'all'
   statusFilter.value = []
+  searchInput.value = ''
+  search.value = ''
   sortKey.value = ''
   sortAsc.value = true
 }
@@ -347,8 +372,6 @@ function syncUrl() {
   if (currentPage.value > 1) query.page = String(currentPage.value)
   router.replace({ query })
 }
-
-let searchTimer: ReturnType<typeof setTimeout> | undefined
 
 watch(searchInput, (value) => {
   clearTimeout(searchTimer)
@@ -425,6 +448,14 @@ watch(
           placeholder="Search by service, channel, address, or component"
           aria-label="Search alerts"
         />
+        <button
+          v-if="clearable"
+          type="button"
+          class="link text-xs"
+            @click="clearList"
+        >
+          Clear
+        </button>
         <span v-if="search" class="text-xs opacity-60">
           {{ filtered.length }} match{{ filtered.length === 1 ? '' : 'es' }}
         </span>
@@ -435,7 +466,6 @@ watch(
       <StatusFilter
         v-model="statusFilter"
         :statuses="statusOptions"
-        :clearable="clearable"
         label="Filter alerts by the status of the service"
         class="mb-4"
         @clear="clearList"
@@ -444,140 +474,149 @@ watch(
       <!-- What the row is doing: still arriving, held back, or ended. Ended is
            here beside the other two rather than left out, since a row that
            ended can be started again from here. -->
-      <div role="tablist" class="tabs tabs-box mb-4">
-        <button
-          v-for="s in rowStates"
-          :key="s.value"
-          role="tab"
-          class="tab"
-          :class="{ 'tab-active': rowState === s.value }"
-          @click="rowState = s.value"
-        >
-          {{ s.label }}
-        </button>
-      </div>
-
-      <!-- A phone cannot hold five columns without scrolling sideways, so the
-           table is for wide screens and the same rows are cards below. -->
-      <div class="hidden overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm md:block">
-        <table class="table">
-          <thead>
-            <tr>
-              <th v-for="col in sortColumns" :key="col.key" :aria-sort="sortState(col.key)">
-                <button type="button" class="cursor-pointer whitespace-nowrap" @click="sortBy(col.key)">
-                  {{ col.label }}
-                  <span v-if="sortKey === col.key" aria-hidden="true">
-                    {{ sortAsc ? '↑' : '↓' }}
-                  </span>
-                </button>
-              </th>
-              <th class="text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="alert in paged" :key="alert.id" class="align-top">
-              <td>
-                <NuxtLink :to="`/${alert.vendorSlug}`" class="link font-medium">
-                  {{ alert.vendorName }}
-                </NuxtLink>
-                <div class="mt-1">
-                  <StatusBadge :status="alert.vendorStatus" size="xs" />
-                </div>
-                <p class="mt-1 text-xs opacity-70">{{ watches(alert) }}</p>
-              </td>
-              <td class="text-sm whitespace-nowrap opacity-70">{{ arrives(alert) }}</td>
-              <td class="text-sm whitespace-nowrap opacity-70">
-                <LocalTime :at="alert.createdAt" />
-              </td>
-              <td>
-                <span class="badge badge-sm whitespace-nowrap" :class="stateOf(alert).cls">
-                  {{ stateOf(alert).label }}
-                </span>
-              </td>
-              <td>
-                <div class="flex justify-end">
-                  <AlertActions
-                    :alert="alert"
-                    :busy="busy === alert.id"
-                    @state="setState(alert, $event)"
-                    @remove="deleting = alert"
-                  />
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <ul class="flex flex-col gap-3 md:hidden">
-        <li
-          v-for="alert in paged"
-          :key="alert.id"
-          class="rounded-box border border-base-300 bg-base-100 p-4 shadow-sm"
-        >
-          <div class="flex items-start justify-between gap-3">
-            <div class="min-w-0">
-              <NuxtLink :to="`/${alert.vendorSlug}`" class="link font-medium">
-                {{ alert.vendorName }}
-              </NuxtLink>
-              <div class="mt-1">
-                <StatusBadge :status="alert.vendorStatus" size="xs" />
-              </div>
-              <p class="mt-1 text-xs opacity-70">{{ watches(alert) }}</p>
-            </div>
-            <span class="badge badge-sm shrink-0 whitespace-nowrap" :class="stateOf(alert).cls">
-              {{ stateOf(alert).label }}
-            </span>
-          </div>
-
-          <p class="mt-2 text-sm opacity-70">{{ arrives(alert) }}</p>
-          <p class="mt-1 text-xs opacity-60">added <LocalTime :at="alert.createdAt" /></p>
-
-          <div class="mt-3">
-            <AlertActions
-              :alert="alert"
-              :busy="busy === alert.id"
-              @state="setState(alert, $event)"
-              @remove="deleting = alert"
+      <div class="tabs tabs-lift w-full" role="tablist" aria-label="Alert states">
+        <template v-for="s in rowStates" :key="s.value">
+          <label
+            class="tab flex-none cursor-pointer gap-1.5 whitespace-nowrap"
+            :class="{ 'tab-active': rowState === s.value }"
+          >
+            <input
+              type="radio"
+              class="sr-only"
+              name="alert-state"
+              :checked="rowState === s.value"
+              @change="rowState = s.value"
             />
+            {{ s.label }}
+            <span class="badge badge-sm tab-count">{{ rowCounts[s.value] }}</span>
+          </label>
+          <div class="tab-content basis-full bg-base-100 border-base-300 p-6">
+            <template v-if="rowState === s.value">
+              <!-- A phone cannot hold five columns without scrolling sideways, so the
+                   table is for wide screens and the same rows are cards below. -->
+              <div class="hidden overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm md:block">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th v-for="col in sortColumns" :key="col.key" :aria-sort="sortState(col.key)">
+                        <button type="button" class="cursor-pointer whitespace-nowrap" @click="sortBy(col.key)">
+                          {{ col.label }}
+                          <span v-if="sortKey === col.key" aria-hidden="true">
+                            {{ sortAsc ? '↑' : '↓' }}
+                          </span>
+                        </button>
+                      </th>
+                      <th class="text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="alert in paged" :key="alert.id" class="align-top">
+                      <td>
+                        <NuxtLink :to="`/${alert.vendorSlug}`" class="link font-medium">
+                          {{ alert.vendorName }}
+                        </NuxtLink>
+                        <div class="mt-1">
+                          <StatusBadge :status="alert.vendorStatus" size="xs" />
+                        </div>
+                        <p class="mt-1 text-xs opacity-70">{{ watches(alert) }}</p>
+                      </td>
+                      <td class="text-sm whitespace-nowrap opacity-70">{{ arrives(alert) }}</td>
+                      <td class="text-sm whitespace-nowrap opacity-70">
+                        <LocalTime :at="alert.createdAt" />
+                      </td>
+                      <td>
+                        <span class="badge badge-sm whitespace-nowrap" :class="stateOf(alert).cls">
+                          {{ stateOf(alert).label }}
+                        </span>
+                      </td>
+                      <td>
+                        <div class="flex justify-end">
+                          <AlertActions
+                            :alert="alert"
+                            :busy="busy === alert.id"
+                            @state="setState(alert, $event)"
+                            @remove="deleting = alert"
+                          />
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <ul class="flex flex-col gap-3 md:hidden">
+                <li
+                  v-for="alert in paged"
+                  :key="alert.id"
+                  class="rounded-box border border-base-300 bg-base-100 p-4 shadow-sm"
+                >
+                  <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                      <NuxtLink :to="`/${alert.vendorSlug}`" class="link font-medium">
+                        {{ alert.vendorName }}
+                      </NuxtLink>
+                      <div class="mt-1">
+                        <StatusBadge :status="alert.vendorStatus" size="xs" />
+                      </div>
+                      <p class="mt-1 text-xs opacity-70">{{ watches(alert) }}</p>
+                    </div>
+                    <span class="badge badge-sm shrink-0 whitespace-nowrap" :class="stateOf(alert).cls">
+                      {{ stateOf(alert).label }}
+                    </span>
+                  </div>
+
+                  <p class="mt-2 text-sm opacity-70">{{ arrives(alert) }}</p>
+                  <p class="mt-1 text-xs opacity-60">added <LocalTime :at="alert.createdAt" /></p>
+
+                  <div class="mt-3">
+                    <AlertActions
+                      :alert="alert"
+                      :busy="busy === alert.id"
+                      @state="setState(alert, $event)"
+                      @remove="deleting = alert"
+                    />
+                  </div>
+                </li>
+              </ul>
+
+              <div v-if="sorted.length" class="mt-4 flex flex-wrap items-center justify-between gap-3">
+                <p class="text-xs opacity-60">
+                  Showing {{ firstRow }}&ndash;{{ lastRow }} of {{ sorted.length }}
+                </p>
+                <div v-if="pageCount > 1" class="join">
+                  <button
+                    type="button"
+                    class="btn btn-sm join-item"
+                    :disabled="currentPage === 1"
+                    @click="page = currentPage - 1"
+                  >
+                    Previous
+                  </button>
+                  <button type="button" class="btn btn-sm join-item" disabled>
+                    Page {{ currentPage }} of {{ pageCount }}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-sm join-item"
+                    :disabled="currentPage === pageCount"
+                    @click="page = currentPage + 1"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+
+              <p
+                v-if="!filtered.length"
+                class="rounded-box border border-base-300 bg-base-100 p-6 text-center text-sm opacity-70 shadow-sm"
+              >
+                <template v-if="search">Nothing matches &ldquo;{{ search }}&rdquo;.</template>
+                <template v-else>Nothing here for those filters.</template>
+              </p>
+            </template>
           </div>
-        </li>
-      </ul>
-
-      <div v-if="sorted.length" class="mt-4 flex flex-wrap items-center justify-between gap-3">
-        <p class="text-xs opacity-60">
-          Showing {{ firstRow }}&ndash;{{ lastRow }} of {{ sorted.length }}
-        </p>
-        <div v-if="pageCount > 1" class="join">
-          <button
-            type="button"
-            class="btn btn-sm join-item"
-            :disabled="currentPage === 1"
-            @click="page = currentPage - 1"
-          >
-            Previous
-          </button>
-          <button type="button" class="btn btn-sm join-item" disabled>
-            Page {{ currentPage }} of {{ pageCount }}
-          </button>
-          <button
-            type="button"
-            class="btn btn-sm join-item"
-            :disabled="currentPage === pageCount"
-            @click="page = currentPage + 1"
-          >
-            Next
-          </button>
-        </div>
+        </template>
       </div>
-
-      <p
-        v-if="!filtered.length"
-        class="rounded-box border border-base-300 bg-base-100 p-6 text-center text-sm opacity-70 shadow-sm"
-      >
-        <template v-if="search">Nothing matches &ldquo;{{ search }}&rdquo;.</template>
-        <template v-else>Nothing here for those filters.</template>
-      </p>
     </template>
 
     <ConfirmDialog

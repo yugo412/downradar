@@ -132,6 +132,21 @@
   color: var(--color-base-content);
 }
 
+/* The count on a lifted tab. daisyUI's ghost badge is transparent, so an
+   unselected count floats beside its label like plain text. This keeps it a grey
+   chip in either theme, and the active tab turns it into the accent colour. */
+.tab-count {
+  background-color: var(--color-base-300);
+  border-color: transparent;
+  color: var(--color-base-content);
+}
+
+.tab:is(.tab-active, :has(:checked)) .tab-count {
+  background-color: var(--color-primary);
+  border-color: transparent;
+  color: var(--color-primary-content);
+}
+
 /* daisyUI sizes the method column for a three-letter verb and leaves the row
    without left padding, so "POST" overflows the column and its first letter touches
    the card. Keep the column at three characters so every method starts at the same

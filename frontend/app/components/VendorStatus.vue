@@ -339,14 +339,13 @@ const shownComponents = computed(() => {
           <section v-else-if="t.value === 'incidents' && tab === 'incidents'">
             <h2 class="mb-3 text-lg font-semibold">Incidents</h2>
 
-            <ul v-if="incidents.length" class="timeline timeline-vertical">
-              <li
-                v-for="(i, idx) in incidents"
-                :key="i.sourceId"
-                class="[--timeline-col-start:4.5rem] [--timeline-col-end:1fr]"
-              >
+            <ul
+              v-if="incidents.length"
+              class="timeline timeline-vertical timeline-shared"
+            >
+              <li v-for="(i, idx) in incidents" :key="i.sourceId">
                 <hr v-if="idx > 0" />
-                <div class="timeline-start justify-self-start whitespace-nowrap text-xs opacity-60">
+                <div class="timeline-start hidden justify-self-start whitespace-nowrap text-xs opacity-60 md:block">
                   <LiveAgo :at="i.startedAt" long />
                 </div>
                 <div class="timeline-middle">
@@ -380,6 +379,9 @@ const shownComponents = computed(() => {
                   </svg>
                 </div>
                 <div class="timeline-end timeline-box mb-3 w-full">
+                  <p class="mb-1 text-xs opacity-60 md:hidden">
+                    Started <LiveAgo :at="i.startedAt" long />
+                  </p>
                   <div class="flex flex-wrap items-center gap-2">
                     <span class="font-medium">{{ i.name }}</span>
                     <span class="badge badge-ghost badge-sm">{{ i.status }}</span>
@@ -409,14 +411,13 @@ const shownComponents = computed(() => {
 
           <section v-else-if="t.value === 'recent' && tab === 'recent'">
             <h2 class="mb-3 text-lg font-semibold">Recent status changes</h2>
-            <ul v-if="events.length" class="timeline timeline-vertical">
-              <li
-                v-for="(e, idx) in events"
-                :key="idx"
-                class="[--timeline-col-start:4.5rem] [--timeline-col-end:1fr]"
-              >
+            <ul
+              v-if="events.length"
+              class="timeline timeline-vertical timeline-shared"
+            >
+              <li v-for="(e, idx) in events" :key="idx">
                 <hr v-if="idx > 0" />
-                <div class="timeline-start justify-self-start whitespace-nowrap text-xs opacity-60">
+                <div class="timeline-start hidden justify-self-start whitespace-nowrap text-xs opacity-60 md:block">
                   <LiveAgo :at="e.changedAt" long />
                 </div>
                 <div class="timeline-middle">
@@ -439,6 +440,9 @@ const shownComponents = computed(() => {
                     <StatusBadge :status="e.status" size="sm" />
                     <span v-if="e.component" class="text-sm opacity-80">{{ e.component }}</span>
                   </div>
+                  <p class="mt-1 text-xs opacity-60 md:hidden">
+                    <LiveAgo :at="e.changedAt" long />
+                  </p>
                 </div>
                 <hr />
               </li>
@@ -479,3 +483,20 @@ const shownComponents = computed(() => {
     </p>
   </div>
 </template>
+
+<style scoped>
+/* daisyUI gives every timeline row its own column widths, so a long relative
+   date either clips or pushes that row's rail out of line. Sharing the columns
+   through subgrid lets the date column size to the longest label while every
+   dot stays on the same rail. */
+.timeline.timeline-shared {
+  display: grid;
+  grid-template-columns: max-content auto minmax(0, 1fr);
+}
+
+.timeline.timeline-shared > li {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+}
+</style>
