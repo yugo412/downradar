@@ -36,6 +36,7 @@ detect:
   - statuspage-v2
   - statusio
   - hund
+  - instatus
   - sorryapp
   - pagerduty
   - betterstack
@@ -128,6 +129,16 @@ profiles:
   hund:
     kind: hund
     description: Pages hosted by Hund.io, read from the page itself.
+    poll_interval_seconds: 300
+    active_interval_seconds: 60
+
+  # Instatus is a platform: every page serves the same small JSON API under /v3,
+  # with the page state in summary.json and the components in components.json.
+  # The API is public and names its own ids, so nothing is configured per vendor.
+  instatus:
+    kind: instatus
+    description: Pages hosted by Instatus, read from the API the page publishes.
+    endpoint: /v3/
     poll_interval_seconds: 300
     active_interval_seconds: 60
 
