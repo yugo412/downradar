@@ -29,6 +29,12 @@ async function onSaved(service: AdminService) {
   await refresh()
 }
 
+// Pausing keeps the sheet open, so the page around it has to pick up the new
+// state on its own: the note above the status is part of what changed.
+async function onChanged() {
+  await refresh()
+}
+
 useHead({ titleTemplate: null })
 
 if (vendor.value) {
@@ -145,6 +151,7 @@ if (vendor.value) {
           :slug="vendor.slug"
           @close="editing = false"
           @saved="onSaved"
+          @changed="onChanged"
         />
       </ClientOnly>
     </template>
