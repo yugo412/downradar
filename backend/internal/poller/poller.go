@@ -152,11 +152,18 @@ func (p *Poller) detectOne(ctx context.Context, row store.DetectRow) {
 		if ctx.Err() != nil {
 			return
 		}
+		attempts, paused, parkErr := p.store.ParkDetection(ctx, row.ID, err.Error())
+		if parkErr != nil {
+			p.log.Error("failed to park the vendor", "vendor", row.Slug, "error", parkErr)
+			return
+		}
+		if paused {
+			p.log.Warn("no profile matched, detection paused after repeated attempts",
+				"vendor", row.Slug, "attempts", attempts, "error", err)
+			return
+		}
 		p.log.Info("no profile matched, the vendor waits for a later pass",
 			"vendor", row.Slug, "url", row.URL, "error", err)
-		if parkErr := p.store.ParkDetection(ctx, row.ID, err.Error()); parkErr != nil {
-			p.log.Error("failed to park the vendor", "vendor", row.Slug, "error", parkErr)
-		}
 		return
 	}
 

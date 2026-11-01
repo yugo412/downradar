@@ -361,6 +361,14 @@ func (h *handlers) retryDetection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A retry is a manual start: the failures before it no longer count, and a
+	// match clears the pause. A retry that fails leaves an existing pause where
+	// it is, so the hourly queue does not start again on its own.
+	if err := h.store.ResetDetectionAttempts(r.Context(), current.ID); err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
 	match, err := h.detectPage(r, current.Name, current.URL)
 	if err != nil {
 		var noMatch *detect.NoMatch
@@ -372,9 +380,14 @@ func (h *handlers) retryDetection(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.log.Info("no profile matched", "slug", current.Slug, "by", h.user(r).Email, "error", err)
-		if parkErr := h.store.ParkDetection(r.Context(), current.ID, err.Error()); parkErr != nil {
+		attempts, paused, parkErr := h.store.ParkDetection(r.Context(), current.ID, err.Error())
+		if parkErr != nil {
 			h.fail(w, r, parkErr)
 			return
+		}
+		if paused {
+			h.log.Info("detection paused after repeated attempts",
+				"slug", current.Slug, "attempts", attempts, "by", h.user(r).Email)
 		}
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": noMatchMessage})
 		return
@@ -626,21 +639,24 @@ func (h *handlers) updateService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Pausing is for a service the poller would otherwise read. Clearing the
-	// pause is always allowed, so a row that changed stage while paused can be
-	// brought back to a normal state. A row that leaves the published, active
-	// state is unpaused with it, so a later restore starts polling again.
+	// Pausing is for a service the poller would otherwise read, whether that is
+	// a published vendor or one the detection queue is still trying to match.
+	// Clearing the pause is always allowed, so a row that changed stage while
+	// paused can be brought back to a normal state. A row that leaves a
+	// pausable stage is unpaused with it, so a later restore starts polling.
 	active := current.Active
 	if body.Active != nil {
 		active = *body.Active
 	}
-	if body.Paused != nil && *body.Paused && (!active || status != string(store.StatusPublished)) {
+	pausable := active &&
+		(status == string(store.StatusPublished) || status == string(store.StatusNoMatch))
+	if body.Paused != nil && *body.Paused && !pausable {
 		writeJSON(w, http.StatusConflict, map[string]string{
-			"error": "Only a published service can be paused",
+			"error": "only a published service or one waiting for a profile can be paused",
 		})
 		return
 	}
-	if !active || status != string(store.StatusPublished) {
+	if !pausable {
 		paused := false
 		body.Paused = &paused
 	}

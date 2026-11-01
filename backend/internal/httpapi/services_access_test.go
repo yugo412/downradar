@@ -321,7 +321,8 @@ func TestStaffCanPauseAndResumePolling(t *testing.T) {
 		t.Error("removing a service left the polling pause behind")
 	}
 
-	// A row that is not published has no polling to pause.
+	// A parked row is still offered to detection, so it can be paused too: the
+	// pause is what stops the queue after repeated failures.
 	parkedName := fmt.Sprintf("zz-pause-parked-%d", time.Now().UnixNano())
 	parked, err := st.CreateService(ctx, store.NewService{
 		Name:       parkedName,
@@ -336,8 +337,26 @@ func TestStaffCanPauseAndResumePolling(t *testing.T) {
 
 	rec = call(t, router, http.MethodPatch, "/api/v1/services/"+parked,
 		`{"paused":true}`, cookie)
-	if rec.Code != http.StatusConflict {
-		t.Errorf("pausing a service with no match = %d, want 409: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Errorf("pausing a service with no match = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if row, err = st.AdminGetService(ctx, parked); err != nil {
+		t.Fatalf("AdminGetService parked: %v", err)
+	}
+	if !row.Paused {
+		t.Error("the parked row does not show the pause")
+	}
+
+	rec = call(t, router, http.MethodPatch, "/api/v1/services/"+parked,
+		`{"paused":false}`, cookie)
+	if rec.Code != http.StatusOK {
+		t.Errorf("resuming a parked service = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if row, err = st.AdminGetService(ctx, parked); err != nil {
+		t.Fatalf("AdminGetService parked after resume: %v", err)
+	}
+	if row.Paused {
+		t.Error("the parked row is still paused after a resume")
 	}
 }
 

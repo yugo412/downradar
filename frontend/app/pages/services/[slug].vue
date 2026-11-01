@@ -64,6 +64,12 @@ async function onSaved(service: AdminService) {
   }
   await Promise.all([refreshMeta(), refreshDetail()])
 }
+
+// A pause is saved from inside the sheet, which stays open. The row and the
+// vendor detail are read again so the badges and the note match it.
+async function onChanged() {
+  await Promise.all([refreshMeta(), refreshDetail()])
+}
 </script>
 
 <template>
@@ -91,8 +97,14 @@ async function onSaved(service: AdminService) {
               <span
                 v-if="meta.service.paused"
                 class="badge badge-warning badge-sm"
-                title="Scheduled polls are paused; the last known state is kept"
-              >Polling paused</span>
+                :title="
+                  meta.service.status === 'no_match'
+                    ? 'Detection is paused; the page is not checked for a profile'
+                    : 'Scheduled polls are paused; the last known state is kept'
+                "
+              >
+                {{ meta.service.status === 'no_match' ? 'Detection paused' : 'Polling paused' }}
+              </span>
               <span v-if="meta.service.ownerId && canManageServices" class="badge badge-ghost badge-sm">
                 {{ meta.service.status === 'proposed' ? `suggested by ${meta.service.ownerName}` : `added by ${meta.service.ownerName}` }}
               </span>
@@ -110,14 +122,28 @@ async function onSaved(service: AdminService) {
         </div>
         <div class="flex flex-wrap items-center gap-2">
           <button
-            v-if="canManageServices && meta.service.active && meta.service.status === 'published'"
+            v-if="
+              canManageServices &&
+              meta.service.active &&
+              (meta.service.status === 'published' || meta.service.status === 'no_match')
+            "
             type="button"
             class="btn btn-ghost btn-sm gap-2"
             :disabled="pauseBusy"
+            :title="
+              meta.service.paused
+                ? (meta.service.status === 'no_match'
+                  ? 'Let the hourly detection attempts continue.'
+                  : 'Start scheduled polls again and refresh its page.')
+                : (meta.service.status === 'no_match'
+                  ? 'Stop trying to match a profile for this page.'
+                  : 'Stop scheduled polls and keep the last known state on its page.')
+            "
             @click="togglePolling"
           >
             <span v-if="pauseBusy" class="loading loading-spinner loading-xs" />
-            {{ meta.service.paused ? 'Resume polling' : 'Pause polling' }}
+            {{ meta.service.paused ? 'Resume' : 'Pause' }}
+            {{ meta.service.status === 'no_match' ? 'detection' : 'polling' }}
           </button>
           <button
             v-if="canEdit"
@@ -168,7 +194,13 @@ async function onSaved(service: AdminService) {
 
       <FetchLog :slug="slug" :owner-id="meta.service.ownerId" />
 
-      <ServiceEditor v-if="editing" :slug="slug" @close="editing = false" @saved="onSaved" />
+      <ServiceEditor
+        v-if="editing"
+        :slug="slug"
+        @close="editing = false"
+        @saved="onSaved"
+        @changed="onChanged"
+      />
     </template>
 
     <div v-else class="flex items-center justify-center gap-3 py-16 opacity-70">

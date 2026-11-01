@@ -371,8 +371,12 @@ async function togglePolling(service: AdminService) {
       body: { paused: !service.paused },
     })
     actionNotice.value = service.paused
-      ? `${service.name} is being polled again.`
-      : `${service.name} is paused. Its page keeps the last known state and says it may be out of date.`
+      ? service.status === 'no_match'
+        ? `${service.name} will be checked for a profile again.`
+        : `${service.name} is being polled again.`
+      : service.status === 'no_match'
+        ? `${service.name} is paused. Detection will not run until it is resumed.`
+        : `${service.name} is paused. Its page keeps the last known state and says it may be out of date.`
     await refresh()
   } catch (err) {
     actionError.value = apiError(err, 'Could not change polling.')
@@ -398,6 +402,9 @@ async function retryDetection(service: AdminService) {
     await refresh()
   } catch (err) {
     actionError.value = apiError(err)
+    // A failed attempt may be the one that paused the row, so the list is read
+    // again rather than leaving the old state on screen.
+    await refresh()
   } finally {
     retrying.value = ''
   }
@@ -553,7 +560,11 @@ async function onSaved() {
                   <span
                     v-if="s.paused"
                     class="badge badge-warning badge-sm"
-                    title="Scheduled polls are paused; the last known state is kept"
+                    :title="
+                      s.status === 'no_match'
+                        ? 'Detection is paused; the page is not checked for a profile'
+                        : 'Scheduled polls are paused; the last known state is kept'
+                    "
                   >Paused</span>
                 </div>
               </td>
