@@ -1,6 +1,7 @@
 <script setup lang="ts">
 const { githubRepo, siteName, siteUrl } = useRuntimeConfig().public
 const { user, isAdmin, canManageServices, signOut } = useAuth()
+const { unread, loadUnread, setUnread } = useNotifications()
 
 const siteHost = siteUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')
 
@@ -36,6 +37,20 @@ useHead(() => ({
 const openMenu = ref<'service' | 'account' | 'nav' | null>(null)
 
 useTheme()
+
+// The session is loaded in the browser, so the badge follows the same state the
+// menus do. A signed out visitor leaves no count behind.
+watch(
+  user,
+  (value) => {
+    if (value) {
+      if (import.meta.client) void loadUnread()
+      return
+    }
+    setUnread(0)
+  },
+  { immediate: true },
+)
 
 watch(
   () => route.fullPath,
@@ -218,6 +233,26 @@ async function resend() {
                   </li>
                 </ul>
               </div>
+            </div>
+
+            <!-- The bell is the only entry to the feed. It sits after the
+                 account menu and carries the unread count, so the feed itself
+                 stays a page rather than a popover. -->
+            <div v-if="user" class="indicator">
+              <span
+                v-if="unread > 0"
+                class="indicator-item badge badge-primary badge-xs"
+                aria-hidden="true"
+              >
+                {{ unread > 99 ? '99+' : unread }}
+              </span>
+              <NuxtLink
+                to="/notifications"
+                class="btn btn-ghost btn-sm btn-circle"
+                :aria-label="unread > 0 ? `Notifications, ${unread} unread` : 'Notifications'"
+              >
+                <BellIcon class="h-5 w-5" />
+              </NuxtLink>
             </div>
 
             <!-- Narrow screens get one panel instead of the dropdowns, for a

@@ -110,6 +110,13 @@ func testRouterWithOptions(t *testing.T, tune func(*Options)) (*store.Store, htt
 	if dsn == "" {
 		t.Skip("DATABASE_URL is not set, skipping the integration test")
 	}
+	return testRouterWithDSN(t, dsn, tune)
+}
+
+// testRouterWithDSN is the same router on a particular database, which is what
+// a test that needs its own schema uses.
+func testRouterWithDSN(t *testing.T, dsn string, tune func(*Options)) (*store.Store, http.Handler, *mailSpy) {
+	t.Helper()
 
 	ctx := context.Background()
 	st, err := store.New(ctx, dsn, store.Options{AppKey: "test-app-key"})
