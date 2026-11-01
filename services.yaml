@@ -35,6 +35,7 @@
 detect:
   - statuspage-v2
   - statusio
+  - hund
   - sorryapp
   - pagerduty
   - betterstack
@@ -117,6 +118,16 @@ profiles:
     kind: statusio
     description: Pages hosted by Status.io, whose page id is read from the page itself.
     endpoint: /1.0/status/
+    poll_interval_seconds: 300
+    active_interval_seconds: 60
+
+  # Hund.io is a platform: every customer page is rendered on the server with
+  # the same state bar, component groups and incident notices. The component
+  # and issue ids are in the page's links, so nothing has to be configured per
+  # vendor, and the page itself is the only thing fetched.
+  hund:
+    kind: hund
+    description: Pages hosted by Hund.io, read from the page itself.
     poll_interval_seconds: 300
     active_interval_seconds: 60
 
