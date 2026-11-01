@@ -64,6 +64,12 @@ async function onSaved(service: AdminService) {
   }
   await Promise.all([refreshMeta(), refreshDetail()])
 }
+
+// A pause is saved from inside the sheet, which stays open. The row and the
+// vendor detail are read again so the badges and the note match it.
+async function onChanged() {
+  await Promise.all([refreshMeta(), refreshDetail()])
+}
 </script>
 
 <template>
@@ -168,7 +174,13 @@ async function onSaved(service: AdminService) {
 
       <FetchLog :slug="slug" :owner-id="meta.service.ownerId" />
 
-      <ServiceEditor v-if="editing" :slug="slug" @close="editing = false" @saved="onSaved" />
+      <ServiceEditor
+        v-if="editing"
+        :slug="slug"
+        @close="editing = false"
+        @saved="onSaved"
+        @changed="onChanged"
+      />
     </template>
 
     <div v-else class="flex items-center justify-center gap-3 py-16 opacity-70">
