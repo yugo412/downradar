@@ -12,11 +12,14 @@ import (
 	"downradar.info/backend/internal/auth"
 )
 
-// The two audiences a notice can be written for. A caller that needs a specific
-// set of people can name them instead, which is what the recipient list is for.
+// The audiences a notice can be written for. Everyone is a site-wide
+// announcement to every enabled account, staff included. A caller that needs a
+// specific set of people can name them instead, which is what the recipient
+// list is for.
 const (
 	AudienceStaff       = "staff"
 	AudienceSubscribers = "subscribers"
+	AudienceEveryone    = "everyone"
 )
 
 // The notice is a short thing to read, not a log page. A caller that hands over
@@ -101,7 +104,7 @@ func (s *Store) createNotificationTx(ctx context.Context, tx pgx.Tx, in Notifica
 	if in.Body == "" {
 		return 0, errors.New("notifications: a body is required")
 	}
-	if in.Audience != AudienceStaff && in.Audience != AudienceSubscribers {
+	if in.Audience != AudienceStaff && in.Audience != AudienceSubscribers && in.Audience != AudienceEveryone {
 		return 0, fmt.Errorf("notifications: unknown audience %q", in.Audience)
 	}
 
@@ -155,6 +158,11 @@ func notificationRecipients(ctx context.Context, tx pgx.Tx, in NotificationInput
 
 		var roles []string
 		switch in.Audience {
+		case AudienceEveryone:
+			return tx.Query(ctx, `
+				select id from users
+				where disabled_at is null
+				order by id`)
 		case AudienceStaff:
 			roles = []string{auth.RoleAdmin, auth.RoleModerator}
 		case AudienceSubscribers:
