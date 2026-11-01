@@ -1,0 +1,43 @@
+{
+  "page": {
+    "name": "Zed",
+    "url": "https://status.zed.dev",
+    "status": "UP"
+  },
+  "activeIncidents": [
+    {
+      "id": "cl4a8n3070721qtmzvts760c4",
+      "name": "We're facing an issue with our API",
+      "started": "2026-10-31T18:55:50.000Z",
+      "status": "INVESTIGATING",
+      "impact": "MAJOROUTAGE",
+      "url": "https://status.zed.dev/cl4a8n3070721qtmzvts760c4",
+      "updatedAt": "2026-10-31T19:30:00.000Z",
+      "lastUpdate": {
+        "message": "We're looking into errors on the API.",
+        "createdAt": "2026-10-31T19:30:00.000Z"
+      }
+    }
+  ],
+  "activeMaintenances": [
+    {
+      "id": "cmvi9fg7z02lw13o6mfhfp8cw",
+      "name": " Monthly maintenance November 2nd, 2026 8am-6pm.",
+      "start": "2026-11-02T13:00:00.000Z",
+      "status": "NOTSTARTEDYET",
+      "duration": 600,
+      "url": "https://status.zed.dev/cmvi9fg7z02lw13o6mfhfp8cw",
+      "updatedAt": "2026-10-30T11:00:00.929Z"
+    }
+  ],
+  "recentlyResolvedIncidents": [
+    {
+      "id": "cl4a8m6xk0612qtmzq2b1v8de",
+      "name": "Slow dashboard loading",
+      "started": "2026-10-29T09:12:00.000Z",
+      "resolved": "2026-10-29T09:58:00.000Z",
+      "impact": "DEGRADEDPERFORMANCE",
+      "url": "https://status.zed.dev/cl4a8m6xk0612qtmzq2b1v8de"
+    }
+  ]
+}

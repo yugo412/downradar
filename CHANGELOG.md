@@ -9,6 +9,7 @@ semantic versioning.
 ### Added
 
 - Hund.io status pages, read from the page itself.
+- Instatus status pages, read from the API the page publishes.
 
 ## [0.7.0]
 

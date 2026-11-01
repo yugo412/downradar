@@ -10,6 +10,7 @@ import (
 	_ "downradar.info/backend/internal/adapters/flashduty"
 	_ "downradar.info/backend/internal/adapters/hund"
 	_ "downradar.info/backend/internal/adapters/indodax"
+	_ "downradar.info/backend/internal/adapters/instatus"
 	_ "downradar.info/backend/internal/adapters/lark"
 	_ "downradar.info/backend/internal/adapters/microsoft"
 	_ "downradar.info/backend/internal/adapters/midtrans"
