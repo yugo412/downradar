@@ -21,6 +21,7 @@ semantic versioning.
   tab.
 - A service that no profile could match is paused after 20 failed detection attempts, and can be resumed or tried again from its row.
 - ntfy messages carry the way to stop alerts as an action only, with the body ending on the change itself.
+- A stop or pause link for a chat, channel or webhook now needs the owner signed in; an email link still works on its own.
 
 ## [0.7.0]
 

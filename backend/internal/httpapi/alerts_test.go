@@ -712,6 +712,70 @@ func TestUnsubscribeLinkResolvesAndThenWorks(t *testing.T) {
 	}
 }
 
+func TestAChatLinkNeedsTheOwnerSignedIn(t *testing.T) {
+	st, router := testRouter(t)
+	slug := alertVendor(t, st)
+
+	id, _, err := st.PublicService(context.Background(), slug)
+	if err != nil {
+		t.Fatalf("PublicService: %v", err)
+	}
+	owner := testUser(t, st, auth.RoleSubscriber)
+	other := testUser(t, st, auth.RoleSubscriber)
+	token := "token-" + slug
+	err = st.SubscribeAlert(context.Background(), id, &owner.ID, store.AlertChange{
+		Slack:      &store.AlertSlack{URL: "https://hooks.slack.com/services/T000/B000/chat"},
+		SlackToken: token,
+		Targets:    store.WholeVendor,
+	})
+	if err != nil {
+		t.Fatalf("SubscribeAlert: %v", err)
+	}
+	t.Cleanup(func() { _ = st.UnsubscribeAlert(context.Background(), token) })
+
+	ownerCookie := sessionFor(t, st, owner)
+	otherCookie := sessionFor(t, st, other)
+
+	// A chat link is no proof on its own, so a visitor who merely has it is sent
+	// to sign in rather than shown what it would stop.
+	for _, method := range []string{http.MethodGet, http.MethodDelete} {
+		rec := call(t, router, method, "/api/v1/alerts/"+token, "", "")
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("%s without a session = %d, want 401", method, rec.Code)
+		}
+	}
+	if rec := call(t, router, http.MethodPatch, "/api/v1/alerts/"+token,
+		`{"paused":true}`, ""); rec.Code != http.StatusUnauthorized {
+		t.Errorf("pausing without a session = %d, want 401", rec.Code)
+	}
+
+	// Being signed in is not enough: the account has to be the one that set the
+	// channel up.
+	for _, method := range []string{http.MethodGet, http.MethodDelete} {
+		rec := call(t, router, method, "/api/v1/alerts/"+token, "", otherCookie)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("%s as another account = %d, want 403", method, rec.Code)
+		}
+	}
+	if rec := call(t, router, http.MethodPatch, "/api/v1/alerts/"+token,
+		`{"paused":true}`, otherCookie); rec.Code != http.StatusForbidden {
+		t.Errorf("pausing as another account = %d, want 403", rec.Code)
+	}
+
+	// The owner can still read the link, pause the channel and stop it.
+	rec := call(t, router, http.MethodGet, "/api/v1/alerts/"+token, "", ownerCookie)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("owner read = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if rec := call(t, router, http.MethodPatch, "/api/v1/alerts/"+token,
+		`{"paused":true}`, ownerCookie); rec.Code != http.StatusNoContent {
+		t.Fatalf("owner pause = %d, want 204: %s", rec.Code, rec.Body.String())
+	}
+	if rec := call(t, router, http.MethodDelete, "/api/v1/alerts/"+token, "", ownerCookie); rec.Code != http.StatusNoContent {
+		t.Fatalf("owner unsubscribe = %d, want 204: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestUnsubscribeLinkRefusesATokenThatIsNotOne(t *testing.T) {
 	_, router := testRouter(t)
 

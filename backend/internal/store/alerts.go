@@ -77,6 +77,7 @@ func AlertStateValid(state string) bool {
 // and it carries VendorStatus so a row says more than the vendor's name.
 type AlertView struct {
 	ID             int64      `json:"id"`
+	UserID         *int64     `json:"-"`
 	VendorSlug     string     `json:"vendorSlug"`
 	VendorName     string     `json:"vendorName"`
 	VendorStatus   string     `json:"vendorStatus,omitempty"`
@@ -1727,18 +1728,20 @@ func (s *Store) WatchedServiceCount(ctx context.Context, userID int64) (int, err
 
 // AlertByToken resolves the token in an unsubscribe link. The link belongs to a
 // channel, so this is what the page says it is about rather than everything the
-// person has.
+// person has. UserID is the account that owns the subscription, which is nil for
+// a guest's email; the handlers use it to keep a chat link from stopping somebody
+// else's channel.
 func (s *Store) AlertByToken(ctx context.Context, token string) (*AlertView, error) {
 	var view AlertView
 	err := s.pool.QueryRow(ctx, `
 		select v.slug, v.name, c.address, c.kind, c.created_at,
-		       c.paused_at, c.unsubscribed_at
+		       c.paused_at, c.unsubscribed_at, a.user_id
 		from alert_channels c
 		join alert_subscriptions a on a.id = c.subscription_id
 		join services v on v.id = a.service_id
 		where c.token = $1`, token,
 	).Scan(&view.VendorSlug, &view.VendorName, &view.Email, &view.Kind,
-		&view.CreatedAt, &view.PausedAt, &view.UnsubscribedAt)
+		&view.CreatedAt, &view.PausedAt, &view.UnsubscribedAt, &view.UserID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
