@@ -474,9 +474,11 @@ watch(
       <!-- What the row is doing: still arriving, held back, or ended. Ended is
            here beside the other two rather than left out, since a row that
            ended can be started again from here. -->
-      <div class="tabs tabs-lift w-full" role="tablist" aria-label="Alert states">
-        <template v-for="s in rowStates" :key="s.value">
+      <LiftedTabs label="Alert states">
+        <template #tabs>
           <label
+            v-for="s in rowStates"
+            :key="s.value"
             class="tab flex-none cursor-pointer gap-1.5 whitespace-nowrap"
             :class="{ 'tab-active': rowState === s.value }"
           >
@@ -490,85 +492,47 @@ watch(
             {{ s.label }}
             <span class="badge badge-sm tab-count">{{ rowCounts[s.value] }}</span>
           </label>
-          <div class="tab-content basis-full bg-base-100 border-base-300 p-6">
-            <template v-if="rowState === s.value">
-              <!-- A phone cannot hold five columns without scrolling sideways, so the
-                   table is for wide screens and the same rows are cards below. -->
-              <div class="hidden overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm md:block">
-                <table class="table">
-                  <thead>
-                    <tr>
-                      <th v-for="col in sortColumns" :key="col.key" :aria-sort="sortState(col.key)">
-                        <button type="button" class="cursor-pointer whitespace-nowrap" @click="sortBy(col.key)">
-                          {{ col.label }}
-                          <span v-if="sortKey === col.key" aria-hidden="true">
-                            {{ sortAsc ? '↑' : '↓' }}
-                          </span>
-                        </button>
-                      </th>
-                      <th class="text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="alert in paged" :key="alert.id" class="align-top">
-                      <td>
-                        <NuxtLink :to="`/${alert.vendorSlug}`" class="link font-medium">
-                          {{ alert.vendorName }}
-                        </NuxtLink>
-                        <div class="mt-1">
-                          <StatusBadge :status="alert.vendorStatus" size="xs" />
-                        </div>
-                        <p class="mt-1 text-xs opacity-70">{{ watches(alert) }}</p>
-                      </td>
-                      <td class="text-sm whitespace-nowrap opacity-70">{{ arrives(alert) }}</td>
-                      <td class="text-sm whitespace-nowrap opacity-70">
-                        <LocalTime :at="alert.createdAt" />
-                      </td>
-                      <td>
-                        <span class="badge badge-sm whitespace-nowrap" :class="stateOf(alert).cls">
-                          {{ stateOf(alert).label }}
-                        </span>
-                      </td>
-                      <td>
-                        <div class="flex justify-end">
-                          <AlertActions
-                            :alert="alert"
-                            :busy="busy === alert.id"
-                            @state="setState(alert, $event)"
-                            @remove="deleting = alert"
-                          />
-                        </div>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+        </template>
 
-              <ul class="flex flex-col gap-3 md:hidden">
-                <li
-                  v-for="alert in paged"
-                  :key="alert.id"
-                  class="rounded-box border border-base-300 bg-base-100 p-4 shadow-sm"
-                >
-                  <div class="flex items-start justify-between gap-3">
-                    <div class="min-w-0">
-                      <NuxtLink :to="`/${alert.vendorSlug}`" class="link font-medium">
-                        {{ alert.vendorName }}
-                      </NuxtLink>
-                      <div class="mt-1">
-                        <StatusBadge :status="alert.vendorStatus" size="xs" />
-                      </div>
-                      <p class="mt-1 text-xs opacity-70">{{ watches(alert) }}</p>
-                    </div>
-                    <span class="badge badge-sm shrink-0 whitespace-nowrap" :class="stateOf(alert).cls">
-                      {{ stateOf(alert).label }}
+        <!-- A phone cannot hold five columns without scrolling sideways, so the
+             table is for wide screens and the same rows are cards below. -->
+        <div class="hidden overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm md:block">
+          <table class="table">
+            <thead>
+              <tr>
+                <th v-for="col in sortColumns" :key="col.key" :aria-sort="sortState(col.key)">
+                  <button type="button" class="cursor-pointer whitespace-nowrap" @click="sortBy(col.key)">
+                    {{ col.label }}
+                    <span v-if="sortKey === col.key" aria-hidden="true">
+                      {{ sortAsc ? '↑' : '↓' }}
                     </span>
+                  </button>
+                </th>
+                <th class="text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="alert in paged" :key="alert.id" class="align-top">
+                <td>
+                  <NuxtLink :to="`/${alert.vendorSlug}`" class="link font-medium">
+                    {{ alert.vendorName }}
+                  </NuxtLink>
+                  <div class="mt-1">
+                    <StatusBadge :status="alert.vendorStatus" size="xs" />
                   </div>
-
-                  <p class="mt-2 text-sm opacity-70">{{ arrives(alert) }}</p>
-                  <p class="mt-1 text-xs opacity-60">added <LocalTime :at="alert.createdAt" /></p>
-
-                  <div class="mt-3">
+                  <p class="mt-1 text-xs opacity-70">{{ watches(alert) }}</p>
+                </td>
+                <td class="text-sm whitespace-nowrap opacity-70">{{ arrives(alert) }}</td>
+                <td class="text-sm whitespace-nowrap opacity-70">
+                  <LocalTime :at="alert.createdAt" />
+                </td>
+                <td>
+                  <span class="badge badge-sm whitespace-nowrap" :class="stateOf(alert).cls">
+                    {{ stateOf(alert).label }}
+                  </span>
+                </td>
+                <td>
+                  <div class="flex justify-end">
                     <AlertActions
                       :alert="alert"
                       :busy="busy === alert.id"
@@ -576,47 +540,82 @@ watch(
                       @remove="deleting = alert"
                     />
                   </div>
-                </li>
-              </ul>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
-              <div v-if="sorted.length" class="mt-4 flex flex-wrap items-center justify-between gap-3">
-                <p class="text-xs opacity-60">
-                  Showing {{ firstRow }}&ndash;{{ lastRow }} of {{ sorted.length }}
-                </p>
-                <div v-if="pageCount > 1" class="join">
-                  <button
-                    type="button"
-                    class="btn btn-sm join-item"
-                    :disabled="currentPage === 1"
-                    @click="page = currentPage - 1"
-                  >
-                    Previous
-                  </button>
-                  <button type="button" class="btn btn-sm join-item" disabled>
-                    Page {{ currentPage }} of {{ pageCount }}
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn-sm join-item"
-                    :disabled="currentPage === pageCount"
-                    @click="page = currentPage + 1"
-                  >
-                    Next
-                  </button>
+        <ul class="flex flex-col gap-3 md:hidden">
+          <li
+            v-for="alert in paged"
+            :key="alert.id"
+            class="rounded-box border border-base-300 bg-base-100 p-4 shadow-sm"
+          >
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <NuxtLink :to="`/${alert.vendorSlug}`" class="link font-medium">
+                  {{ alert.vendorName }}
+                </NuxtLink>
+                <div class="mt-1">
+                  <StatusBadge :status="alert.vendorStatus" size="xs" />
                 </div>
+                <p class="mt-1 text-xs opacity-70">{{ watches(alert) }}</p>
               </div>
+              <span class="badge badge-sm shrink-0 whitespace-nowrap" :class="stateOf(alert).cls">
+                {{ stateOf(alert).label }}
+              </span>
+            </div>
 
-              <p
-                v-if="!filtered.length"
-                class="rounded-box border border-base-300 bg-base-100 p-6 text-center text-sm opacity-70 shadow-sm"
-              >
-                <template v-if="search">Nothing matches &ldquo;{{ search }}&rdquo;.</template>
-                <template v-else>Nothing here for those filters.</template>
-              </p>
-            </template>
+            <p class="mt-2 text-sm opacity-70">{{ arrives(alert) }}</p>
+            <p class="mt-1 text-xs opacity-60">added <LocalTime :at="alert.createdAt" /></p>
+
+            <div class="mt-3">
+              <AlertActions
+                :alert="alert"
+                :busy="busy === alert.id"
+                @state="setState(alert, $event)"
+                @remove="deleting = alert"
+              />
+            </div>
+          </li>
+        </ul>
+
+        <div v-if="sorted.length" class="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <p class="text-xs opacity-60">
+            Showing {{ firstRow }}&ndash;{{ lastRow }} of {{ sorted.length }}
+          </p>
+          <div v-if="pageCount > 1" class="join">
+            <button
+              type="button"
+              class="btn btn-sm join-item"
+              :disabled="currentPage === 1"
+              @click="page = currentPage - 1"
+            >
+              Previous
+            </button>
+            <button type="button" class="btn btn-sm join-item" disabled>
+              Page {{ currentPage }} of {{ pageCount }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-sm join-item"
+              :disabled="currentPage === pageCount"
+              @click="page = currentPage + 1"
+            >
+              Next
+            </button>
           </div>
-        </template>
-      </div>
+        </div>
+
+        <p
+          v-if="!filtered.length"
+          class="rounded-box border border-base-300 bg-base-100 p-6 text-center text-sm opacity-70 shadow-sm"
+        >
+          <template v-if="search">Nothing matches &ldquo;{{ search }}&rdquo;.</template>
+          <template v-else>Nothing here for those filters.</template>
+        </p>
+      </LiftedTabs>
     </template>
 
     <ConfirmDialog

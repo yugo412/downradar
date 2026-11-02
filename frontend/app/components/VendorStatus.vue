@@ -404,9 +404,11 @@ const shownComponents = computed(() => {
       </div>
     </details>
 
-    <div class="tabs tabs-lift w-full" role="tablist" aria-label="Service details">
-      <template v-for="t in publicTabs" :key="t.value">
+    <LiftedTabs label="Service details">
+      <template #tabs>
         <label
+          v-for="t in publicTabs"
+          :key="t.value"
           class="tab flex-none cursor-pointer whitespace-nowrap"
           :class="{ 'tab-active': tab === t.value }"
         >
@@ -419,312 +421,306 @@ const shownComponents = computed(() => {
           />
           {{ t.label }}
         </label>
-        <div class="tab-content basis-full bg-base-100 border-base-300 p-6">
-          <section v-if="t.value === 'components' && tab === 'components'">
-            <h2 class="mb-3 text-lg font-semibold">Components</h2>
 
-            <input
-              v-if="components.length"
-              v-model="search"
-              type="search"
-              class="input input-bordered mb-3 w-full"
-              placeholder="Search components"
-              aria-label="Search components"
-            />
-
-            <StatusFilter
-              v-model="statusFilter"
-              :statuses="statusOptions"
-              label="Filter components by state"
-              class="mb-3"
-            />
-
-            <div class="overflow-x-auto bg-base-100 border border-base-300 rounded-box shadow-sm">
-              <table class="table">
-                <thead>
-                  <tr>
-                    <th
-                      v-for="col in sortColumns"
-                      :key="col.key"
-                      :aria-sort="sortState(col.key)"
-                      :class="col.key === 'since' ? 'text-right' : ''"
-                    >
-                      <button
-                        type="button"
-                        class="inline-flex cursor-pointer select-none items-center gap-1 whitespace-nowrap"
-                        @click="sortBy(col.key)"
-                      >
-                        {{ col.label }}
-                        <span
-                          aria-hidden="true"
-                          :class="sortKey === col.key ? '' : 'opacity-40'"
-                        >
-                          {{ sortKey === col.key ? (sortAsc ? '↑' : '↓') : '↕' }}
-                        </span>
-                      </button>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="c in shownComponents" :key="c.sourceId">
-                    <td class="font-medium">{{ c.name }}</td>
-                    <td><StatusBadge :status="c.status" size="sm" /></td>
-                    <td class="whitespace-nowrap text-right text-sm opacity-60">
-                      <LiveAgo :at="c.changedAt" />
-                    </td>
-                  </tr>
-                  <tr v-if="!shownComponents.length">
-                    <td colspan="3" class="text-center opacity-60">
-                      <template v-if="!components.length">No components reported yet.</template>
-                      <template v-else-if="!matched.length">
-                        No component matches “{{ search.trim() }}”.
-                      </template>
-                      <template v-else>No component is in the states you picked.</template>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          <section v-else-if="t.value === 'incidents' && tab === 'incidents'">
-            <h2 class="mb-3 text-lg font-semibold">Incidents</h2>
-
-            <ul
-              v-if="incidents.length"
-              class="timeline timeline-vertical timeline-shared"
-            >
-              <li v-for="(i, idx) in incidents" :key="i.sourceId">
-                <hr v-if="idx > 0" />
-                <div class="timeline-start hidden justify-self-start whitespace-nowrap text-xs opacity-60 md:block">
-                  <LiveAgo :at="i.startedAt" long />
-                </div>
-                <div class="timeline-middle">
-                  <svg
-                    v-if="i.resolvedAt"
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                    class="h-5 w-5 text-success"
-                    aria-hidden="true"
-                  >
-                    <path
-                      fill-rule="evenodd"
-                      d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z"
-                      clip-rule="evenodd"
-                    />
-                  </svg>
-                  <svg
-                    v-else
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                    class="h-5 w-5 text-error"
-                    aria-hidden="true"
-                  >
-                    <path
-                      fill-rule="evenodd"
-                      d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-5a.75.75 0 01.75.75v4.5a.75.75 0 01-1.5 0v-4.5A.75.75 0 0110 5zm0 10a1 1 0 100-2 1 1 0 000 2z"
-                      clip-rule="evenodd"
-                    />
-                  </svg>
-                </div>
-                <div class="timeline-end timeline-box mb-3 w-full">
-                  <p class="mb-1 text-xs opacity-60 md:hidden">
-                    Started <LiveAgo :at="i.startedAt" long />
-                  </p>
-                  <div class="flex flex-wrap items-center gap-2">
-                    <span class="font-medium">{{ i.name }}</span>
-                    <span class="badge badge-ghost badge-sm">{{ i.status }}</span>
-                    <span v-if="i.impact" class="badge badge-sm">{{ i.impact }}</span>
-                  </div>
-                  <p class="mt-1 text-xs opacity-60">
-                    <template v-if="i.resolvedAt">
-                      Resolved <LiveAgo :at="i.resolvedAt" long />
-                    </template>
-                    <template v-else>Ongoing</template>
-                  </p>
-                  <a
-                    v-if="i.url"
-                    :href="i.url"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="link text-xs"
-                  >
-                    Official notice
-                  </a>
-                </div>
-                <hr />
-              </li>
-            </ul>
-            <p v-else class="text-sm opacity-60">No incidents reported.</p>
-          </section>
-
-          <section v-else-if="t.value === 'recent' && tab === 'recent'">
-            <h2 class="mb-3 text-lg font-semibold">Recent status changes</h2>
-            <ul
-              v-if="events.length"
-              class="timeline timeline-vertical timeline-shared"
-            >
-              <li v-for="(e, idx) in events" :key="idx">
-                <hr v-if="idx > 0" />
-                <div class="timeline-start hidden justify-self-start whitespace-nowrap text-xs opacity-60 md:block">
-                  <LiveAgo :at="e.changedAt" long />
-                </div>
-                <div class="timeline-middle">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                    class="h-5 w-5 text-base-content/30"
-                    aria-hidden="true"
-                  >
-                    <path
-                      fill-rule="evenodd"
-                      d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z"
-                      clip-rule="evenodd"
-                    />
-                  </svg>
-                </div>
-                <div class="timeline-end timeline-box mb-2 w-full">
-                  <div class="flex flex-wrap items-center gap-2">
-                    <StatusBadge :status="e.status" size="sm" />
-                    <span v-if="e.component" class="text-sm opacity-80">{{ e.component }}</span>
-                  </div>
-                  <p class="mt-1 text-xs opacity-60 md:hidden">
-                    <LiveAgo :at="e.changedAt" long />
-                  </p>
-                </div>
-                <hr />
-              </li>
-            </ul>
-            <p v-else class="text-sm opacity-60">No status changes recorded yet.</p>
-          </section>
-        </div>
-      </template>
-
-      <ClientOnly>
-        <label
-          class="tab flex-none whitespace-nowrap"
-          :class="{
-            'tab-active': tab === 'alert',
-            'tab-disabled': !user,
-            'cursor-pointer': user,
-          }"
-          :aria-disabled="!user"
-          :title="user ? undefined : 'Sign in to set an alert'"
-        >
-          <input
-            type="radio"
-            class="sr-only"
-            :name="tabGroup"
-            :checked="tab === 'alert'"
-            :disabled="!user"
-            @change="selectTab('alert')"
-          />
-          Alert
-        </label>
-        <div class="tab-content basis-full bg-base-100 border-base-300 p-6">
-          <section v-if="user && tab === 'alert'">
-            <h2 class="mb-3 text-lg font-semibold">Alert</h2>
-
-            <div v-if="alertLoading" class="flex justify-center py-6">
-              <span class="loading loading-spinner loading-sm" />
-            </div>
-            <p v-else-if="alertError" role="alert" class="alert alert-error">{{ alertError }}</p>
-            <template v-else-if="alertState?.subscribed">
-              <div class="flex flex-wrap items-center gap-2">
-                <p class="text-sm">You have an alert for this service.</p>
-                <span
-                  class="badge badge-sm"
-                  :class="alertState?.paused ? 'badge-warning' : 'badge-success'"
-                >
-                  {{ alertState?.paused ? 'Paused' : 'Active' }}
-                </span>
-              </div>
-
-              <h3 class="mt-4 text-sm font-medium">Channels</h3>
-              <ul class="mt-2 divide-y divide-base-300 rounded-box border border-base-300">
-                <li v-for="channel in alertChannels" :key="channel.kind" class="px-4 py-3">
-                  <div class="flex flex-wrap items-center gap-2">
-                    <span class="font-medium">{{ channel.label }}</span>
-                    <span
-                      class="badge badge-sm"
-                      :class="channel.paused ? 'badge-warning' : 'badge-success'"
-                    >
-                      {{ channel.paused ? 'Paused' : 'Active' }}
-                    </span>
-                  </div>
-                  <p class="mt-1 text-xs break-all opacity-70">
-                    <span class="font-medium">Sends to:</span> {{ channel.detail }}
-                  </p>
-                  <p class="mt-0.5 text-xs opacity-60">
-                    <span class="font-medium">Reports on:</span> {{ channel.reportsOn }}
-                  </p>
-                  <template v-if="channel.lastError">
-                    <p class="mt-1 text-xs text-error">
-                      Last delivery failed
-                      <LiveAgo v-if="channel.lastAttemptAt" :at="channel.lastAttemptAt" />
-                    </p>
-                    <p class="mt-0.5 break-words text-xs text-error">{{ channel.lastError }}</p>
-                  </template>
-                  <p
-                    v-else-if="channel.lastSuccessAt || channel.lastAttemptAt"
-                    class="mt-1 text-xs opacity-50"
-                  >
-                    Last delivered
-                    <LiveAgo :at="channel.lastSuccessAt ?? channel.lastAttemptAt" />
-                  </p>
-                </li>
-              </ul>
-              <p v-if="!alertChannels.length" class="mt-2 text-sm opacity-70">
-                It has no way to reach you right now.
-              </p>
-
-              <NuxtLink :to="`/alerts/${vendor.slug}`" class="btn btn-sm mt-4">
-                Manage alert
-              </NuxtLink>
-            </template>
-            <template v-else>
-              <p class="text-sm">You do not have an alert for this service yet.</p>
-              <NuxtLink :to="`/alerts/${vendor.slug}`" class="btn btn-sm mt-4">
-                Set up an alert
-              </NuxtLink>
-            </template>
-          </section>
-        </div>
-
-        <template #fallback>
-          <label class="tab tab-disabled flex-none whitespace-nowrap" title="Sign in to set an alert">
-            Alert
-          </label>
-          <div class="tab-content basis-full bg-base-100 border-base-300 p-6" />
-        </template>
-      </ClientOnly>
-
-      <ClientOnly>
-        <template v-if="showLogs">
+        <ClientOnly>
           <label
-            class="tab flex-none cursor-pointer whitespace-nowrap"
-            :class="{ 'tab-active': tab === 'logs' }"
+            class="tab flex-none whitespace-nowrap"
+            :class="{
+              'tab-active': tab === 'alert',
+              'tab-disabled': !user,
+              'cursor-pointer': user,
+            }"
+            :aria-disabled="!user"
+            :title="user ? undefined : 'Sign in to set an alert'"
           >
             <input
               type="radio"
               class="sr-only"
               :name="tabGroup"
-              :checked="tab === 'logs'"
-              @change="selectTab('logs')"
+              :checked="tab === 'alert'"
+              :disabled="!user"
+              @change="selectTab('alert')"
             />
-            Logs
+            Alert
           </label>
-          <div class="tab-content basis-full bg-base-100 border-base-300 p-6">
-            <section v-if="tab === 'logs'">
-              <FetchLog :slug="vendor.slug" :owner-id="ownerId" flush />
-            </section>
+          <template #fallback>
+            <label class="tab tab-disabled flex-none whitespace-nowrap" title="Sign in to set an alert">
+              Alert
+            </label>
+          </template>
+        </ClientOnly>
+
+        <ClientOnly>
+          <template v-if="showLogs">
+            <label
+              class="tab flex-none cursor-pointer whitespace-nowrap"
+              :class="{ 'tab-active': tab === 'logs' }"
+            >
+              <input
+                type="radio"
+                class="sr-only"
+                :name="tabGroup"
+                :checked="tab === 'logs'"
+                @change="selectTab('logs')"
+              />
+              Logs
+            </label>
+          </template>
+        </ClientOnly>
+      </template>
+
+      <section v-if="tab === 'components'">
+        <h2 class="mb-3 text-lg font-semibold">Components</h2>
+
+        <input
+          v-if="components.length"
+          v-model="search"
+          type="search"
+          class="input input-bordered mb-3 w-full"
+          placeholder="Search components"
+          aria-label="Search components"
+        />
+
+        <StatusFilter
+          v-model="statusFilter"
+          :statuses="statusOptions"
+          label="Filter components by state"
+          class="mb-3"
+        />
+
+        <div class="overflow-x-auto bg-base-100 border border-base-300 rounded-box shadow-sm">
+          <table class="table">
+            <thead>
+              <tr>
+                <th
+                  v-for="col in sortColumns"
+                  :key="col.key"
+                  :aria-sort="sortState(col.key)"
+                  :class="col.key === 'since' ? 'text-right' : ''"
+                >
+                  <button
+                    type="button"
+                    class="inline-flex cursor-pointer select-none items-center gap-1 whitespace-nowrap"
+                    @click="sortBy(col.key)"
+                  >
+                    {{ col.label }}
+                    <span
+                      aria-hidden="true"
+                      :class="sortKey === col.key ? '' : 'opacity-40'"
+                    >
+                      {{ sortKey === col.key ? (sortAsc ? '↑' : '↓') : '↕' }}
+                    </span>
+                  </button>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="c in shownComponents" :key="c.sourceId">
+                <td class="font-medium">{{ c.name }}</td>
+                <td><StatusBadge :status="c.status" size="sm" /></td>
+                <td class="whitespace-nowrap text-right text-sm opacity-60">
+                  <LiveAgo :at="c.changedAt" />
+                </td>
+              </tr>
+              <tr v-if="!shownComponents.length">
+                <td colspan="3" class="text-center opacity-60">
+                  <template v-if="!components.length">No components reported yet.</template>
+                  <template v-else-if="!matched.length">
+                    No component matches “{{ search.trim() }}”.
+                  </template>
+                  <template v-else>No component is in the states you picked.</template>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section v-else-if="tab === 'incidents'">
+        <h2 class="mb-3 text-lg font-semibold">Incidents</h2>
+
+        <ul
+          v-if="incidents.length"
+          class="timeline timeline-vertical timeline-shared"
+        >
+          <li v-for="(i, idx) in incidents" :key="i.sourceId">
+            <hr v-if="idx > 0" />
+            <div class="timeline-start hidden justify-self-start whitespace-nowrap text-xs opacity-60 md:block">
+              <LiveAgo :at="i.startedAt" long />
+            </div>
+            <div class="timeline-middle">
+              <svg
+                v-if="i.resolvedAt"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                class="h-5 w-5 text-success"
+                aria-hidden="true"
+              >
+                <path
+                  fill-rule="evenodd"
+                  d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z"
+                  clip-rule="evenodd"
+                />
+              </svg>
+              <svg
+                v-else
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                class="h-5 w-5 text-error"
+                aria-hidden="true"
+              >
+                <path
+                  fill-rule="evenodd"
+                  d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-5a.75.75 0 01.75.75v4.5a.75.75 0 01-1.5 0v-4.5A.75.75 0 0110 5zm0 10a1 1 0 100-2 1 1 0 000 2z"
+                  clip-rule="evenodd"
+                />
+              </svg>
+            </div>
+            <div class="timeline-end timeline-box mb-3 w-full">
+              <p class="mb-1 text-xs opacity-60 md:hidden">
+                Started <LiveAgo :at="i.startedAt" long />
+              </p>
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="font-medium">{{ i.name }}</span>
+                <span class="badge badge-ghost badge-sm">{{ i.status }}</span>
+                <span v-if="i.impact" class="badge badge-sm">{{ i.impact }}</span>
+              </div>
+              <p class="mt-1 text-xs opacity-60">
+                <template v-if="i.resolvedAt">
+                  Resolved <LiveAgo :at="i.resolvedAt" long />
+                </template>
+                <template v-else>Ongoing</template>
+              </p>
+              <a
+                v-if="i.url"
+                :href="i.url"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="link text-xs"
+              >
+                Official notice
+              </a>
+            </div>
+            <hr />
+          </li>
+        </ul>
+        <p v-else class="text-sm opacity-60">No incidents reported.</p>
+      </section>
+
+      <section v-else-if="tab === 'recent'">
+        <h2 class="mb-3 text-lg font-semibold">Recent status changes</h2>
+        <ul
+          v-if="events.length"
+          class="timeline timeline-vertical timeline-shared"
+        >
+          <li v-for="(e, idx) in events" :key="idx">
+            <hr v-if="idx > 0" />
+            <div class="timeline-start hidden justify-self-start whitespace-nowrap text-xs opacity-60 md:block">
+              <LiveAgo :at="e.changedAt" long />
+            </div>
+            <div class="timeline-middle">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                class="h-5 w-5 text-base-content/30"
+                aria-hidden="true"
+              >
+                <path
+                  fill-rule="evenodd"
+                  d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z"
+                  clip-rule="evenodd"
+                />
+              </svg>
+            </div>
+            <div class="timeline-end timeline-box mb-2 w-full">
+              <div class="flex flex-wrap items-center gap-2">
+                <StatusBadge :status="e.status" size="sm" />
+                <span v-if="e.component" class="text-sm opacity-80">{{ e.component }}</span>
+              </div>
+              <p class="mt-1 text-xs opacity-60 md:hidden">
+                <LiveAgo :at="e.changedAt" long />
+              </p>
+            </div>
+            <hr />
+          </li>
+        </ul>
+        <p v-else class="text-sm opacity-60">No status changes recorded yet.</p>
+      </section>
+      <section v-if="user && tab === 'alert'">
+        <h2 class="mb-3 text-lg font-semibold">Alert</h2>
+
+        <div v-if="alertLoading" class="flex justify-center py-6">
+          <span class="loading loading-spinner loading-sm" />
+        </div>
+        <p v-else-if="alertError" role="alert" class="alert alert-error">{{ alertError }}</p>
+        <template v-else-if="alertState?.subscribed">
+          <div class="flex flex-wrap items-center gap-2">
+            <p class="text-sm">You have an alert for this service.</p>
+            <span
+              class="badge badge-sm"
+              :class="alertState?.paused ? 'badge-warning' : 'badge-success'"
+            >
+              {{ alertState?.paused ? 'Paused' : 'Active' }}
+            </span>
           </div>
+
+          <h3 class="mt-4 text-sm font-medium">Channels</h3>
+          <ul class="mt-2 divide-y divide-base-300 rounded-box border border-base-300">
+            <li v-for="channel in alertChannels" :key="channel.kind" class="px-4 py-3">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="font-medium">{{ channel.label }}</span>
+                <span
+                  class="badge badge-sm"
+                  :class="channel.paused ? 'badge-warning' : 'badge-success'"
+                >
+                  {{ channel.paused ? 'Paused' : 'Active' }}
+                </span>
+              </div>
+              <p class="mt-1 text-xs break-all opacity-70">
+                <span class="font-medium">Sends to:</span> {{ channel.detail }}
+              </p>
+              <p class="mt-0.5 text-xs opacity-60">
+                <span class="font-medium">Reports on:</span> {{ channel.reportsOn }}
+              </p>
+              <template v-if="channel.lastError">
+                <p class="mt-1 text-xs text-error">
+                  Last delivery failed
+                  <LiveAgo v-if="channel.lastAttemptAt" :at="channel.lastAttemptAt" />
+                </p>
+                <p class="mt-0.5 break-words text-xs text-error">{{ channel.lastError }}</p>
+              </template>
+              <p
+                v-else-if="channel.lastSuccessAt || channel.lastAttemptAt"
+                class="mt-1 text-xs opacity-50"
+              >
+                Last delivered
+                <LiveAgo :at="channel.lastSuccessAt ?? channel.lastAttemptAt" />
+              </p>
+            </li>
+          </ul>
+          <p v-if="!alertChannels.length" class="mt-2 text-sm opacity-70">
+            It has no way to reach you right now.
+          </p>
+
+          <NuxtLink :to="`/alerts/${vendor.slug}`" class="btn btn-sm mt-4">
+            Manage alert
+          </NuxtLink>
         </template>
-      </ClientOnly>
-    </div>
+        <template v-else>
+          <p class="text-sm">You do not have an alert for this service yet.</p>
+          <NuxtLink :to="`/alerts/${vendor.slug}`" class="btn btn-sm mt-4">
+            Set up an alert
+          </NuxtLink>
+        </template>
+      </section>
+
+      <section v-if="tab === 'logs'">
+        <FetchLog :slug="vendor.slug" :owner-id="ownerId" flush />
+      </section>
+    </LiftedTabs>
 
     <p v-if="vendor.lastPolledAt" class="mt-8 text-xs opacity-50">
       Last checked <LiveAgo :at="vendor.lastPolledAt" />.

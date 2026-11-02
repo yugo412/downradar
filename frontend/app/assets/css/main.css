@@ -147,6 +147,26 @@
   color: var(--color-primary-content);
 }
 
+/* The lifted tab bar keeps its labels on one row, so a narrow screen scrolls the
+   strip sideways instead of wrapping it onto a second line. Its panel is a sibling
+   below the strip rather than a child of the tabs, so the strip paints over the
+   panel's top border and the first tab's squared corner is repeated here; daisyUI
+   only draws that join for a panel inside .tabs. */
+.lifted-tabs-bar {
+  position: relative;
+  z-index: 1;
+}
+
+.lifted-tabs-panel {
+  position: relative;
+  z-index: 0;
+  margin-top: -1px;
+}
+
+.lifted-tabs:has(.tabs > .tab:first-child:is(.tab-active, :has(:checked))) .lifted-tabs-panel {
+  border-start-start-radius: 0;
+}
+
 /* daisyUI sizes the method column for a three-letter verb and leaves the row
    without left padding, so "POST" overflows the column and its first letter touches
    the card. Keep the column at three characters so every method starts at the same
