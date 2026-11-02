@@ -325,7 +325,7 @@ func TestASlackChannelCanBePaused(t *testing.T) {
 		t.Error("the channel did not read back as paused")
 	}
 
-	link := call(t, router, http.MethodGet, "/api/v1/alerts/"+token, "", "")
+	link := call(t, router, http.MethodGet, "/api/v1/alerts/"+token, "", cookie)
 	if link.Code != http.StatusOK {
 		t.Fatalf("the link = %d, want 200: %s", link.Code, link.Body.String())
 	}

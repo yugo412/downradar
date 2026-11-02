@@ -392,20 +392,21 @@ func TestPausingAChat(t *testing.T) {
 	}
 }
 
-// The link in a message is read through the channel's own token, and the page it
-// opens says what it is about to stop.
+// The link in a message needs the owner's session as well as the channel's token,
+// and the page it opens says what it is about to stop.
 func TestTheLinkInAMessageNamesTheChat(t *testing.T) {
 	st, router, _ := telegramRouter(t)
 	slug := alertVendor(t, st)
 
 	user := testUser(t, st, auth.RoleSubscriber)
+	cookie := sessionFor(t, st, user)
 	id, _, err := st.PublicService(context.Background(), slug)
 	if err != nil {
 		t.Fatalf("PublicService: %v", err)
 	}
 	token := savedWithChat(t, st, user, id)
 
-	link := call(t, router, http.MethodGet, "/api/v1/alerts/"+token, "", "")
+	link := call(t, router, http.MethodGet, "/api/v1/alerts/"+token, "", cookie)
 	if link.Code != http.StatusOK {
 		t.Fatalf("reading the link = %d, want 200: %s", link.Code, link.Body.String())
 	}
@@ -432,18 +433,19 @@ func TestALinkCanPauseTheWayItCameFrom(t *testing.T) {
 	slug := alertVendor(t, st)
 
 	user := testUser(t, st, auth.RoleSubscriber)
+	cookie := sessionFor(t, st, user)
 	id, _, err := st.PublicService(context.Background(), slug)
 	if err != nil {
 		t.Fatalf("PublicService: %v", err)
 	}
 	token := savedWithChat(t, st, user, id)
 
-	paused := call(t, router, http.MethodPatch, "/api/v1/alerts/"+token, `{"paused":true}`, "")
+	paused := call(t, router, http.MethodPatch, "/api/v1/alerts/"+token, `{"paused":true}`, cookie)
 	if paused.Code != http.StatusNoContent {
 		t.Fatalf("pausing by the link = %d, want 204: %s", paused.Code, paused.Body.String())
 	}
 
-	link := call(t, router, http.MethodGet, "/api/v1/alerts/"+token, "", "")
+	link := call(t, router, http.MethodGet, "/api/v1/alerts/"+token, "", cookie)
 	var body struct {
 		Paused bool `json:"paused"`
 	}
@@ -454,7 +456,7 @@ func TestALinkCanPauseTheWayItCameFrom(t *testing.T) {
 		t.Error("the way the link came from does not read as paused")
 	}
 
-	started := call(t, router, http.MethodPatch, "/api/v1/alerts/"+token, `{"paused":false}`, "")
+	started := call(t, router, http.MethodPatch, "/api/v1/alerts/"+token, `{"paused":false}`, cookie)
 	if started.Code != http.StatusNoContent {
 		t.Fatalf("starting it again = %d, want 204: %s", started.Code, started.Body.String())
 	}

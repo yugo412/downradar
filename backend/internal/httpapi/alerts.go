@@ -1141,13 +1141,8 @@ func (h *handlers) setAlertChannelPaused(w http.ResponseWriter, r *http.Request)
 func (h *handlers) getAlert(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 
-	view, err := h.store.AlertByToken(r.Context(), r.PathValue("token"))
-	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "This link is not valid"})
-		return
-	}
-	if err != nil {
-		h.fail(w, r, err)
+	view := h.alertTokenView(w, r)
+	if view == nil {
 		return
 	}
 
@@ -1162,8 +1157,48 @@ func (h *handlers) getAlert(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// alertTokenView resolves the token in a stop or pause link and says whether the
+// caller may use it. The email token is the whole proof for a guest or a
+// subscriber, because an address is personal. A chat, a channel or a webhook can
+// be read by anybody in it, so its owner has to be signed in before the link can
+// quieten or stop it. The refusal is written here, and nil means it was written.
+func (h *handlers) alertTokenView(w http.ResponseWriter, r *http.Request) *store.AlertView {
+	view, err := h.store.AlertByToken(r.Context(), r.PathValue("token"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "This link is not valid"})
+		return nil
+	}
+	if err != nil {
+		h.fail(w, r, err)
+		return nil
+	}
+	if view.Kind == store.ChannelEmail {
+		return view
+	}
+
+	user, err := h.authenticate(r)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		writeJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "sign in to manage this alert",
+		})
+		return nil
+	case err != nil:
+		h.fail(w, r, err)
+		return nil
+	}
+	if view.UserID == nil || *view.UserID != user.ID {
+		writeJSON(w, http.StatusForbidden, map[string]string{
+			"error": "only the owner can manage this alert",
+		})
+		return nil
+	}
+	return view
+}
+
 // pauseAlert is the other thing the link in a message can do: stop that way for a
-// while without taking it away. The token proves ownership, and pressing twice is safe.
+// while without taking it away. alertTokenView decides whether the caller may use
+// it, and pressing twice is safe.
 func (h *handlers) pauseAlert(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 
@@ -1172,6 +1207,11 @@ func (h *handlers) pauseAlert(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
+		return
+	}
+
+	view := h.alertTokenView(w, r)
+	if view == nil {
 		return
 	}
 
@@ -1479,6 +1519,11 @@ func maskDestination(kind, address string) string {
 // what stops the alerts, and it is safe to press twice.
 func (h *handlers) unsubscribeAlert(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
+
+	view := h.alertTokenView(w, r)
+	if view == nil {
+		return
+	}
 
 	err := h.store.UnsubscribeAlert(r.Context(), r.PathValue("token"))
 	if errors.Is(err, store.ErrNotFound) {

@@ -22,6 +22,36 @@ const { data, error } = await useFetch<AlertSubscription>(
   { immediate: !!token.value },
 )
 
+// An email address is personal, so its token is enough. A chat, a channel or a
+// webhook is read by everybody in it, so the API only answers the account that
+// set it up; a visitor who is not signed in is sent to sign in and brought back
+// here, where the session proves the same thing.
+const errorStatus = computed(
+  () => Number((error.value as { statusCode?: number } | null)?.statusCode ?? 0),
+)
+const notOwner = computed(() => errorStatus.value === 403)
+const signingIn = computed(() => errorStatus.value === 401)
+
+watch(
+  errorStatus,
+  (status) => {
+    if (status !== 401) return
+    navigateTo(`/login?next=${encodeURIComponent(route.fullPath)}`, { replace: true })
+  },
+  { immediate: true },
+)
+
+// A pause or a stop can also come back refused if the session ended while the
+// page was open, so it takes the same way to sign in rather than printing a
+// message over a page that no longer has a session.
+function linkProblem(err: unknown) {
+  if (Number((err as { statusCode?: number } | null)?.statusCode ?? 0) === 401) {
+    navigateTo(`/login?next=${encodeURIComponent(route.fullPath)}`, { replace: true })
+    return
+  }
+  problem.value = apiError(err)
+}
+
 // What the link stops, in the words the way it came by uses: an address gets
 // emails, a chat, a Slack channel, a Discord channel or a Lark group gets
 // messages, an ntfy topic gets notifications, and the page says which so somebody
@@ -67,7 +97,7 @@ async function setPaused(next: boolean) {
     })
     paused.value = next
   } catch (err) {
-    problem.value = apiError(err)
+    linkProblem(err)
   } finally {
     busy.value = false
   }
@@ -81,7 +111,7 @@ async function unsubscribe() {
     await $fetch(`/api/v1/alerts/${token.value}`, { method: 'DELETE' })
     stopped.value = true
   } catch (err) {
-    problem.value = apiError(err)
+    linkProblem(err)
   } finally {
     busy.value = false
   }
@@ -93,12 +123,27 @@ async function unsubscribe() {
     <NuxtLink to="/" class="link link-hover text-sm opacity-70">&larr; All services</NuxtLink>
 
     <div class="mt-4 rounded-box border border-base-300 bg-base-100 p-6 shadow-sm">
-      <h1 class="text-xl font-semibold">{{ channel.title }}</h1>
+      <h1 class="text-xl font-semibold">{{ data ? channel.title : 'Alert messages' }}</h1>
 
       <p v-if="!token" class="mt-3 text-sm opacity-80">
         This link has no token in it. Open the unsubscribe link at the bottom of one of the
         messages again.
       </p>
+
+      <p v-else-if="signingIn" class="mt-3 flex items-center gap-2 text-sm opacity-80">
+        <span class="loading loading-spinner loading-xs" />
+        Taking you to sign in&hellip;
+      </p>
+
+      <template v-else-if="notOwner">
+        <p class="mt-3 text-sm opacity-80">
+          This alert belongs to another account. Only the account that set it up can pause
+          or stop it.
+        </p>
+        <div class="mt-5 flex flex-wrap items-center gap-2">
+          <NuxtLink to="/alerts" class="btn btn-outline btn-sm">Go to your alerts</NuxtLink>
+        </div>
+      </template>
 
       <p v-else-if="error" class="mt-3 text-sm opacity-80">
         This link is not valid any more. If you still get them, use the unsubscribe link in
