@@ -261,6 +261,17 @@ profiles:
     active_interval_seconds: 60
     visible: false
 
+  # xAI's status page is a custom Next.js app on status.x.ai, and the data it
+  # shows lives on data.x.ai. The adapter reads that JSON rather than the page,
+  # which also keeps it working when the page host refuses a poller. Hidden
+  # because it can only ever be xAI's page.
+  xai:
+    kind: xai
+    description: xAI's status page, read from the JSON its page calls.
+    poll_interval_seconds: 300
+    active_interval_seconds: 60
+    visible: false
+
   # A profile to choose by hand, not one the detect queue can reach: it answers
   # for any url that is up, so in the queue it would take every page no other
   # profile could read. There is no status page behind it either, the target is
