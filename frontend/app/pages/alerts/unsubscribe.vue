@@ -53,9 +53,9 @@ function linkProblem(err: unknown) {
 }
 
 // What the link stops, in the words the way it came by uses: an address gets
-// emails, a chat, a Slack channel, a Discord channel or a Lark group gets
-// messages, an ntfy topic gets notifications, and the page says which so somebody
-// opening a forwarded link knows what they are about to stop.
+// emails, a chat, a Slack channel, a Discord channel, a Teams channel or a Lark
+// group gets messages, an ntfy topic gets notifications, and the page says which
+// so somebody opening a forwarded link knows what they are about to stop.
 const channel = computed(() => {
   if (data.value?.kind === 'telegram') {
     return { title: 'Telegram alerts', what: 'messages', where: 'a chat' }
@@ -65,6 +65,9 @@ const channel = computed(() => {
   }
   if (data.value?.kind === 'discord') {
     return { title: 'Discord alerts', what: 'messages', where: 'your Discord channel' }
+  }
+  if (data.value?.kind === 'teams') {
+    return { title: 'Teams alerts', what: 'messages', where: 'your Teams channel' }
   }
   if (data.value?.kind === 'lark') {
     return { title: 'Lark alerts', what: 'messages', where: 'your Lark group' }

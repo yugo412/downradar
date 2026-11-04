@@ -49,6 +49,7 @@ const CHANNEL_LABELS: Record<string, string> = {
   telegram: 'Telegram',
   slack: 'Slack',
   discord: 'Discord',
+  teams: 'Teams',
   lark: 'Lark',
   ntfy: 'ntfy',
 }

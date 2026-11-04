@@ -120,6 +120,7 @@ const CHANNEL_LABELS: Record<string, string> = {
   telegram: 'Telegram',
   slack: 'Slack',
   discord: 'Discord',
+  teams: 'Teams',
   lark: 'Lark',
   ntfy: 'ntfy',
 }
@@ -404,12 +405,13 @@ watch(
       <h1 class="text-2xl font-bold tracking-tight">Alerts</h1>
       <p class="mt-1 text-sm opacity-70">
         You get an email, a webhook call, a Telegram message, a Slack message, a
-        Discord post, a Lark card or an ntfy notification each time one of these
-        changes status. An email, a chat, a Slack channel, a Discord channel, a
-        Lark group and an ntfy topic report on what you picked; a call carries the
-        whole service, its own status and every component under it. Emails, chats,
-        Slack messages, Discord posts, Lark cards and ntfy notifications carry a
-        link that stops them as well.
+        Discord post, a Teams card, a Lark card or an ntfy notification each time
+        one of these changes status. An email, a chat, a Slack channel, a Discord
+        channel, a Teams channel, a Lark group and an ntfy topic report on what
+        you picked; a call carries the whole service, its own status and every
+        component under it. Emails, chats, Slack messages, Discord posts, Teams
+        cards, Lark cards and ntfy notifications carry a link that stops them as
+        well.
       </p>
     </header>
 

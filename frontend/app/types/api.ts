@@ -234,6 +234,7 @@ export interface AlertState {
   telegramPaused?: boolean
   slackPaused?: boolean
   discordPaused?: boolean
+  teamsPaused?: boolean
   larkPaused?: boolean
   ntfyPaused?: boolean
   wholeService?: boolean
@@ -260,6 +261,9 @@ export interface AlertState {
   discord?: string
   discordChannel?: string
   discordEnabled?: boolean
+  // The Workflows webhook URL of a Teams channel or chat, shown masked like the
+  // other chat URLs.
+  teams?: string
   // The custom bot webhook of a Lark group and the secret that signs its calls
   // when the group requires a signature. Both are shown masked on the page.
   lark?: string

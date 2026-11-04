@@ -270,6 +270,12 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 			"You have tried that Discord channel several times already, please try again later",
 			h.testDiscord)))
 
+	// A card to a Teams channel is tried against the same test budget.
+	mux.HandleFunc("POST /api/v1/vendors/{slug}/alerts/teams/test",
+		h.requireAuth(h.limited(h.testLimiter, false,
+			"You have tried that Teams channel several times already, please try again later",
+			h.testTeams)))
+
 	// A message to a Lark group is tried against the same test budget.
 	mux.HandleFunc("POST /api/v1/vendors/{slug}/alerts/lark/test",
 		h.requireAuth(h.limited(h.testLimiter, false,

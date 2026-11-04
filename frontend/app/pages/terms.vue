@@ -45,7 +45,7 @@ useSeoMeta({
       <h2 class="text-lg font-semibold">Alerts and notifications</h2>
       <p class="mt-3">
         Alert delivery depends on email providers, webhooks, Telegram, Slack,
-        Discord, Lark, ntfy and the networks between them, so it is not guaranteed.
+        Discord, Teams, Lark, ntfy and the networks between them, so it is not guaranteed.
         Do not rely on DownRadar for emergencies, safety-critical work or anything
         where a missed message could cause harm. You are responsible for the
         endpoints, topics and secrets you configure.
@@ -84,7 +84,7 @@ useSeoMeta({
       <h2 class="text-lg font-semibold">Third-party services</h2>
       <p class="mt-3">
         Links and integrations with GitHub, Google, Telegram, Slack, Discord,
-        Lark, ntfy and other services are governed by those services' own terms
+        Teams, Lark, ntfy and other services are governed by those services' own terms
         and privacy policies. DownRadar does not control them.
       </p>
     </section>

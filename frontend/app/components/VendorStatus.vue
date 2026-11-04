@@ -215,6 +215,11 @@ const alertChannels = computed<AlertChannelRow[]>(() => {
   if (state.lark) {
     rows.push(channelRow('lark', 'Lark', state.lark || 'Group webhook', Boolean(state.larkPaused)))
   }
+  if (state.teams) {
+    rows.push(
+      channelRow('teams', 'Teams', 'Workflow webhook', Boolean(state.teamsPaused)),
+    )
+  }
   if (state.ntfy) {
     rows.push(channelRow('ntfy', 'ntfy', state.ntfy || 'Topic', Boolean(state.ntfyPaused)))
   }

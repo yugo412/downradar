@@ -54,6 +54,12 @@ type discordRequest struct {
 	URL string `json:"url"`
 }
 
+// teamsRequest is the Workflows webhook URL of a Teams channel or chat; an empty
+// one stops the cards.
+type teamsRequest struct {
+	URL string `json:"url"`
+}
+
 // larkRequest is a Lark custom bot webhook and the secret it signs with when the
 // group requires a signature. An empty URL stops the messages.
 type larkRequest struct {
@@ -91,11 +97,14 @@ type alertRequest struct {
 	// Discord is the fifth way: a Discord channel's incoming webhook URL.
 	Discord *discordRequest `json:"discord"`
 
-	// Lark is the sixth way: a custom bot webhook, and the secret that signs a
+	// Teams is the sixth way: a Workflows webhook URL for a Teams channel or chat.
+	Teams *teamsRequest `json:"teams"`
+
+	// Lark is the seventh way: a custom bot webhook, and the secret that signs a
 	// request when the group requires it.
 	Lark *larkRequest `json:"lark"`
 
-	// Ntfy is the seventh way: a topic URL and the optional access token that
+	// Ntfy is the eighth way: a topic URL and the optional access token that
 	// publishes to it.
 	Ntfy *ntfyRequest `json:"ntfy"`
 
@@ -204,6 +213,19 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		discord = &store.AlertDiscord{URL: webhookURL}
 	}
 
+	// A Teams channel is named by the Workflows webhook URL Teams gives for it;
+	// an empty URL stops the cards.
+	var teams *store.AlertTeams
+	saveTeams := body.Teams != nil
+	if body.Teams != nil {
+		webhookURL, problem := parseTeams(body.Teams.URL)
+		if problem != "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": problem})
+			return
+		}
+		teams = &store.AlertTeams{URL: webhookURL}
+	}
+
 	// A Lark group is named by its custom bot webhook. The secret is optional,
 	// but when it is present every call is signed with it.
 	var lark *store.AlertLark
@@ -234,9 +256,9 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 	// to send, which is not an alert. Clearing a way is naming it: an empty
 	// address is how somebody stops the emails.
 	if body.Email == nil && body.Webhook == nil && body.Telegram == nil && body.Slack == nil &&
-		body.Discord == nil && body.Lark == nil && body.Ntfy == nil {
+		body.Discord == nil && body.Teams == nil && body.Lark == nil && body.Ntfy == nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "an email address, a webhook, a chat, a Slack channel, a Discord channel, a Lark group or an ntfy topic is required",
+			"error": "an email address, a webhook, a chat, a Slack channel, a Discord channel, a Teams channel, a Lark group or an ntfy topic is required",
 		})
 		return
 	}
@@ -285,7 +307,8 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 	// itself.
 	watchesByPick := (saveEmail && address != "") || (telegram != nil && telegram.ChatID != "") ||
 		(slack != nil && slack.URL != "") || (discord != nil && discord.URL != "") ||
-		(lark != nil && lark.URL != "") || (ntfy != nil && ntfy.URL != "")
+		(teams != nil && teams.URL != "") || (lark != nil && lark.URL != "") ||
+		(ntfy != nil && ntfy.URL != "")
 	if watchesByPick && !whole && len(componentIDs) == 0 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "Pick at least one thing to be told about",
@@ -346,6 +369,12 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		if saveDiscord {
 			writeJSON(w, http.StatusConflict, map[string]string{
 				"error": "Discord is for subscribers. Sign in to add one.",
+			})
+			return
+		}
+		if saveTeams {
+			writeJSON(w, http.StatusConflict, map[string]string{
+				"error": "Microsoft Teams is for subscribers. Sign in to add one.",
 			})
 			return
 		}
@@ -465,6 +494,14 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		}
 		change.Discord, change.DiscordToken = discord, token
 	}
+	if teams != nil {
+		token, err := auth.NewToken()
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		change.Teams, change.TeamsToken = teams, token
+	}
 	if lark != nil {
 		token, err := auth.NewToken()
 		if err != nil {
@@ -522,6 +559,7 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		"webhook", calls, "telegram", telegram != nil && telegram.ChatID != "",
 		"slack", slack != nil && slack.URL != "",
 		"discord", discord != nil && discord.URL != "",
+		"teams", teams != nil && teams.URL != "",
 		"lark", lark != nil && lark.URL != "",
 		"ntfy", ntfy != nil && ntfy.URL != "",
 		"signed_in", userID != nil, "webhook_secret", secret != "",
@@ -623,7 +661,25 @@ func parseDiscord(raw string) (string, string) {
 	return rawURL, ""
 }
 
-// parseLark reads a custom bot webhook and the optional signing secret. The page
+// parseTeams reads a Teams Workflows webhook URL. A Workflows URL is a signed
+// HTTPS address that can live on logic.azure.com or the newer Power Platform
+// host, so only the scheme and a host are checked here.
+func parseTeams(raw string) (string, string) {
+	rawURL := strings.TrimSpace(raw)
+	if rawURL == "" {
+		return "", ""
+	}
+	if len(rawURL) > 2048 {
+		return "", "That Teams webhook URL is too long"
+	}
+
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Host == "" || parsed.Scheme != "https" {
+		return "", "That does not look like a Teams webhook URL"
+	}
+	return rawURL, ""
+}
+
 // checks the Lark host and path; here it only has to be an http(s) address.
 func parseLark(rawURL, rawSecret string) (string, string, string) {
 	webhookURL := strings.TrimSpace(rawURL)
@@ -953,6 +1009,65 @@ func (h *handlers) testDiscord(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": result.OK, "error": result.Error})
 }
 
+// testTeams posts through the held Workflows webhook or the saved one, so a
+// Teams channel can be checked before it is relied on.
+func (h *handlers) testTeams(w http.ResponseWriter, r *http.Request) {
+	if !h.alertsEnabled || h.notifier == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "Alerts are not available right now",
+		})
+		return
+	}
+
+	var body teamsRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
+		return
+	}
+
+	webhookURL, problem := parseTeams(body.URL)
+	if problem != "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": problem})
+		return
+	}
+
+	serviceID, name, err := h.store.PublicService(r.Context(), r.PathValue("slug"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Vendor not found"})
+		return
+	}
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	// A saved URL is tried with the one it was saved with when the field is empty,
+	// since the page only ever shows it masked.
+	if webhookURL == "" {
+		webhookURL, err = h.store.TeamsWebhook(r.Context(), h.user(r).ID, serviceID)
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		if webhookURL == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "A Teams webhook URL is required",
+			})
+			return
+		}
+	}
+
+	result, err := h.notifier.TestTeams(r.Context(), serviceID, webhookURL)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	h.log.Info("teams tried from the alert page", "vendor", name,
+		"user", h.user(r).Email, "ok", result.OK, "error", result.Error)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": result.OK, "error": result.Error})
+}
+
 // testLark posts through the held webhook or the saved one, so a group can be
 // checked before it is relied on. Lark's code is handed back with its answer.
 func (h *handlers) testLark(w http.ResponseWriter, r *http.Request) {
@@ -1103,10 +1218,10 @@ func (h *handlers) setAlertChannelPaused(w http.ResponseWriter, r *http.Request)
 	}
 	if body.Kind != store.ChannelEmail && body.Kind != store.ChannelWebhook &&
 		body.Kind != store.ChannelTelegram && body.Kind != store.ChannelSlack &&
-		body.Kind != store.ChannelDiscord && body.Kind != store.ChannelLark &&
-		body.Kind != store.ChannelNtfy {
+		body.Kind != store.ChannelDiscord && body.Kind != store.ChannelTeams &&
+		body.Kind != store.ChannelLark && body.Kind != store.ChannelNtfy {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "kind must be email, webhook, telegram, slack, discord, lark or ntfy",
+			"error": "kind must be email, webhook, telegram, slack, discord, teams, lark or ntfy",
 		})
 		return
 	}
@@ -1442,6 +1557,7 @@ func (h *handlers) getUserAlert(w http.ResponseWriter, r *http.Request) {
 		"telegramPaused":  view.TelegramPaused,
 		"slackPaused":     view.SlackPaused,
 		"discordPaused":   view.DiscordPaused,
+		"teamsPaused":     view.TeamsPaused,
 		"larkPaused":      view.LarkPaused,
 		"ntfyPaused":      view.NtfyPaused,
 		"wholeService":    view.WholeService,
@@ -1452,6 +1568,7 @@ func (h *handlers) getUserAlert(w http.ResponseWriter, r *http.Request) {
 		"slackChannel":    view.SlackChannel,
 		"discord":         view.Discord,
 		"discordChannel":  view.DiscordChannel,
+		"teams":           view.Teams,
 		"lark":            view.Lark,
 		"larkSecret":      view.LarkSecret,
 		"ntfy":            view.Ntfy,

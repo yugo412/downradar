@@ -204,6 +204,8 @@ type bellState struct {
 	Lark          string                        `json:"lark"`
 	LarkSecret    string                        `json:"larkSecret"`
 	LarkPaused    bool                          `json:"larkPaused"`
+	Teams         string                        `json:"teams"`
+	TeamsPaused   bool                          `json:"teamsPaused"`
 	Ntfy          string                        `json:"ntfy"`
 	NtfyToken     string                        `json:"ntfyToken"`
 	NtfyPaused    bool                          `json:"ntfyPaused"`
@@ -256,6 +258,54 @@ func TestLarkWaySavesAndPauses(t *testing.T) {
 	}
 	if state = readBell(t, router, slug, cookie); !state.LarkPaused {
 		t.Error("the Lark way did not pause")
+	}
+}
+
+// A Teams channel is saved like the other subscriber ways: its Workflows webhook
+// comes back masked on the owner's page, and its switch pauses only it.
+func TestTeamsWaySavesAndPauses(t *testing.T) {
+	st, router := testRouter(t)
+	slug := alertVendor(t, st)
+
+	subscriber := testUser(t, st, auth.RoleSubscriber)
+	cookie := sessionFor(t, st, subscriber)
+
+	webhook := "https://prod-12.westus.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke?api-version=2016-06-01&sig=a-secret"
+	rec := call(t, router, http.MethodPost, "/api/v1/vendors/"+slug+"/alerts",
+		`{"teams":{"url":"`+webhook+`"},"wholeService":true}`, cookie)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("saving a Teams way = %d, want 201: %s", rec.Code, rec.Body.String())
+	}
+
+	state := readBell(t, router, slug, cookie)
+	if state.Teams != webhook {
+		t.Errorf("teams = %q, want the saved webhook", state.Teams)
+	}
+	if state.TeamsPaused {
+		t.Error("a new Teams way is paused")
+	}
+
+	rec = call(t, router, http.MethodPost, "/api/v1/vendors/"+slug+"/alerts/pause",
+		`{"kind":"teams","paused":true}`, cookie)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("pausing the Teams way = %d, want 204: %s", rec.Code, rec.Body.String())
+	}
+	if state = readBell(t, router, slug, cookie); !state.TeamsPaused {
+		t.Error("the Teams way did not pause")
+	}
+}
+
+func TestTeamsWebhookMustBeHTTPS(t *testing.T) {
+	st, router := testRouter(t)
+	slug := alertVendor(t, st)
+
+	subscriber := testUser(t, st, auth.RoleSubscriber)
+	cookie := sessionFor(t, st, subscriber)
+
+	rec := call(t, router, http.MethodPost, "/api/v1/vendors/"+slug+"/alerts",
+		`{"teams":{"url":"http://logic.azure.com/workflows/one"},"wholeService":true}`, cookie)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("an http Teams webhook = %d, want 400: %s", rec.Code, rec.Body.String())
 	}
 }
 
