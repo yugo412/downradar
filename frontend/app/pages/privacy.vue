@@ -25,8 +25,8 @@ useSeoMeta({
         </li>
         <li>
           <strong>Alert details:</strong> the address or webhook a message goes
-          to, Telegram chat and bot details, Slack, Discord or Lark webhook URLs
-          and signing secrets, ntfy topic URLs and access tokens, the vendor and
+          to, Telegram chat and bot details, Slack, Discord, Teams or Lark webhook
+          URLs and signing secrets, ntfy topic URLs and access tokens, the vendor and
           components you watch, pause state, and delivery attempts.
         </li>
         <li>
@@ -88,7 +88,7 @@ useSeoMeta({
         hosts it. If you sign in with or connect GitHub or Google, those
         providers take part in that flow. If you add an alert channel, the
         address, webhook or topic you give is used to deliver through Telegram,
-        Slack, Discord, Lark, an ntfy server or your own endpoint. Notification
+        Slack, Discord, Teams, Lark, an ntfy server or your own endpoint. Notification
         content and read state stay inside the site and are not sent to a third
         party. We do not sell or rent personal data, and we disclose it to
         anyone else only when the law requires it.

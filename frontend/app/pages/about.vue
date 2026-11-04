@@ -50,7 +50,7 @@ useSeoMeta({
             mails you after a change settles, in either direction, so a recovery is announced as much
             as an outage. A vendor that flips back and forth gets one message for the state it ends in.
             No account is needed for email. An account can also send the same change to a webhook,
-            Telegram, Slack, Discord, Lark or an ntfy topic, and every email carries a link that stops
+            Telegram, Slack, Discord, Teams, Lark or an ntfy topic, and every email carries a link that stops
             them.
           </li>
           <li>

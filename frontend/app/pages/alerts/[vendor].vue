@@ -24,7 +24,7 @@ if (vendorError.value?.statusCode === 404) {
 // feed is the last one: it is not an alert the site keeps, so nothing about it
 // is saved, but it is offered beside the others because that is where somebody
 // looking for it will look.
-type Way = 'email' | 'webhook' | 'telegram' | 'slack' | 'discord' | 'lark' | 'ntfy' | 'rss'
+type Way = 'email' | 'webhook' | 'telegram' | 'slack' | 'discord' | 'teams' | 'lark' | 'ntfy' | 'rss'
 
 function blankWebhook(): AlertWebhook {
   return { url: '', method: 'POST', headers: [], auth: 'standard', signed: false }
@@ -75,8 +75,8 @@ const webhookTab = ref<WebhookTab>('alert')
 
 // The panel that is open is part of the address, so a link to one opens it. The
 // hash is the way's own name: #email, #webhook, #telegram, #slack, #discord,
-// #lark, #ntfy, #rss.
-const ways = ['email', 'webhook', 'telegram', 'slack', 'discord', 'lark', 'ntfy', 'rss'] as const
+// #teams, #lark, #ntfy, #rss.
+const ways = ['email', 'webhook', 'telegram', 'slack', 'discord', 'teams', 'lark', 'ntfy', 'rss'] as const
 
 function isWay(value: string): value is Way {
   return (ways as readonly string[]).includes(value)
@@ -112,6 +112,10 @@ const slackURL = ref('')
 // for a channel, kept masked like the Slack one.
 const discordURL = ref('')
 
+// Teams is a Workflows webhook: the workflow decides which channel or chat the
+// card lands in. It is kept masked like the other webhook URLs.
+const teamsURL = ref('')
+
 // Lark is the custom bot webhook of a group and, when the group requires it, the
 // secret that signs each call.
 const larkURL = ref('')
@@ -136,6 +140,10 @@ const slackAnswer = ref<{ ok: boolean; error: string } | null>(null)
 // Trying the Discord channel, which answers the same way.
 const discordTrying = ref(false)
 const discordAnswer = ref<{ ok: boolean; error: string } | null>(null)
+
+// Trying the Teams workflow, which answers whether the card arrived.
+const teamsTrying = ref(false)
+const teamsAnswer = ref<{ ok: boolean; error: string } | null>(null)
 
 // Trying the Lark group, whose answer includes its own code when it refuses.
 const larkTrying = ref(false)
@@ -166,6 +174,7 @@ const callsOn = computed(() => hook.value.url.trim() !== '')
 const chatsOn = computed(() => chat.value.trim() !== '')
 const slackOn = computed(() => slackURL.value.trim() !== '')
 const discordOn = computed(() => discordURL.value.trim() !== '')
+const teamsOn = computed(() => teamsURL.value.trim() !== '')
 const larkOn = computed(() => larkURL.value.trim() !== '')
 
 // A topic URL with no topic after the host is just the empty starting address,
@@ -189,6 +198,7 @@ const anyWay = computed(
     chatsOn.value ||
     slackOn.value ||
     discordOn.value ||
+    teamsOn.value ||
     larkOn.value ||
     ntfyOn.value,
 )
@@ -269,6 +279,26 @@ const discordProblem = computed(() => {
   return ''
 })
 
+// What is wrong with the Teams webhook as it stands. A Workflows URL can live
+// on logic.azure.com or the newer Power Platform host, so the page only insists
+// on a secure address here and leaves the rest to the workflow.
+const teamsProblem = computed(() => {
+  const url = teamsURL.value.trim()
+  if (url === '') return ''
+  if (url.length > 2048) return 'That Teams webhook URL is too long.'
+
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return 'That does not look like a Teams webhook URL.'
+  }
+  if (parsed.protocol !== 'https:' || !parsed.hostname) {
+    return 'Paste the Workflows webhook URL Teams gives you, starting with https://.'
+  }
+  return ''
+})
+
 // What is wrong with the Lark webhook as it stands. Lark and Feishu use their own
 // hosts, so a URL that is only an address is not enough to look like a bot.
 const larkProblem = computed(() => {
@@ -331,15 +361,16 @@ function normalizeNtfyURL() {
   ntfyURL.value = /^[A-Za-z0-9_-]+$/.test(url) ? NTFY_DEFAULT_URL + url : 'https://' + url
 }
 
-// An address, a chat, a Slack channel, a Discord channel, a Lark group or an ntfy
-// topic with nothing picked beside it would be a way of being told nothing, since
-// each reports on what was picked.
+// An address, a chat, a Slack channel, a Discord channel, a Teams channel, a
+// Lark group or an ntfy topic with nothing picked beside it would be a way of
+// being told nothing, since each reports on what was picked.
 const nothingToTellAbout = computed(
   () =>
     (emailsOn.value ||
       chatsOn.value ||
       slackOn.value ||
       discordOn.value ||
+      teamsOn.value ||
       larkOn.value ||
       ntfyOn.value) &&
     !whole.value &&
@@ -356,6 +387,7 @@ const savedSlack = computed(() => String(state.value?.slack ?? ''))
 const slackChannel = computed(() => String(state.value?.slackChannel ?? ''))
 const savedDiscord = computed(() => String(state.value?.discord ?? ''))
 const discordChannel = computed(() => String(state.value?.discordChannel ?? ''))
+const savedTeams = computed(() => String(state.value?.teams ?? ''))
 const savedLark = computed(() => String(state.value?.lark ?? ''))
 const savedNtfy = computed(() => String(state.value?.ntfy ?? ''))
 const emailPaused = computed(() => state.value?.emailPaused === true)
@@ -363,6 +395,7 @@ const webhookPaused = computed(() => state.value?.webhookPaused === true)
 const telegramPaused = computed(() => state.value?.telegramPaused === true)
 const slackPaused = computed(() => state.value?.slackPaused === true)
 const discordPaused = computed(() => state.value?.discordPaused === true)
+const teamsPaused = computed(() => state.value?.teamsPaused === true)
 const larkPaused = computed(() => state.value?.larkPaused === true)
 const ntfyPaused = computed(() => state.value?.ntfyPaused === true)
 const larkDelivery = computed(() =>
@@ -403,6 +436,7 @@ const nothingArriving = computed(() => {
     { set: savedTelegram.value !== '', paused: telegramPaused.value },
     { set: savedSlack.value !== '', paused: slackPaused.value },
     { set: savedDiscord.value !== '', paused: discordPaused.value },
+    { set: savedTeams.value !== '', paused: teamsPaused.value },
     { set: savedLark.value !== '', paused: larkPaused.value },
     { set: savedNtfy.value !== '', paused: ntfyPaused.value },
   ].filter((way) => way.set)
@@ -527,6 +561,7 @@ async function load() {
     botToken.value = res.subscribed ? res.telegramBot ?? '' : ''
     slackURL.value = res.subscribed ? res.slack ?? '' : ''
     discordURL.value = res.subscribed ? res.discord ?? '' : ''
+    teamsURL.value = res.subscribed ? res.teams ?? '' : ''
     larkURL.value = res.subscribed ? res.lark ?? '' : ''
     larkSecret.value = res.subscribed ? res.larkSecret ?? '' : ''
     ntfyURL.value = res.subscribed ? res.ntfy || NTFY_DEFAULT_URL : NTFY_DEFAULT_URL
@@ -534,6 +569,7 @@ async function load() {
     testAnswer.value = null
     slackAnswer.value = null
     discordAnswer.value = null
+    teamsAnswer.value = null
     larkAnswer.value = null
     ntfyAnswer.value = null
 
@@ -548,6 +584,7 @@ async function load() {
     if (res.telegram) setWays.push('telegram')
     if (res.slack) setWays.push('slack')
     if (res.discord) setWays.push('discord')
+    if (res.teams) setWays.push('teams')
     if (res.lark) setWays.push('lark')
     if (res.ntfy) setWays.push('ntfy')
     if (res.subscribed && setWays.length === 1) {
@@ -660,6 +697,7 @@ async function connectSlack() {
     hookProblem.value ||
     slackProblem.value ||
     discordProblem.value ||
+    teamsProblem.value ||
     larkProblem.value ||
     ntfyProblem.value
   )
@@ -719,6 +757,7 @@ async function connectDiscord() {
     hookProblem.value ||
     slackProblem.value ||
     discordProblem.value ||
+    teamsProblem.value ||
     larkProblem.value ||
     ntfyProblem.value
   )
@@ -770,9 +809,9 @@ async function disconnectDiscord() {
 }
 
 // What a save sends: the whole alert every time, so what is off stays off. An
-// empty URL is a webhook, a Slack channel, a Discord channel, a Lark group or an
-// ntfy topic being stopped rather than one being left as it was, and the same
-// goes for the chat.
+// empty URL is a webhook, a Slack channel, a Discord channel, a Teams channel, a
+// Lark group or an ntfy topic being stopped rather than one being left as it was,
+// and the same goes for the chat.
 // generateSecret asks for a fresh signing secret in the same save, which is the
 // only way one is made.
 function alertBody(generateSecret = false) {
@@ -790,6 +829,7 @@ function alertBody(generateSecret = false) {
     telegram: { chatId: chat.value.trim(), botToken: botToken.value.trim() },
     slack: { url: slackURL.value.trim() },
     discord: { url: discordURL.value.trim() },
+    teams: { url: teamsURL.value.trim() },
     lark: { url: larkURL.value.trim(), secret: larkSecret.value.trim() },
     ntfy: { url: ntfyAddress.value, accessToken: ntfyToken.value.trim() },
     wholeService: whole.value,
@@ -804,6 +844,7 @@ async function save() {
     hookProblem.value ||
     slackProblem.value ||
     discordProblem.value ||
+    teamsProblem.value ||
     larkProblem.value ||
     ntfyProblem.value
   )
@@ -855,6 +896,7 @@ async function generateSecret() {
     hookProblem.value ||
     slackProblem.value ||
     discordProblem.value ||
+    teamsProblem.value ||
     larkProblem.value ||
     ntfyProblem.value ||
     !callsOn.value
@@ -907,6 +949,7 @@ async function setPaused(way: Way, event: Event) {
     else if (way === 'telegram') current.telegramPaused = !on
     else if (way === 'slack') current.slackPaused = !on
     else if (way === 'discord') current.discordPaused = !on
+    else if (way === 'teams') current.teamsPaused = !on
     else if (way === 'lark') current.larkPaused = !on
     else if (way === 'ntfy') current.ntfyPaused = !on
   } catch (err) {
@@ -1035,6 +1078,32 @@ async function tryDiscord() {
   }
 }
 
+// A card is sent to the Teams workflow the page is holding, saved or not, so a
+// channel can be checked before it is relied on.
+async function tryTeams() {
+  if (!teamsOn.value && !savedTeams.value) return
+
+  teamsTrying.value = true
+  teamsAnswer.value = null
+  error.value = ''
+
+  try {
+    teamsAnswer.value = await $fetch<{ ok: boolean; error: string }>(
+      `/api/v1/vendors/${slug.value}/alerts/teams/test`,
+      {
+        method: 'POST',
+        body: { url: teamsURL.value.trim() },
+      },
+    )
+  } catch (err) {
+    // A refusal is shown in the answer box beside the button rather than in the
+    // banner at the top of the page, which is off screen from down here.
+    teamsAnswer.value = { ok: false, error: apiError(err, 'The message could not be sent.') }
+  } finally {
+    teamsTrying.value = false
+  }
+}
+
 // A message is sent to the Lark group the page is holding, saved or not, so a
 // group can be checked before it is relied on. Lark answers with its own code
 // when it refuses.
@@ -1140,9 +1209,9 @@ async function refreshCalls() {
         </h1>
         <p class="mt-1 text-sm opacity-70">
           One alert per service, delivered by email, webhook, Telegram, Slack,
-          Discord, Lark, ntfy or a mix of them. Email, Telegram, Slack, Discord,
-          Lark and ntfy report on what you pick. A webhook always carries the whole
-          service.
+          Discord, Teams, Lark, ntfy or a mix of them. Email, Telegram, Slack,
+          Discord, Teams, Lark and ntfy report on what you pick. A webhook always
+          carries the whole service.
         </p>
       </header>
 
@@ -1215,6 +1284,16 @@ async function refreshCalls() {
                   :busy="pausing === 'discord'"
                   @select="selectWay('discord')"
                   @pause="setPaused('discord', $event)"
+                />
+                <AlertWayRow
+                  label="Teams"
+                  icon="teams"
+                  :active="way === 'teams'"
+                  :on="savedTeams !== ''"
+                  :paused="teamsPaused"
+                  :busy="pausing === 'teams'"
+                  @select="selectWay('teams')"
+                  @pause="setPaused('teams', $event)"
                 />
                 <AlertWayRow
                   label="Lark"
@@ -2130,6 +2209,101 @@ async function refreshCalls() {
 
             </div>
 
+            <div v-show="way === 'teams'">
+              <h3 class="font-semibold">Microsoft Teams</h3>
+              <p class="mt-1 text-sm opacity-70">
+                A card in a Teams channel or chat whenever one of the things you
+                pick changes, in either direction. Teams delivers it through a
+                Workflows webhook; the old Office 365 connectors are retired.
+              </p>
+
+              <details class="mt-3 min-w-0 rounded-box border border-base-300">
+                <summary class="cursor-pointer px-4 py-3 text-sm font-medium">
+                  How to make a Workflows webhook
+                </summary>
+                <div class="min-w-0 border-t border-base-300 px-4 py-3">
+                  <ol class="list-decimal space-y-1 pl-5 text-sm opacity-70">
+                    <li>Open the channel's More options (...) and choose Workflows.</li>
+                    <li>Pick a template such as "Send webhook alerts to a channel".</li>
+                    <li>Choose the channel, save, and copy the webhook URL.</li>
+                  </ol>
+                  <p class="mt-2 text-sm opacity-70">
+                    Paste that URL below. The old Office 365 connector webhooks no
+                    longer work.
+                  </p>
+                </div>
+              </details>
+
+              <div class="mt-3">
+                <PasswordInput
+                  v-model="teamsURL"
+                  label="Webhook URL"
+                  secret="webhook URL"
+                  autocomplete="off"
+                  placeholder="https://prod-....logic.azure.com/workflows/..."
+                >
+                  <p v-if="teamsProblem" class="mt-2 text-sm text-error">{{ teamsProblem }}</p>
+                  <p class="mt-2 text-sm opacity-70">
+                    The URL is kept with this alert and shown masked. Leave it
+                    empty to stop the cards for good.
+                  </p>
+                </PasswordInput>
+              </div>
+
+              <!-- What a Teams card reports on, which is what the subscriber
+                   picked: the card names the component that moved. -->
+              <div class="mt-4 rounded-box border border-base-300">
+                <div class="flex items-center justify-between border-b border-base-300 px-5 py-3">
+                  <span class="text-sm font-medium">What to post about</span>
+                  <StatusBadge :status="vendor.status" size="xs" />
+                </div>
+                <AlertTargets
+                  v-model:whole="whole"
+                  v-model:picked="picked"
+                  :slug="slug"
+                  :name="vendor.name"
+                  :status="vendor.status"
+                  :components="vendor.componentsList ?? []"
+                />
+              </div>
+
+              <div class="mt-3 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  class="btn btn-outline btn-sm"
+                  :disabled="teamsTrying || (!teamsOn && !savedTeams) || !!teamsProblem"
+                  @click="tryTeams"
+                >
+                  <span v-if="teamsTrying" class="loading loading-spinner loading-xs" />
+                  Send a test message
+                </button>
+                <span v-if="!teamsAnswer" class="text-xs opacity-70">
+                  A card goes to this workflow now, saved or not.
+                </span>
+              </div>
+
+              <div
+                v-if="teamsAnswer"
+                class="mt-3 rounded-box border border-base-300 bg-base-200 p-3"
+              >
+                <p class="flex flex-wrap items-center gap-2 text-sm">
+                  <span class="font-medium">What Teams answered</span>
+                  <span
+                    class="badge badge-sm"
+                    :class="teamsAnswer.ok ? 'badge-success' : 'badge-error'"
+                  >
+                    {{ teamsAnswer.ok ? 'delivered' : 'refused' }}
+                  </span>
+                </p>
+                <p v-if="teamsAnswer.error" class="mt-2 text-sm text-error">
+                  {{ teamsAnswer.error }}
+                </p>
+                <p v-else class="mt-2 text-sm opacity-70">
+                  The card arrived in that channel or chat.
+                </p>
+              </div>
+            </div>
+
             <div v-show="way === 'lark'">
               <h3 class="font-semibold">Lark</h3>
               <p class="mt-1 text-sm opacity-70">
@@ -2451,7 +2625,7 @@ async function refreshCalls() {
               <button
                 type="button"
                 class="btn btn-primary btn-sm"
-                :disabled="busy || nothingToTellAbout || (!anyWay && !state?.subscribed) || !!hookProblem || !!slackProblem || !!discordProblem || !!larkProblem || !!ntfyProblem"
+                :disabled="busy || nothingToTellAbout || (!anyWay && !state?.subscribed) || !!hookProblem || !!slackProblem || !!discordProblem || !!teamsProblem || !!larkProblem || !!ntfyProblem"
                 @click="save"
               >
                 <span v-if="busy" class="loading loading-spinner loading-xs" />
@@ -2464,7 +2638,8 @@ async function refreshCalls() {
             </p>
             <p v-else-if="!anyWay && !state?.subscribed" class="mt-2 text-sm opacity-70">
               An alert needs an address, a webhook, a chat, a Slack channel, a
-              Discord channel, a Lark group or an ntfy topic to arrive on.
+              Discord channel, a Teams channel, a Lark group or an ntfy topic to
+              arrive on.
             </p>
           </div>
         </div>

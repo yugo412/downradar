@@ -218,7 +218,7 @@ func (s *Store) applyServiceState(
 // enqueueAlerts writes one delivery per live channel when the vendor's status
 // changes. The row is not due until alertSettleWindow has passed; a second change
 // before then updates it in place, so a burst becomes one message. Picked-target
-// ways (email, chat, Slack, Discord) get one only for the whole vendor; a webhook
+// ways (email, chat, Slack, Discord, Teams) get one only for the whole vendor; a webhook
 // gets one for any change. It shares the transaction, so a crash cannot lose an
 // alert and a retry cannot write it twice.
 //

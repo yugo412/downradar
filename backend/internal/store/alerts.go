@@ -22,8 +22,8 @@ const (
 )
 
 // The ways an alert can arrive, as the channel's kind column holds them. Email,
-// Telegram, Slack, Discord, Lark and ntfy report on what was picked; a webhook
-// hears about the whole vendor.
+// Telegram, Slack, Discord, Lark, ntfy and Teams report on what was picked; a
+// webhook hears about the whole vendor.
 const (
 	ChannelEmail    = "email"
 	ChannelWebhook  = "webhook"
@@ -32,6 +32,7 @@ const (
 	ChannelDiscord  = "discord"
 	ChannelLark     = "lark"
 	ChannelNtfy     = "ntfy"
+	ChannelTeams    = "teams"
 )
 
 // The two kinds of webhook call that are written down: one the sender made for a
@@ -96,12 +97,13 @@ type AlertView struct {
 	DiscordPaused  bool `json:"discordPaused"`
 	LarkPaused     bool `json:"larkPaused"`
 	NtfyPaused     bool `json:"ntfyPaused"`
+	TeamsPaused    bool `json:"teamsPaused"`
 
 	// Telegram is the chat a message goes to and Kind the channel a view is about.
-	// TelegramBot is the subscriber's own bot, never handed back. Slack, Discord
-	// and Lark are the webhook URLs those messages go to; LarkSecret signs them
-	// when the bot requires it. Ntfy is a topic URL, and NtfyToken is the optional
-	// access token that publishes to it.
+	// TelegramBot is the subscriber's own bot, never handed back. Slack, Discord,
+	// Lark and Teams are the webhook URLs those messages go to; LarkSecret signs
+	// them when the bot requires it. Ntfy is a topic URL, and NtfyToken is the
+	// optional access token that publishes to it.
 	Telegram       string `json:"-"`
 	TelegramBot    string `json:"-"`
 	Slack          string `json:"-"`
@@ -112,6 +114,7 @@ type AlertView struct {
 	LarkSecret     string `json:"-"`
 	Ntfy           string `json:"-"`
 	NtfyToken      string `json:"-"`
+	Teams          string `json:"-"`
 	Kind           string `json:"-"`
 
 	// The kinds of channel the subscription arrives by, in a stable order; an
@@ -468,6 +471,7 @@ type PendingAlert struct {
 	LarkSecret     string
 	NtfyURL        string
 	NtfyToken      string
+	TeamsURL       string
 	Webhook        AlertWebhook
 	ServiceID      int64
 	ComponentID    int64
@@ -651,12 +655,17 @@ type AlertChange struct {
 	Discord      *AlertDiscord
 	DiscordToken string
 
-	// Lark is the sixth way: a custom bot's webhook URL and the secret that
+	// Teams is the sixth way: the Workflows webhook URL of a Teams channel or
+	// chat. It reports on what was picked, like the other chat ways.
+	Teams      *AlertTeams
+	TeamsToken string
+
+	// Lark is the seventh way: a custom bot's webhook URL and the secret that
 	// signs a request when the group requires one.
 	Lark      *AlertLark
 	LarkToken string
 
-	// Ntfy is the seventh way: a topic URL and the optional access token that
+	// Ntfy is the eighth way: a topic URL and the optional access token that
 	// publishes to it. It reports on what was picked, like the other chat ways.
 	Ntfy      *AlertNtfy
 	NtfyToken string
@@ -830,6 +839,11 @@ func (s *Store) subscribeAlert(ctx context.Context, serviceID int64, userID *int
 	}
 	if change.Ntfy != nil {
 		if err := s.saveNtfyChannel(ctx, tx, subscriptionID, *change.Ntfy, change.NtfyToken); err != nil {
+			return "", fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
+		}
+	}
+	if change.Teams != nil {
+		if err := s.saveTeamsChannel(ctx, tx, subscriptionID, *change.Teams, change.TeamsToken); err != nil {
 			return "", fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
 		}
 	}
@@ -1027,7 +1041,14 @@ type AlertDiscord struct {
 	Channel string
 }
 
-// AlertLark is the sixth way: the custom bot webhook of a Lark group, and the
+// AlertTeams is the eighth way: the Workflows webhook URL of a Teams channel or
+// chat. It carries no other setting; the workflow itself decides where the card
+// lands.
+type AlertTeams struct {
+	URL string
+}
+
+// AlertLark is the seventh way: the custom bot webhook of a Lark group, and the
 // secret the bot uses to sign a request when the group requires it.
 type AlertLark struct {
 	URL    string
@@ -1401,6 +1422,47 @@ func (s *Store) saveDiscordChannel(ctx context.Context, tx pgx.Tx, subscriptionI
 	return dropChannelsApartFrom(ctx, tx, subscriptionID, ChannelDiscord, channelID)
 }
 
+// saveTeamsChannel saves one Teams way. An empty URL stops it, and an existing
+// channel keeps its token.
+func (s *Store) saveTeamsChannel(ctx context.Context, tx pgx.Tx, subscriptionID int64, way AlertTeams, token string) error {
+	if way.URL == "" {
+		return stopChannels(ctx, tx, subscriptionID, ChannelTeams)
+	}
+
+	var channelID int64
+	var channelToken string
+	err := tx.QueryRow(ctx, `
+		select id, token
+		from alert_channels
+		where subscription_id = $1 and kind = 'teams'
+		order by (unsubscribed_at is null) desc, id
+		limit 1`, subscriptionID).Scan(&channelID, &channelToken)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		channelToken = token
+	case err != nil:
+		return fmt.Errorf("read the teams way: %w", err)
+	}
+
+	// A row id is never zero, so nothing found means nothing is there yet.
+	if channelID == 0 {
+		if _, err := tx.Exec(ctx, `
+			insert into alert_channels (subscription_id, kind, address, token)
+			values ($1, 'teams', $2, $3)`, subscriptionID, way.URL, channelToken); err != nil {
+			return fmt.Errorf("add the teams way: %w", err)
+		}
+		return nil
+	}
+
+	if _, err := tx.Exec(ctx, `
+		update alert_channels
+		set address = $2, unsubscribed_at = null, updated_at = now()
+		where id = $1`, channelID, way.URL); err != nil {
+		return fmt.Errorf("update the teams way: %w", err)
+	}
+	return dropChannelsApartFrom(ctx, tx, subscriptionID, ChannelTeams, channelID)
+}
+
 // saveLarkChannel makes the subscription's Lark way say what this save asked for.
 // An empty URL stops it, and a save of the same URL without a secret keeps the
 // one the group already uses. A different URL starts that group's own secret, so
@@ -1498,6 +1560,26 @@ func (s *Store) DiscordWebhook(ctx context.Context, userID, serviceID int64) (st
 	}
 	if err != nil {
 		return "", fmt.Errorf("alerts: the discord webhook: %w", err)
+	}
+	return webhook, nil
+}
+
+// TeamsWebhook returns the saved Workflows webhook for a Teams way, or empty
+// when there is none.
+func (s *Store) TeamsWebhook(ctx context.Context, userID, serviceID int64) (string, error) {
+	var webhook string
+	err := s.pool.QueryRow(ctx, `
+		select c.address
+		from alert_channels c
+		join alert_subscriptions a on a.id = c.subscription_id
+		where a.user_id = $1 and a.service_id = $2 and c.kind = 'teams'
+		order by (c.unsubscribed_at is null) desc, c.id
+		limit 1`, userID, serviceID).Scan(&webhook)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("alerts: the teams webhook: %w", err)
 	}
 	return webhook, nil
 }
@@ -1810,8 +1892,9 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 		       coalesce(ch.discord_address, ''), coalesce(ch.discord_settings, '{}'::jsonb),
 		       coalesce(ch.lark_address, ''), coalesce(ch.lark_settings, '{}'::jsonb),
 		       coalesce(ch.ntfy_address, ''), coalesce(ch.ntfy_settings, '{}'::jsonb),
+		       coalesce(ch.teams_address, ''),
 		       ch.email_paused, ch.webhook_paused, ch.telegram_paused, ch.slack_paused,
-		       ch.discord_paused, ch.lark_paused, ch.ntfy_paused
+		       ch.discord_paused, ch.lark_paused, ch.ntfy_paused, ch.teams_paused
 		from alert_subscriptions a
 		join services v on v.id = a.service_id
 		left join lateral (
@@ -1849,6 +1932,8 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 			        filter (where c.kind = 'ntfy' and c.unsubscribed_at is null))[1] as ntfy_address,
 			       (array_agg(c.settings order by c.id)
 			        filter (where c.kind = 'ntfy' and c.unsubscribed_at is null))[1] as ntfy_settings,
+			       (array_agg(c.address order by c.id)
+			        filter (where c.kind = 'teams' and c.unsubscribed_at is null))[1] as teams_address,
 			       count(*) as total,
 			       count(*) filter (where c.unsubscribed_at is not null) as ended,
 			       count(*) filter (where c.unsubscribed_at is null and c.paused_at is null) as live,
@@ -1867,7 +1952,9 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 			       count(*) filter (where c.kind = 'lark' and c.unsubscribed_at is null
 			                          and c.paused_at is not null) > 0 as lark_paused,
 			       count(*) filter (where c.kind = 'ntfy' and c.unsubscribed_at is null
-			                          and c.paused_at is not null) > 0 as ntfy_paused
+			                          and c.paused_at is not null) > 0 as ntfy_paused,
+			       count(*) filter (where c.kind = 'teams' and c.unsubscribed_at is null
+			                          and c.paused_at is not null) > 0 as teams_paused
 			from alert_channels c
 			where c.subscription_id = a.id
 		) ch on true
@@ -1888,8 +1975,9 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 		&view.Discord, &discordRaw,
 		&view.Lark, &larkRaw,
 		&view.Ntfy, &ntfyRaw,
+		&view.Teams,
 		&view.EmailPaused, &view.WebhookPaused, &view.TelegramPaused, &view.SlackPaused,
-		&view.DiscordPaused, &view.LarkPaused, &view.NtfyPaused)
+		&view.DiscordPaused, &view.LarkPaused, &view.NtfyPaused, &view.TeamsPaused)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -2038,7 +2126,7 @@ func (s *Store) PendingAlerts(ctx context.Context, maxAttempts, limit int) ([]Pe
 		}
 
 		// The address is the inbox for email, the chat for Telegram, the webhook
-		// URL for Slack or Discord, and the URL for a webhook.
+		// URL for Slack, Discord or Teams, and the URL for a webhook.
 		switch p.Kind {
 		case ChannelWebhook:
 			hook, err := s.parseWebhookSettings(settings, address)
@@ -2071,6 +2159,8 @@ func (s *Store) PendingAlerts(ctx context.Context, maxAttempts, limit int) ([]Pe
 				return nil, err
 			}
 			p.NtfyToken = token
+		case ChannelTeams:
+			p.TeamsURL = address
 		default:
 			p.Email = address
 		}
