@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const updated = '30 October 2026, 13:44 UTC'
+const updated = '5 November 2026, 04:20 UTC'
 
 useSeoMeta({
   title: 'Privacy Policy',
@@ -22,6 +22,11 @@ useSeoMeta({
           <strong>Account details:</strong> your name, email address, password
           hash, whether the address is confirmed, your role, and the provider
           accounts linked to it, such as GitHub or Google.
+        </li>
+        <li>
+          <strong>Team details:</strong> the teams you belong to, your role in
+          each, and the address of every person you invite, with the invitation
+          state and expiry.
         </li>
         <li>
           <strong>Alert details:</strong> the address or webhook a message goes
@@ -61,6 +66,7 @@ useSeoMeta({
       <h2 class="text-lg font-semibold">How it is used</h2>
       <ul class="mt-3 list-disc space-y-2 pl-5">
         <li>To create accounts, sign you in, and send confirmation or reset links.</li>
+        <li>To send team invitations and keep team membership and roles.</li>
         <li>To deliver the alerts you ask for to the channels you choose.</li>
         <li>To show in-site notifications for the alerts you follow, site-wide announcements, and operational notices to staff.</li>
         <li>To reply when you write through the contact form.</li>
@@ -101,11 +107,11 @@ useSeoMeta({
         An account and the alerts attached to it are kept until you remove them
         or delete the account from
         <NuxtLink to="/account/profile" class="link">your profile</NuxtLink>.
-        Deleting the account removes its alerts, channels, delivery records and
-        notification recipient rows with it. A notice that was sent to other
-        people stays without your copy. Server logs are kept for as long as they
-        are useful for troubleshooting and security, then discarded. Copies in
-        backups may take a little longer to disappear.
+        Deleting the account removes its alerts, channels, delivery records,
+        notification recipient rows and team memberships with it. A notice that
+        was sent to other people stays without your copy. Server logs are kept
+        for as long as they are useful for troubleshooting and security, then
+        discarded. Copies in backups may take a little longer to disappear.
       </p>
     </section>
 

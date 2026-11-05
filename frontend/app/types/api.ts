@@ -348,3 +348,39 @@ export interface ServicePayload {
   paused?: boolean
   visibility?: Visibility
 }
+
+export type TeamRole = 'owner' | 'manager' | 'member'
+
+export interface Team {
+  id: number
+  slug: string
+  name: string
+  createdBy?: number
+  createdAt: string
+  role: TeamRole
+}
+
+export interface TeamMember {
+  userId: number
+  email: string
+  name: string
+  role: TeamRole
+  createdAt: string
+}
+
+export interface TeamInvitation {
+  id: number
+  teamId: number
+  email: string
+  role: TeamRole
+  transfer?: boolean
+  invitedBy?: number
+  expiresAt: string
+  acceptedAt?: string | null
+  createdAt: string
+}
+
+export interface TeamInvitationView extends TeamInvitation {
+  teamName: string
+  invitedByName?: string
+}

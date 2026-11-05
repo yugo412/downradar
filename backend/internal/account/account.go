@@ -76,6 +76,24 @@ func (m *Mailer) Deleted(ctx context.Context, to, name string) error {
 	})
 }
 
+// TeamInvite sends the link that joins somebody to a team. The role is the one
+// the invitation names; the link is single use and expires.
+func (m *Mailer) TeamInvite(ctx context.Context, to, name, inviter, team, role, token string) error {
+	return m.send(ctx, to, "Join "+team+" on DownRadar", "team_invite", struct {
+		Name    string
+		Inviter string
+		Team    string
+		Role    string
+		URL     string
+	}{
+		Name:    name,
+		Inviter: inviter,
+		Team:    team,
+		Role:    role,
+		URL:     fmt.Sprintf("%s/teams/join?token=%s", m.publicURL, token),
+	})
+}
+
 // send writes one of them from its template and hands it to the mail server. A
 // template that cannot be filled is a mistake in the code, and it is answered as
 // an error rather than sent as an empty message.

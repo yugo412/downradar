@@ -53,6 +53,7 @@ type handlers struct {
 	alertsEnabled   bool
 	telegramEnabled bool
 	alertLimit      int
+	teamLimit       int
 	dummyHash       string
 }
 
@@ -66,6 +67,7 @@ type Options struct {
 	AlertTestPerHour        int
 	AlertTestBurst          int
 	AlertLimitPerSubscriber int
+	TeamLimitPerUser        int
 	AccountPerHour          int
 	AccountBurst            int
 	ContactPerHour          int
@@ -168,6 +170,12 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 		alertLimit = 10
 	}
 
+	// A person can belong to a few teams, not a whole directory of them.
+	teamLimit := opts.TeamLimitPerUser
+	if teamLimit <= 0 {
+		teamLimit = 3
+	}
+
 	// A provider sends the browser back to an address that is registered with
 	// it, so the site's own public address has to be known here and not only by
 	// the mailer. The default is the dev site.
@@ -204,6 +212,7 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 		alertsEnabled:   opts.AlertsEnabled,
 		telegramEnabled: opts.TelegramEnabled,
 		alertLimit:      alertLimit,
+		teamLimit:       teamLimit,
 		dummyHash:       auth.DummyHash(),
 	}
 
@@ -402,6 +411,22 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 		h.requireAuth(h.limited(h.readLimiter, true,
 			"Rate limit exceeded, please try again in a moment", h.detectProfile)))
 	mux.HandleFunc("GET /api/v1/categories", h.requireAuth(h.listCategories))
+
+	// A team is its members' workspace. The invitation view is public because
+	// the link is the proof; accepting it still needs a session.
+	mux.HandleFunc("GET /api/v1/teams", h.requireAuth(h.listTeams))
+	mux.HandleFunc("POST /api/v1/teams", h.requireAuth(h.createTeam))
+	mux.HandleFunc("GET /api/v1/teams/invitations/{token}", h.publicRead(h.teamInvitation))
+	mux.HandleFunc("POST /api/v1/teams/invitations/{token}/accept", h.requireAuth(h.acceptTeamInvitation))
+	mux.HandleFunc("POST /api/v1/teams/invitations/accept", h.requireAuth(h.acceptTeamInvitationFromInbox))
+	mux.HandleFunc("GET /api/v1/teams/{team}", h.requireAuth(h.getTeam))
+	mux.HandleFunc("PATCH /api/v1/teams/{team}", h.requireAuth(h.updateTeam))
+	mux.HandleFunc("DELETE /api/v1/teams/{team}", h.requireAuth(h.deleteTeam))
+	mux.HandleFunc("POST /api/v1/teams/{team}/invitations", h.requireAuth(h.inviteToTeam))
+	mux.HandleFunc("POST /api/v1/teams/{team}/invitations/{invite}/resend", h.requireAuth(h.resendTeamInvitation))
+	mux.HandleFunc("DELETE /api/v1/teams/{team}/invitations/{invite}", h.requireAuth(h.revokeTeamInvitation))
+	mux.HandleFunc("PATCH /api/v1/teams/{team}/members/{user}", h.requireAuth(h.updateTeamMember))
+	mux.HandleFunc("DELETE /api/v1/teams/{team}/members/{user}", h.requireAuth(h.removeTeamMember))
 
 	// A subscriber may read, add and edit their own services; staff keep the
 	// address, adapter, endpoint, stage and detection queue. Reads are narrowed to
