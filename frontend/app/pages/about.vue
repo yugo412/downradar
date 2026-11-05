@@ -59,9 +59,14 @@ useSeoMeta({
             also keeps more alerts than the single one a visitor without an account gets.
           </li>
           <li>
+            <strong>Work with a team.</strong> A signed in account can create a team from the account
+            menu, invite people who already have an account, and decide what each member may do.
+          </li>
+          <li>
             <strong>Keep up with what you follow.</strong> A signed in account has a bell in the header
             with an unread count. It lists the status changes delivered to at least one of your alert
-            channels, and staff see operational notes there about polling and alert delivery.
+            channels, team invitations, site-wide announcements, and, for staff, operational notes
+            about polling and alert delivery.
           </li>
           <li>
             <strong>Take the data elsewhere.</strong> The

@@ -59,6 +59,7 @@ var (
 // filled by the reads that are asked for on somebody's behalf.
 type Team struct {
 	ID        int64     `json:"id"`
+	Slug      string    `json:"slug"`
 	Name      string    `json:"name"`
 	CreatedBy *int64    `json:"createdBy,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
@@ -100,7 +101,7 @@ type TeamInvitationInput struct {
 	Transfer  bool
 }
 
-const teamColumns = `t.id, t.name, t.created_by, t.created_at`
+const teamColumns = `t.id, t.slug, t.name, t.created_by, t.created_at`
 
 // CreateTeam makes the team and its owner in one transaction, so a team is never
 // left without the one person who can manage it.
@@ -116,11 +117,16 @@ func (s *Store) CreateTeam(ctx context.Context, creatorID int64, name string) (*
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	slug, err := s.uniqueTeamSlug(ctx, Slugify(name))
+	if err != nil {
+		return nil, err
+	}
+
 	team := Team{Role: TeamRoleOwner}
 	err = tx.QueryRow(ctx, `
-		insert into teams (name, created_by) values ($1, $2)
-		returning id, name, created_by, created_at`, name, creatorID,
-	).Scan(&team.ID, &team.Name, &team.CreatedBy, &team.CreatedAt)
+		insert into teams (slug, name, created_by) values ($1, $2, $3)
+		returning id, slug, name, created_by, created_at`, slug, name, creatorID,
+	).Scan(&team.ID, &team.Slug, &team.Name, &team.CreatedBy, &team.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("teams: create: %w", err)
 	}
@@ -145,7 +151,7 @@ func (s *Store) GetTeam(ctx context.Context, teamID, userID int64) (*Team, error
 		from teams t
 		join team_members m on m.team_id = t.id
 		where t.id = $1 and m.user_id = $2`, teamID, userID,
-	).Scan(&team.ID, &team.Name, &team.CreatedBy, &team.CreatedAt, &team.Role)
+	).Scan(&team.ID, &team.Slug, &team.Name, &team.CreatedBy, &team.CreatedAt, &team.Role)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -153,6 +159,64 @@ func (s *Store) GetTeam(ctx context.Context, teamID, userID int64) (*Team, error
 		return nil, fmt.Errorf("teams: get %d: %w", teamID, err)
 	}
 	return &team, nil
+}
+
+// GetTeamBySlug is the read the team pages use: the address in the URL is the
+// name, and the team comes back only for somebody who belongs to it.
+func (s *Store) GetTeamBySlug(ctx context.Context, slug string, userID int64) (*Team, error) {
+	var team Team
+	err := s.pool.QueryRow(ctx, `
+		select `+teamColumns+`, m.role
+		from teams t
+		join team_members m on m.team_id = t.id
+		where t.slug = $1 and m.user_id = $2`, slug, userID,
+	).Scan(&team.ID, &team.Slug, &team.Name, &team.CreatedBy, &team.CreatedAt, &team.Role)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("teams: get %s: %w", slug, err)
+	}
+	return &team, nil
+}
+
+// TeamCountForUser is the membership count the per-account limit reads.
+func (s *Store) TeamCountForUser(ctx context.Context, userID int64) (int, error) {
+	var count int
+	if err := s.pool.QueryRow(ctx,
+		`select count(*) from team_members where user_id = $1`, userID,
+	).Scan(&count); err != nil {
+		return 0, fmt.Errorf("teams: count for user: %w", err)
+	}
+	return count, nil
+}
+
+// uniqueTeamSlug gives the team an address that no other team has. A name that
+// is all punctuation falls back to "team".
+func (s *Store) uniqueTeamSlug(ctx context.Context, base string) (string, error) {
+	if base == "" {
+		base = "team"
+	}
+	for i := 1; i <= 50; i++ {
+		candidate := base
+		if i > 1 {
+			candidate = fmt.Sprintf("%s-%d", base, i)
+		}
+		// /teams/join is the invitation page, so no team may take that address.
+		if candidate == "join" {
+			continue
+		}
+		var exists bool
+		if err := s.pool.QueryRow(ctx,
+			`select exists (select 1 from teams where slug = $1)`, candidate,
+		).Scan(&exists); err != nil {
+			return "", fmt.Errorf("teams: slug check %s: %w", candidate, err)
+		}
+		if !exists {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("teams: no free slug for %q", base)
 }
 
 // TeamsForUser is the switch's list: every team the person belongs to, with the
@@ -172,7 +236,7 @@ func (s *Store) TeamsForUser(ctx context.Context, userID int64) ([]Team, error) 
 	out := []Team{}
 	for rows.Next() {
 		var team Team
-		if err := rows.Scan(&team.ID, &team.Name, &team.CreatedBy, &team.CreatedAt, &team.Role); err != nil {
+		if err := rows.Scan(&team.ID, &team.Slug, &team.Name, &team.CreatedBy, &team.CreatedAt, &team.Role); err != nil {
 			return nil, fmt.Errorf("teams: scan: %w", err)
 		}
 		out = append(out, team)
@@ -491,6 +555,27 @@ func (s *Store) TeamInvitations(ctx context.Context, teamID int64) ([]TeamInvita
 	return out, rows.Err()
 }
 
+// TeamInvitationByID returns one pending invitation on a team, for resending or
+// revoking it. An accepted invitation is history and is not found here.
+func (s *Store) TeamInvitationByID(ctx context.Context, teamID, invitationID int64) (*TeamInvitation, error) {
+	var invitation TeamInvitation
+	err := s.pool.QueryRow(ctx, `
+		select id, team_id, email, role, transfer, invited_by, expires_at, accepted_at, created_at
+		from team_invitations
+		where id = $1 and team_id = $2 and accepted_at is null`,
+		invitationID, teamID,
+	).Scan(&invitation.ID, &invitation.TeamID, &invitation.Email, &invitation.Role,
+		&invitation.Transfer, &invitation.InvitedBy, &invitation.ExpiresAt,
+		&invitation.AcceptedAt, &invitation.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("teams: invitation %d: %w", invitationID, err)
+	}
+	return &invitation, nil
+}
+
 // TeamInvitationByToken resolves a live invitation. An expired or accepted link
 // is not found, so nothing depends on a cleanup job to be correct.
 func (s *Store) TeamInvitationByToken(ctx context.Context, tokenHash string) (*TeamInvitationView, error) {
@@ -518,25 +603,58 @@ func (s *Store) TeamInvitationByToken(ctx context.Context, tokenHash string) (*T
 // AcceptTeamInvitation spends one link for the account it was sent to. A regular
 // invitation makes a manager or member; an owner invitation is a transfer, so
 // the current owner steps down to manager as the new one steps up.
+// AcceptTeamInvitation spends one link for the account it was sent to. A regular
+// invitation makes a manager or member; an owner invitation is a transfer, so
+// the current owner steps down to manager as the new one steps up.
 func (s *Store) AcceptTeamInvitation(ctx context.Context, tokenHash string, userID int64) (*Team, error) {
+	return s.acceptInvitation(ctx, userID, func(tx pgx.Tx) (TeamInvitation, string, error) {
+		var invitation TeamInvitation
+		var accountEmail string
+		err := tx.QueryRow(ctx, `
+			select i.id, i.team_id, i.email, i.role, i.transfer, i.invited_by,
+			       i.expires_at, i.accepted_at, i.created_at, u.email
+			from team_invitations i
+			join users u on u.id = $2
+			where i.token_hash = $1 and i.accepted_at is null and i.expires_at > now()
+			for update of i`, tokenHash, userID,
+		).Scan(&invitation.ID, &invitation.TeamID, &invitation.Email, &invitation.Role,
+			&invitation.Transfer, &invitation.InvitedBy, &invitation.ExpiresAt,
+			&invitation.AcceptedAt, &invitation.CreatedAt, &accountEmail)
+		return invitation, accountEmail, err
+	})
+}
+
+// AcceptTeamInvitationByID is the inbox's accept: the signed in account proves
+// the address, so this path does not need the token that is in the email.
+func (s *Store) AcceptTeamInvitationByID(ctx context.Context, invitationID, userID int64) (*Team, error) {
+	return s.acceptInvitation(ctx, userID, func(tx pgx.Tx) (TeamInvitation, string, error) {
+		var invitation TeamInvitation
+		var accountEmail string
+		err := tx.QueryRow(ctx, `
+			select i.id, i.team_id, i.email, i.role, i.transfer, i.invited_by,
+			       i.expires_at, i.accepted_at, i.created_at, u.email
+			from team_invitations i
+			join users u on u.id = $2
+			where i.id = $1 and i.accepted_at is null and i.expires_at > now()
+			for update of i`, invitationID, userID,
+		).Scan(&invitation.ID, &invitation.TeamID, &invitation.Email, &invitation.Role,
+			&invitation.Transfer, &invitation.InvitedBy, &invitation.ExpiresAt,
+			&invitation.AcceptedAt, &invitation.CreatedAt, &accountEmail)
+		return invitation, accountEmail, err
+	})
+}
+
+// acceptInvitation is the shared body of the two accept paths: find the live
+// invitation, check that it belongs to the signed in address, spend it, and
+// write the membership.
+func (s *Store) acceptInvitation(ctx context.Context, userID int64, find func(pgx.Tx) (TeamInvitation, string, error)) (*Team, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("teams: begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var invitation TeamInvitation
-	var accountEmail string
-	err = tx.QueryRow(ctx, `
-		select i.id, i.team_id, i.email, i.role, i.transfer, i.invited_by,
-		       i.expires_at, i.accepted_at, i.created_at, u.email
-		from team_invitations i
-		join users u on u.id = $2
-		where i.token_hash = $1 and i.accepted_at is null and i.expires_at > now()
-		for update of i`, tokenHash, userID,
-	).Scan(&invitation.ID, &invitation.TeamID, &invitation.Email, &invitation.Role,
-		&invitation.Transfer, &invitation.InvitedBy, &invitation.ExpiresAt,
-		&invitation.AcceptedAt, &invitation.CreatedAt, &accountEmail)
+	invitation, accountEmail, err := find(tx)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return nil, ErrNotFound
@@ -582,8 +700,61 @@ func (s *Store) AcceptTeamInvitation(ctx context.Context, tokenHash string, user
 	return s.GetTeam(ctx, invitation.TeamID, userID)
 }
 
-// RevokeTeamInvitation removes one unaccepted link. An accepted invitation is
-// history and is left alone.
+// TeamInvitationsForEmail is the invitee's inbox: every live invitation sent to
+// the address, whether or not the account has opened the link in its mail.
+func (s *Store) TeamInvitationsForEmail(ctx context.Context, email string) ([]TeamInvitationView, error) {
+	rows, err := s.pool.Query(ctx, `
+		select i.id, i.team_id, i.email, i.role, i.transfer, i.invited_by,
+		       i.expires_at, i.accepted_at, i.created_at, t.name, coalesce(u.name, '')
+		from team_invitations i
+		join teams t on t.id = i.team_id
+		left join users u on u.id = i.invited_by
+		where lower(i.email) = lower($1)
+		  and i.accepted_at is null and i.expires_at > now()
+		order by i.created_at desc, i.id desc`, strings.TrimSpace(email))
+	if err != nil {
+		return nil, fmt.Errorf("teams: invitations for email: %w", err)
+	}
+	defer rows.Close()
+
+	out := []TeamInvitationView{}
+	for rows.Next() {
+		var view TeamInvitationView
+		if err := rows.Scan(&view.ID, &view.TeamID, &view.Email, &view.Role,
+			&view.Transfer, &view.InvitedBy, &view.ExpiresAt, &view.AcceptedAt,
+			&view.CreatedAt, &view.TeamName, &view.InvitedByName); err != nil {
+			return nil, fmt.Errorf("teams: scan invitation: %w", err)
+		}
+		out = append(out, view)
+	}
+	return out, rows.Err()
+}
+
+// TeamInvitationForUser is one live invitation that belongs to the signed in
+// address, used before an inbox accept so the limit can be checked.
+func (s *Store) TeamInvitationForUser(ctx context.Context, invitationID, userID int64) (*TeamInvitationView, error) {
+	var view TeamInvitationView
+	err := s.pool.QueryRow(ctx, `
+		select i.id, i.team_id, i.email, i.role, i.transfer, i.invited_by,
+		       i.expires_at, i.accepted_at, i.created_at, t.name, coalesce(u.name, '')
+		from team_invitations i
+		join teams t on t.id = i.team_id
+		join users me on me.id = $2 and lower(me.email) = lower(i.email)
+		left join users u on u.id = i.invited_by
+		where i.id = $1 and i.accepted_at is null and i.expires_at > now()`,
+		invitationID, userID,
+	).Scan(&view.ID, &view.TeamID, &view.Email, &view.Role, &view.Transfer,
+		&view.InvitedBy, &view.ExpiresAt, &view.AcceptedAt, &view.CreatedAt,
+		&view.TeamName, &view.InvitedByName)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("teams: invitation for user: %w", err)
+	}
+	return &view, nil
+}
+
 func (s *Store) RevokeTeamInvitation(ctx context.Context, teamID, invitationID int64) error {
 	tag, err := s.pool.Exec(ctx, `
 		delete from team_invitations

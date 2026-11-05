@@ -56,6 +56,8 @@ export default defineNuxtConfig({
           '/account': { swr: false, headers: { 'cache-control': 'no-store' } },
           '/account/**': { swr: false, headers: { 'cache-control': 'no-store' } },
           '/users': { swr: false, headers: { 'cache-control': 'no-store' } },
+          '/teams': { swr: false, headers: { 'cache-control': 'no-store' } },
+          '/teams/**': { swr: false, headers: { 'cache-control': 'no-store' } },
           '/login': { swr: false, headers: { 'cache-control': 'no-store' } },
         }
       : {},

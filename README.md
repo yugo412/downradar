@@ -299,6 +299,25 @@ refused with an answer that says no more than that the account could not be made
 Registering signs the person in and sends a link that confirms the address; the
 banner offers to resend it. Nothing is blocked while an address is unconfirmed.
 
+## Teams
+
+A signed in account can create a team from `/teams`, reached from the account
+menu. The creator is its only owner, and the team's page is `/teams/<slug>`.
+An account can belong to three teams by default; `TEAM_LIMIT_PER_USER` in the
+environment sets that ceiling. Owners and managers can invite an existing account
+by email, and the same invitation appears in that account's notification feed;
+the invitation is single use, expires in seven days, and can be resent or revoked
+while it is pending. The invitee also finds it under Pending invitations on
+`/teams`, where the signed in session is proof of the address and no token has to
+travel. Owners can change a member's role, while a manager can add and
+remove members but cannot make or remove another manager. A manager or member
+cannot change the team's settings, and the owner is not removed from this
+screen: ownership transfer arrives with the owner-deletion flow.
+
+The personal/team switch at the top of the team screens is where the team area
+begins. At this stage a team has members and roles; owning services and alerts
+follows in the next step.
+
 Signing in does not need the password: `/login` asks for an address and mails a
 one-use link that expires in fifteen minutes. Following it also confirms the
 address it was sent to. An address with no account is refused and gets no mail, so
@@ -425,9 +444,9 @@ backend/                  Go: poller, adapters, store, API
   db/migrations/          embedded .sql migrations
 
 frontend/                 Nuxt 4 + Vue 3 + TypeScript + DaisyUI
-  app/pages/              index, per-vendor, login, account, and the service screens
+  app/pages/              index, per-vendor, login, account, services, teams
   app/components/         StatusBadge, the status view, the service form and its dialogs
-  server/middleware/      the api proxy, and the session guard on /services and /account
+  server/middleware/      the api proxy, and the session guard on /services, /account and /teams
 
 compose.dev.yml           db, mailpit, api, web
 ```

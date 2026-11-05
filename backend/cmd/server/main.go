@@ -162,6 +162,7 @@ func run() error {
 			AlertTestPerHour:        cfg.AlertTestPerHour,
 			AlertTestBurst:          cfg.AlertTestBurst,
 			AlertLimitPerSubscriber: cfg.AlertLimitPerSubscriber,
+			TeamLimitPerUser:        cfg.TeamLimitPerUser,
 			AccountPerHour:          cfg.AccountPerHour,
 			AccountBurst:            cfg.AccountBurst,
 			ContactPerHour:          cfg.ContactPerHour,

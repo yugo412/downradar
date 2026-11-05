@@ -1,0 +1,25 @@
+{{/* Somebody was invited to a team. The link opens a page on the site, which
+     asks the visitor to sign in and then joins them; the token is never acted on
+     by opening the message. */}}
+{{define "team_invite"}}
+<p style="margin:0 0 16px;">Hello {{.Name}},</p>
+<p style="margin:0 0 20px;">
+  {{.Inviter}} invited you to join <strong>{{.Team}}</strong> on DownRadar as a
+  {{.Role}}.
+</p>
+<p style="margin:0 0 20px;">
+  <a
+    href="{{.URL}}"
+    style="display:inline-block;padding:10px 18px;border-radius:8px;background:#45aeee;color:#020b13;font-weight:600;text-decoration:none;"
+    >Join {{.Team}}</a
+  >
+</p>
+<p style="margin:0 0 16px;font-size:13px;color:#6f6f6f;">
+  If the button does not work, open this link in a browser:<br />
+  <a href="{{.URL}}" style="color:#161616;word-break:break-all;">{{.URL}}</a>
+</p>
+<p style="margin:0;font-size:13px;color:#6f6f6f;">
+  The invitation works once and expires in seven days. If you were not expecting
+  it, you can ignore this email.
+</p>
+{{end}}
