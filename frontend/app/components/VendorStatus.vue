@@ -3,7 +3,6 @@ import type { AlertState, ChannelDeliveryStatus, ComponentStatus, VendorDetail }
 
 const props = defineProps<{ vendor: VendorDetail; ownerId?: number }>()
 
-const components = computed(() => props.vendor.componentsList ?? [])
 const incidents = computed(() => props.vendor.incidents ?? [])
 const events = computed(() => props.vendor.recentEvents ?? [])
 const openIncidents = computed(() => incidents.value.filter((i) => !i.resolvedAt))
@@ -25,8 +24,15 @@ const matched = computed(() => {
 // The badge counts are counted after the search, so the number next to a state
 // always agrees with the rows underneath it.
 const statusFilter = ref<string[]>([])
+const hiddenOnly = ref(false)
+const hiddenCount = computed(() => matched.value.filter((c) => c.hidden).length)
+const visibilityMatched = computed(() =>
+  canManageServices.value && hiddenOnly.value
+    ? matched.value.filter((c) => c.hidden)
+    : matched.value,
+)
 const statusOptions = computed(() =>
-  statusCounts(matched.value, (c) => c.status, statusFilter.value),
+  statusCounts(visibilityMatched.value, (c) => c.status, statusFilter.value),
 )
 
 // A header sorts itself first in its own natural direction: names A to Z,
@@ -59,6 +65,16 @@ type Tab = PublicTab | 'alert' | 'logs'
 const { user, canManageServices } = useAuth()
 const tabGroup = useId()
 
+// Staff manage what the public page shows from this same list. The public read
+// never carries a hidden component, so staff need the list that includes them;
+// it is fetched in the browser so the cached page stays the same for everyone.
+const adminComponents = ref<ComponentStatus[] | null>(null)
+const components = computed(() =>
+  canManageServices.value && adminComponents.value
+    ? adminComponents.value
+    : props.vendor.componentsList ?? [],
+)
+
 const publicTabs = computed<{ value: PublicTab; label: string }[]>(() => [
   { value: 'components', label: 'Components' },
   { value: 'incidents', label: 'Incidents' },
@@ -85,6 +101,63 @@ function selectTab(next: Tab) {
     query.tab = next
   }
   router.replace({ query })
+}
+
+// The component list with the hidden rows included is a staff read. It is asked
+// for in the browser, so the cached page never carries it, and it replaces the
+// public list for staff once it arrives.
+async function loadAdminComponents() {
+  if (!canManageServices.value) {
+    adminComponents.value = null
+    return
+  }
+  try {
+    const answer = await $fetch<{ components: ComponentStatus[] }>(
+      `/api/v1/services/${props.vendor.slug}/components`,
+    )
+    adminComponents.value = answer.components
+  } catch {
+    adminComponents.value = null
+  }
+}
+
+onMounted(loadAdminComponents)
+
+watch(canManageServices, (allowed) => {
+  if (allowed) {
+    void loadAdminComponents()
+  } else {
+    adminComponents.value = null
+    hiddenOnly.value = false
+  }
+})
+
+watch(
+  () => props.vendor.slug,
+  () => {
+    void loadAdminComponents()
+  },
+)
+
+const hideBusy = ref('')
+const hideError = ref('')
+
+// Hiding a component only changes what the public page shows. The row keeps its
+// state and keeps being polled, so showing it again restores the history.
+async function setComponentHidden(component: ComponentStatus, hidden: boolean) {
+  hideBusy.value = component.sourceId
+  hideError.value = ''
+  try {
+    await $fetch(`/api/v1/services/${props.vendor.slug}/components`, {
+      method: 'PATCH',
+      body: { sourceId: component.sourceId, hidden },
+    })
+    await loadAdminComponents()
+  } catch (err) {
+    hideError.value = apiError(err, 'Could not change what the page shows.')
+  } finally {
+    hideBusy.value = ''
+  }
 }
 
 // The alert belongs to the visitor, so its state is read in the browser and the
@@ -347,8 +420,8 @@ function compareComponents(a: ComponentStatus, b: ComponentStatus): number {
 
 const shownComponents = computed(() => {
   const rows = statusFilter.value.length
-    ? matched.value.filter((c) => statusFilter.value.includes(c.status))
-    : matched.value
+    ? visibilityMatched.value.filter((c) => statusFilter.value.includes(c.status))
+    : visibilityMatched.value
   return [...rows].sort(compareComponents)
 })
 </script>
@@ -491,7 +564,17 @@ const shownComponents = computed(() => {
           :statuses="statusOptions"
           label="Filter components by state"
           class="mb-3"
-        />
+          @clear="hiddenOnly = false"
+        >
+          <FilterChip
+            v-if="canManageServices && (hiddenCount || hiddenOnly)"
+            v-model="hiddenOnly"
+            label="Hidden"
+            :count="hiddenCount"
+          />
+        </StatusFilter>
+
+        <p v-if="hideError" role="alert" class="mb-3 text-sm text-error">{{ hideError }}</p>
 
         <div class="overflow-x-auto bg-base-100 border border-base-300 rounded-box shadow-sm">
           <table class="table">
@@ -521,7 +604,19 @@ const shownComponents = computed(() => {
             </thead>
             <tbody>
               <tr v-for="c in shownComponents" :key="c.sourceId">
-                <td class="font-medium">{{ c.name }}</td>
+                <td class="font-medium">
+                  {{ c.name }}
+                  <span v-if="c.hidden" class="badge badge-ghost badge-sm ml-1">Hidden</span>
+                  <button
+                    v-if="canManageServices"
+                    type="button"
+                    class="link mt-1 block cursor-pointer text-xs opacity-70"
+                    :disabled="hideBusy === c.sourceId"
+                    @click="setComponentHidden(c, !c.hidden)"
+                  >
+                    {{ c.hidden ? 'Show on the page' : 'Hide from the page' }}
+                  </button>
+                </td>
                 <td><StatusBadge :status="c.status" size="sm" /></td>
                 <td class="whitespace-nowrap text-right text-sm opacity-60">
                   <LiveAgo :at="c.changedAt" />
@@ -530,6 +625,12 @@ const shownComponents = computed(() => {
               <tr v-if="!shownComponents.length">
                 <td colspan="3" class="text-center opacity-60">
                   <template v-if="!components.length">No components reported yet.</template>
+                  <template v-else-if="hiddenOnly && !hiddenCount">
+                    <template v-if="needle">
+                      No hidden component matches “{{ search.trim() }}”.
+                    </template>
+                    <template v-else>No hidden components.</template>
+                  </template>
                   <template v-else-if="!matched.length">
                     No component matches “{{ search.trim() }}”.
                   </template>
