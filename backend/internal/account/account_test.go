@@ -62,6 +62,39 @@ func TestVerifyAndResetCarryTheirOwnLinks(t *testing.T) {
 	}
 }
 
+func TestTheTeamInvitationCarriesTheTeamRoleAndLink(t *testing.T) {
+	s := &spy{}
+	m := New(s, "https://downradar.info/")
+
+	if err := m.TeamInvite(context.Background(), "ann@example.com", "Ann",
+		"Yugo", "Acme", "manager", "tok-team"); err != nil {
+		t.Fatalf("TeamInvite: %v", err)
+	}
+	if len(s.messages) != 1 {
+		t.Fatalf("messages = %d, want one", len(s.messages))
+	}
+
+	msg := s.messages[0]
+	if msg.to != "ann@example.com" {
+		t.Errorf("message went to %q", msg.to)
+	}
+	for _, want := range []string{
+		"Ann",
+		"Yugo",
+		"Acme",
+		"manager",
+		"https://downradar.info/teams/join?token=tok-team",
+		"seven days",
+	} {
+		if !strings.Contains(msg.body, want) {
+			t.Errorf("the message does not contain %q:\n%s", want, msg.body)
+		}
+	}
+	if !strings.Contains(msg.subject, "Acme") {
+		t.Errorf("subject = %q, want the team's name", msg.subject)
+	}
+}
+
 func TestTheDeletedAccountMessageSaysItCannotBeRestored(t *testing.T) {
 	s := &spy{}
 	m := New(s, "https://downradar.info/")

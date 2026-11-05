@@ -4,12 +4,12 @@
 // asked the API who the visitor is, and useRequestHeaders does not carry the
 // session cookie there. Reading the h3 event directly does work, and failing
 // closed is the right behaviour when the API cannot be reached.
-const SESSION_PREFIXES = ['/account', '/alerts', '/notifications', '/services']
+const SESSION_PREFIXES = ['/account', '/alerts', '/notifications', '/services', '/teams']
 const ADMIN_PREFIXES = ['/users', '/tools']
 const STAFF_PREFIX = '/alerts/all'
 // The link in an alert email has to work without a session, even though it sits
 // under a prefix that otherwise needs one.
-const PUBLIC_PATHS = ['/alerts/unsubscribe']
+const PUBLIC_PATHS = ['/alerts/unsubscribe', '/teams/join']
 
 function under(path: string, prefix: string) {
   return path === prefix || path.startsWith(`${prefix}/`)

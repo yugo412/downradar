@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const updated = '30 October 2026, 13:44 UTC'
+const updated = '5 November 2026, 04:20 UTC'
 
 useSeoMeta({
   title: 'Terms of Service',
@@ -38,6 +38,16 @@ useSeoMeta({
         yourself, and take responsibility for activity under your account. We may
         suspend or remove an account that breaks these terms or puts the site or
         other people at risk.
+      </p>
+    </section>
+
+    <section>
+      <h2 class="text-lg font-semibold">Teams</h2>
+      <p class="mt-3">
+        A team is shared with the people you invite. Whoever creates it is its
+        owner, and decides who belongs, what role each member has, and when the
+        team is deleted. Invite only people who agree to be there, and use the
+        roles for the access you intend.
       </p>
     </section>
 

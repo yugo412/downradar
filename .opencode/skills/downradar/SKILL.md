@@ -89,7 +89,7 @@ app itself, not from fixtures.
 - Every email is HTML written from a template in `internal/mail/templates`, set in
   one shell that carries the brand and the site's colours. The wording of a
   message belongs in its template, not in the package that sends it.
-- Error messages that reach a user start lower case.
+- Error messages that reach a user start with a capital letter.
 - A page that refuses a poll is not asked again until its wait is over. A 429 or
   503 is honoured through `Retry-After` when it carries one, otherwise the wait
   doubles with each refusal in a row; a 403 goes on a slow schedule. No vendor is

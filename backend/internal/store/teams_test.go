@@ -331,3 +331,18 @@ func TestTeamOwnedRowsStayExclusive(t *testing.T) {
 		t.Error("an alert with both owners was accepted")
 	}
 }
+
+func TestATeamCannotTakeTheJoinPageAddress(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+	owner := newTestUser(t, st, "subscriber")
+
+	team, err := st.CreateTeam(ctx, owner.ID, "Join")
+	if err != nil {
+		t.Fatalf("CreateTeam: %v", err)
+	}
+	t.Cleanup(func() { _ = st.DeleteTeam(context.Background(), team.ID) })
+	if team.Slug == "join" || team.Slug == "" {
+		t.Errorf("slug = %q, want an address that is not the join page", team.Slug)
+	}
+}

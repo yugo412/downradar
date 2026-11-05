@@ -75,6 +75,7 @@ const toolLinks = [{ label: 'Broadcast notification', to: '/tools' }]
 
 const accountLinks = [
   { label: 'Edit profile', to: '/account/profile' },
+  { label: 'Teams', to: '/teams' },
   { label: 'Change password', to: '/account/password' },
   { label: 'Linked logins', to: '/account/logins' },
 ]
