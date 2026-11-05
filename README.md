@@ -227,6 +227,12 @@ Deleting a proposal removes the row outright: it has no history worth keeping.
 Deleting a published vendor only deactivates it, so its history survives and it
 can be restored from the Removed filter.
 
+Staff can take one component off a vendor's public page from the components tab.
+The row stays active and keeps being polled; hiding removes it from the page, the
+component counts, the recent-change list and the feeds, and showing it again
+brings its history back. A Hidden chip narrows the table to the components that
+were taken off the page.
+
 ## Alerts
 
 A signed out visitor can ask for an email alert on a whole vendor from the bell.
