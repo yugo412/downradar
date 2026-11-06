@@ -304,10 +304,11 @@ banner offers to resend it. Nothing is blocked while an address is unconfirmed.
 A signed in account can create a team from `/teams`, reached from the account
 menu. The creator is its only owner, and the team's page is `/teams/<slug>`.
 An account can belong to three teams by default; `TEAM_LIMIT_PER_USER` in the
-environment sets that ceiling. Owners and managers can invite an existing account
-by email, and the same invitation appears in that account's notification feed;
-the invitation is single use, expires in seven days, and can be resent or revoked
-while it is pending. The invitee also finds it under Pending invitations on
+environment sets that ceiling. Owners and managers can invite an address by
+email; an address with an account gets the invitation in its notification feed
+too, and a new address creates its account from the link. The invitation is
+single use, expires in seven days, and can be resent or revoked while it is
+pending. The invitee also finds it under Pending invitations on
 `/teams`, where the signed in session is proof of the address and no token has to
 travel. Owners can change a member's role, while a manager can add and
 remove members but cannot make or remove another manager. A manager or member

@@ -322,8 +322,8 @@ watch(teamSlug, load)
       <section v-if="canManageMembers" class="mt-6 border-t border-base-300 pt-6">
         <h2 class="text-lg font-semibold">Invite someone</h2>
         <p class="mt-1 text-sm opacity-70">
-          The address needs a DownRadar account. They get an email with a link to
-          join.
+          The address gets an email with a link to join. If they do not have an
+          account yet, the link lets them create one.
         </p>
         <form class="mt-4 flex flex-col gap-3 sm:flex-row" @submit.prevent="invite">
           <input

@@ -414,6 +414,9 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	mux.HandleFunc("POST /api/v1/teams", h.requireAuth(h.createTeam))
 	mux.HandleFunc("GET /api/v1/teams/invitations/{token}", h.publicRead(h.teamInvitation))
 	mux.HandleFunc("POST /api/v1/teams/invitations/{token}/accept", h.requireAuth(h.acceptTeamInvitation))
+	mux.HandleFunc("POST /api/v1/teams/invitations/{token}/register",
+		h.authEndpoint(h.limited(h.accountLimiter, false,
+			"Too many accounts have been asked for, please try again later", h.registerFromTeamInvitation)))
 	mux.HandleFunc("POST /api/v1/teams/invitations/accept", h.requireAuth(h.acceptTeamInvitationFromInbox))
 	mux.HandleFunc("GET /api/v1/teams/{team}", h.requireAuth(h.getTeam))
 	mux.HandleFunc("PATCH /api/v1/teams/{team}", h.requireAuth(h.updateTeam))

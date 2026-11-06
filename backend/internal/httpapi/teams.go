@@ -32,6 +32,11 @@ type teamMemberRequest struct {
 	Role string `json:"role"`
 }
 
+type teamInviteRegisterRequest struct {
+	Name     string `json:"name"`
+	Password string `json:"password"`
+}
+
 // teamName cleans and checks what a team is called. A name is the only thing a
 // person sees before they are a member, so it has to be present and short.
 func teamName(raw string) (string, string) {
@@ -271,15 +276,22 @@ func (h *handlers) inviteToTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	invitee, err := h.store.UserByEmail(r.Context(), email)
-	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
-			"error": "That address does not have an account yet",
-		})
+	// The address need not have an account: the invitation link is how a new
+	// person makes one. An existing account is also found so the notice and the
+	// greeting can name the person it belongs to.
+	var invitee *store.User
+	found, err := h.store.UserByEmail(r.Context(), email)
+	if err == nil {
+		invitee = found
+	} else if !errors.Is(err, store.ErrNotFound) {
+		h.fail(w, r, err)
 		return
 	}
-	if err != nil {
-		h.fail(w, r, err)
+	name := "there"
+	if invitee != nil {
+		name = invitee.Name
+	} else if auth.OnReservedDomain(email) {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "That account could not be created"})
 		return
 	}
 
@@ -290,7 +302,7 @@ func (h *handlers) inviteToTeam(w http.ResponseWriter, r *http.Request) {
 	}
 	invitation, err := h.store.CreateTeamInvitation(r.Context(), store.TeamInvitationInput{
 		TeamID:    team.ID,
-		Email:     invitee.Email,
+		Email:     email,
 		Role:      inviteRole,
 		InvitedBy: h.user(r).ID,
 		ExpiresAt: time.Now().Add(teamInviteTTL),
@@ -304,8 +316,8 @@ func (h *handlers) inviteToTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sent := h.sendTeamInvite(r.Context(), invitation, invitee.Name, h.user(r).Name, team.Name, token)
-	if sent {
+	sent := h.sendTeamInvite(r.Context(), invitation, name, h.user(r).Name, team.Name, token)
+	if sent && invitee != nil {
 		h.notifyTeamInvite(r.Context(), h.user(r), invitee, team, invitation)
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"invitation": invitation, "sent": sent})
@@ -480,6 +492,87 @@ func (h *handlers) removeTeamMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// registerFromTeamInvitation is the new-address path: the invitation link is
+// proof of the address, so it creates a verified subscriber and spends the
+// invitation in one flow. An address that already has an account is sent to the
+// sign in path instead.
+func (h *handlers) registerFromTeamInvitation(w http.ResponseWriter, r *http.Request) {
+	var body teamInviteRegisterRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
+		return
+	}
+
+	token := r.PathValue("token")
+	tokenHash := auth.HashToken(token)
+	invitation, err := h.store.TeamInvitationByToken(r.Context(), tokenHash)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "This invitation is no longer available"})
+		return
+	}
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	if invitation.HasAccount {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "That address already has an account. Sign in to accept the invitation.",
+		})
+		return
+	}
+
+	name := clean(sanitize(body.Name))
+	if problem := validateDisplayName(name); problem != "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": problem})
+		return
+	}
+	if auth.OnReservedDomain(invitation.Email) {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "That account could not be created"})
+		return
+	}
+	if err := auth.ValidatePassword(body.Password); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	hash, err := auth.HashPassword(body.Password)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	user, err := h.store.RegisterUser(r.Context(), invitation.Email, name, hash)
+	if errors.Is(err, store.ErrEmailTaken) {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "That address already has an account. Sign in to accept the invitation.",
+		})
+		return
+	}
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	// The link arrived in this address's inbox, which is the same proof a
+	// confirmation link gives. A failure to record it is not fatal: the banner
+	// will ask for the address to be confirmed.
+	if err := h.store.SetUserVerified(r.Context(), user.ID); err != nil {
+		h.log.Error("could not mark the invited account verified", "user", user.Email, "error", err)
+	}
+
+	team, err := h.store.AcceptTeamInvitation(r.Context(), tokenHash, user.ID)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	if err := h.startSession(w, r, user, true); err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	h.log.Info("account made from a team invitation", "user", user.Email, "team", team.Name)
+	writeJSON(w, http.StatusCreated, map[string]any{"user": user, "team": team})
 }
 
 // teamInvitation is the public view of a link, enough for the join page to say
