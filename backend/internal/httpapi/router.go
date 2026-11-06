@@ -53,6 +53,7 @@ type handlers struct {
 	alertsEnabled   bool
 	telegramEnabled bool
 	alertLimit      int
+	teamAlertLimit  int
 	teamLimit       int
 	dummyHash       string
 }
@@ -67,6 +68,7 @@ type Options struct {
 	AlertTestPerHour        int
 	AlertTestBurst          int
 	AlertLimitPerSubscriber int
+	AlertLimitPerTeam       int
 	TeamLimitPerUser        int
 	AccountPerHour          int
 	AccountBurst            int
@@ -170,6 +172,13 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 		alertLimit = 10
 	}
 
+	// A team may watch a handful of vendors together. It is one count for the
+	// whole team, so a member's personal alerts never decide what it may keep.
+	teamAlertLimit := opts.AlertLimitPerTeam
+	if teamAlertLimit <= 0 {
+		teamAlertLimit = 10
+	}
+
 	// A person can belong to a few teams, not a whole directory of them.
 	teamLimit := opts.TeamLimitPerUser
 	if teamLimit <= 0 {
@@ -212,6 +221,7 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 		alertsEnabled:   opts.AlertsEnabled,
 		telegramEnabled: opts.TelegramEnabled,
 		alertLimit:      alertLimit,
+		teamAlertLimit:  teamAlertLimit,
 		teamLimit:       teamLimit,
 		dummyHash:       auth.DummyHash(),
 	}

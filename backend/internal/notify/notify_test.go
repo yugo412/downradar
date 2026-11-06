@@ -484,3 +484,103 @@ func TestDrainGivesUpOnAnAddressThatKeepsFailing(t *testing.T) {
 		t.Errorf("sent = %d messages, want none", len(sender.sent()))
 	}
 }
+
+// changedTeamVendor is changedVendorFor without a person: the subscription
+// belongs to a team and its email goes to one team address.
+func changedTeamVendor(t *testing.T, st *store.Store, teamID int64) string {
+	t.Helper()
+	ctx := context.Background()
+
+	slug, err := st.CreateService(ctx, store.NewService{
+		Name:                  fmt.Sprintf("Zz Team Notify %d", time.Now().UnixNano()),
+		URL:                   "https://status.example.com",
+		Profile:               "statuspage-v2",
+		PollIntervalSeconds:   300,
+		ActiveIntervalSeconds: 60,
+	})
+	if err != nil {
+		t.Fatalf("CreateService: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = st.UnsubscribeAlert(context.Background(), "token-"+slug)
+		if _, err := st.DeleteService(context.Background(), slug); err != nil {
+			t.Errorf("DeleteService: %v", err)
+		}
+	})
+
+	id, name, err := st.PublicService(ctx, slug)
+	if err != nil {
+		t.Fatalf("PublicService: %v", err)
+	}
+	change := store.EmailOnly("team@example.com", "token-"+slug, store.WholeVendor)
+	change.TeamID = &teamID
+	if err := st.SubscribeAlert(ctx, id, nil, change); err != nil {
+		t.Fatalf("SubscribeAlert: %v", err)
+	}
+
+	report := func(status adapters.Health) adapters.Report {
+		return adapters.Report{
+			Global:    status,
+			FetchedAt: time.Now().UTC().Add(-time.Hour),
+			Components: []adapters.ComponentStatus{
+				{SourceID: "c1", Name: name, Position: 1, Status: status},
+			},
+		}
+	}
+	if _, err := st.ApplyReport(ctx, id, report(adapters.HealthOK)); err != nil {
+		t.Fatalf("first poll: %v", err)
+	}
+	if _, err := st.ApplyReport(ctx, id, report(adapters.HealthMajor)); err != nil {
+		t.Fatalf("second poll: %v", err)
+	}
+	return slug
+}
+
+// A team alert is delivered to the team address, and every member's feed gets
+// the same notice, because the team is who the alert belongs to.
+func TestDrainWritesANoticeForEveryTeamMember(t *testing.T) {
+	st := testStore(t)
+	owner := noticeSubscriber(t, st)
+	member := noticeSubscriber(t, st)
+
+	team, err := st.CreateTeam(context.Background(), owner.ID, fmt.Sprintf("Zz Team %d", time.Now().UnixNano()))
+	if err != nil {
+		t.Fatalf("CreateTeam: %v", err)
+	}
+	t.Cleanup(func() { _ = st.DeleteTeam(context.Background(), team.ID) })
+	if err := st.AddTeamMember(context.Background(), team.ID, member.ID, store.TeamRoleMember); err != nil {
+		t.Fatalf("AddTeamMember: %v", err)
+	}
+
+	slug := changedTeamVendor(t, st, team.ID)
+	_, name, err := st.PublicService(context.Background(), slug)
+	if err != nil {
+		t.Fatalf("PublicService: %v", err)
+	}
+	title := fmt.Sprintf("%s is now %s", name, badgeFor("major").Label)
+	t.Cleanup(func() { removeNotification(t, title) })
+
+	sender := &fakeSender{}
+	n := New(st, sender, "https://downradar.info", time.Second, quietLogger())
+	if err := n.drain(context.Background()); err != nil {
+		t.Fatalf("drain: %v", err)
+	}
+
+	sent := sender.sent()
+	if len(sent) != 1 || sent[0].to != "team@example.com" {
+		t.Fatalf("sent = %+v, want one message to the team address", sent)
+	}
+
+	for _, user := range []*store.User{owner, member} {
+		feed, err := st.Notifications(context.Background(), user.ID, 10)
+		if err != nil {
+			t.Fatalf("Notifications for %s: %v", user.Email, err)
+		}
+		if len(feed) != 1 {
+			t.Fatalf("feed for %s has %d notices, want 1", user.Email, len(feed))
+		}
+		if feed[0].Title != title {
+			t.Errorf("title for %s = %q, want %q", user.Email, feed[0].Title, title)
+		}
+	}
+}

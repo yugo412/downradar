@@ -21,6 +21,15 @@ const atLimit = computed(
   () => scope.value === 'personal' && limit.value !== null && used.value >= limit.value,
 )
 
+// A team is held to its own count, which comes with the membership list.
+const activeTeam = computed(() =>
+  teams.value.find((team) => String(team.id) === scope.value),
+)
+const teamAtLimit = computed(() => {
+  const team = activeTeam.value
+  return Boolean(team && team.alertLimit != null && (team.alertUsed ?? 0) >= team.alertLimit)
+})
+
 onMounted(async () => {
   await Promise.all([load(), loadTeams()])
   showSlackFailure()
@@ -85,7 +94,7 @@ async function setState(alert: AccountAlert, state: AccountAlert['state']) {
 
   try {
     await $fetch(`/api/v1/auth/alerts/${alert.id}`, { method: 'PATCH', body: { state } })
-    await load()
+    await Promise.all([load(), loadTeams()])
   } catch (err) {
     error.value = apiError(err)
   } finally {
@@ -100,7 +109,7 @@ async function remove(alert: AccountAlert) {
   try {
     await $fetch(`/api/v1/auth/alerts/${alert.id}`, { method: 'DELETE' })
     deleting.value = null
-    await load()
+    await Promise.all([load(), loadTeams()])
   } catch (err) {
     error.value = apiError(err)
   } finally {
@@ -456,6 +465,14 @@ watch(
       <span>
         Your account has reached its limit of {{ limit }} service{{ limit === 1 ? '' : 's' }}.
         Remove one before adding another.
+      </span>
+    </p>
+
+    <p v-if="teamAtLimit" class="alert alert-warning mb-6">
+      <span>
+        {{ activeTeam?.name }} has reached its limit of {{ activeTeam?.alertLimit }}
+        service{{ activeTeam?.alertLimit === 1 ? '' : 's' }}. Remove one from the
+        team's alerts before adding another.
       </span>
     </p>
 

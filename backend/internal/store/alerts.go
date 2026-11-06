@@ -502,7 +502,10 @@ type PendingAlert struct {
 	// UserID is the account the subscription belongs to, which is who a webhook
 	// call is recorded for so the page can show what happened. It is nil for a
 	// subscription whose owner is gone, which has nobody to show a log to.
-	UserID        *int64
+	UserID *int64
+	// TeamID is set when the subscription belongs to a team. Its notice goes to
+	// every member's feed rather than to one person's.
+	TeamID        *int64
 	VendorName    string
 	VendorSlug    string
 	ComponentName string
@@ -781,6 +784,26 @@ func (s *Store) UserWatchesService(ctx context.Context, userID, serviceID int64)
 		userID, serviceID).Scan(&watching)
 	if err != nil {
 		return false, fmt.Errorf("alerts: account on service %d: %w", serviceID, err)
+	}
+	return watching, nil
+}
+
+// TeamWatchesService is the same check for a team, which is what tells a save
+// that it is replacing an existing team alert rather than taking a new place in
+// the team's count.
+func (s *Store) TeamWatchesService(ctx context.Context, teamID, serviceID int64) (bool, error) {
+	var watching bool
+	err := s.pool.QueryRow(ctx, `
+		select exists (
+			select 1
+			from alert_subscriptions a
+			where a.team_id = $1 and a.service_id = $2
+			  and exists (
+				select 1 from alert_channels c
+				where c.subscription_id = a.id and c.unsubscribed_at is null))`,
+		teamID, serviceID).Scan(&watching)
+	if err != nil {
+		return false, fmt.Errorf("alerts: team on service %d: %w", serviceID, err)
 	}
 	return watching, nil
 }
@@ -1846,6 +1869,27 @@ func (s *Store) WatchedServiceCount(ctx context.Context, userID int64) (int, err
 	return count, nil
 }
 
+// WatchedTeamServiceCount counts the vendors a team is watching, with the same
+// rule the personal count uses: one per vendor that can still be delivered and
+// is still on the site.
+func (s *Store) WatchedTeamServiceCount(ctx context.Context, teamID int64) (int, error) {
+	var count int
+	err := s.pool.QueryRow(ctx, `
+		select count(*)
+		from alert_subscriptions a
+		join services v on v.id = a.service_id
+		where a.team_id = $1
+		  and v.active and v.status = 'published' and v.visibility = 'public'
+		  and exists (
+			select 1 from alert_channels c
+			where c.subscription_id = a.id and c.unsubscribed_at is null
+		  )`, teamID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("alerts: watched services for team %d: %w", teamID, err)
+	}
+	return count, nil
+}
+
 // AlertByToken resolves the token in an unsubscribe link. The link belongs to a
 // channel, so this is what the page says it is about rather than everything the
 // person has. UserID is the account that owns the subscription, which is nil for
@@ -2134,7 +2178,7 @@ func (s *Store) PendingAlerts(ctx context.Context, maxAttempts, limit int) ([]Pe
 	rows, err := s.pool.Query(ctx, `
 		select d.id, c.id, a.id, c.kind, c.address, c.settings, d.service_id,
 		       coalesce(d.component_id, 0), s.name, s.slug,
-		       coalesce(cm.name, ''), c.token, a.user_id,
+		       coalesce(cm.name, ''), c.token, a.user_id, a.team_id,
 		       d.from_status, d.to_status, d.changed_at, d.attempts,
 		       coalesce(sm.summary, ''), sm.generated_at
 		from alert_deliveries d
@@ -2160,7 +2204,7 @@ func (s *Store) PendingAlerts(ctx context.Context, maxAttempts, limit int) ([]Pe
 		var settings []byte
 		if err := rows.Scan(&p.ID, &p.ChannelID, &p.SubscriptionID, &p.Kind, &address, &settings, &p.ServiceID,
 			&p.ComponentID, &p.VendorName, &p.VendorSlug, &p.ComponentName, &p.Token, &p.UserID,
-			&p.FromStatus, &p.ToStatus, &p.ChangedAt, &p.Attempts,
+			&p.TeamID, &p.FromStatus, &p.ToStatus, &p.ChangedAt, &p.Attempts,
 			&p.GeneratedSummary, &p.SummaryGeneratedAt); err != nil {
 			return nil, fmt.Errorf("alerts: scan pending: %w", err)
 		}

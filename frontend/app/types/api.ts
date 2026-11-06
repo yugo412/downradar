@@ -368,6 +368,10 @@ export interface Team {
   createdBy?: number
   createdAt: string
   role: TeamRole
+  // The team's own alert count and cap, sent with the membership list so the
+  // alerts page can warn about a full team without a second read.
+  alertLimit?: number
+  alertUsed?: number
 }
 
 export interface TeamMember {
