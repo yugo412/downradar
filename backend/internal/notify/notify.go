@@ -194,12 +194,28 @@ func (n *Notifier) notifyStaffDelivery(ctx context.Context, alert store.PendingA
 	}
 }
 
-// notifySubscriber mirrors a delivered alert into the account's own feed. It is
-// written after a channel went through, so a paused or failed channel does not
-// leave a notice behind. The key covers the subscription, the component and the
-// change, so several live channels still write one notice.
+// notifySubscriber mirrors a delivered alert into the owner's feed. A personal
+// alert goes to its account; a team alert goes to every member's feed, since the
+// team is who it belongs to. It is written after a channel went through, so a
+// paused or failed channel does not leave a notice behind. The key covers the
+// subscription, the component and the change, so several live channels still
+// write one notice.
 func (n *Notifier) notifySubscriber(ctx context.Context, alert store.PendingAlert) {
-	if alert.UserID == nil {
+	recipients := []int64{}
+	switch {
+	case alert.TeamID != nil:
+		members, err := n.store.TeamMemberIDs(ctx, *alert.TeamID)
+		if err != nil {
+			n.log.Error("failed to read the team for the alert notice", "team", *alert.TeamID, "error", err)
+			return
+		}
+		recipients = members
+	case alert.UserID != nil:
+		recipients = []int64{*alert.UserID}
+	default:
+		return
+	}
+	if len(recipients) == 0 {
 		return
 	}
 
@@ -218,7 +234,7 @@ func (n *Notifier) notifySubscriber(ctx context.Context, alert store.PendingAler
 
 	if _, err := n.store.CreateNotification(ctx, store.NotificationInput{
 		Audience:   store.AudienceSubscribers,
-		Recipients: []int64{*alert.UserID},
+		Recipients: recipients,
 		Title:      title,
 		Body:       body,
 		ServiceID:  &serviceID,
