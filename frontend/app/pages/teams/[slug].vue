@@ -366,7 +366,9 @@ watch(teamSlug, load)
               <div class="min-w-0">
                 <p class="break-all font-medium">{{ invitation.email }}</p>
                 <p class="text-xs opacity-60">
-                  {{ roleLabel[invitation.role] }} ·
+                  {{ roleLabel[invitation.role] }}
+                  <template v-if="invitation.transfer"> · ownership transfer</template>
+                  ·
                   <template v-if="expired(invitation)">expired</template>
                   <template v-else>expires <LocalTime :at="invitation.expiresAt" /></template>
                 </p>

@@ -132,8 +132,10 @@ services:
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
       DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:-}
       ALERT_SEND_INTERVAL: ${ALERT_SEND_INTERVAL:-5s}
-      # How many teams one account may belong to.
+      # How many teams one account may belong to, and how many services one
+      # team may watch at once.
       TEAM_LIMIT_PER_USER: ${TEAM_LIMIT_PER_USER:-3}
+      ALERT_LIMIT_PER_TEAM: ${ALERT_LIMIT_PER_TEAM:-10}
       ALERT_RATE_LIMIT_PER_HOUR: ${ALERT_RATE_LIMIT_PER_HOUR:-6}
       ALERT_RATE_LIMIT_BURST: ${ALERT_RATE_LIMIT_BURST:-5}
       ALERT_TEST_RATE_LIMIT_PER_HOUR: ${ALERT_TEST_RATE_LIMIT_PER_HOUR:-60}
