@@ -95,8 +95,30 @@ func (h *handlers) listTeams(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
+	// A team screen offers its alerts beside the person's own, so the count and
+	// the cap travel with the membership list rather than needing a read per
+	// team from the page.
+	views := make([]map[string]any, 0, len(teams))
+	for _, team := range teams {
+		used, err := h.store.WatchedTeamServiceCount(r.Context(), team.ID)
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		views = append(views, map[string]any{
+			"id":         team.ID,
+			"slug":       team.Slug,
+			"name":       team.Name,
+			"createdBy":  team.CreatedBy,
+			"createdAt":  team.CreatedAt,
+			"role":       team.Role,
+			"alertLimit": h.teamAlertLimit,
+			"alertUsed":  used,
+		})
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"teams":       teams,
+		"teams":       views,
 		"limit":       h.teamLimit,
 		"invitations": invitations,
 	})

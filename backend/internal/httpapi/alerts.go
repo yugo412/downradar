@@ -78,6 +78,9 @@ type ntfyRequest struct {
 type alertRequest struct {
 	// TeamID makes the alert belong to a team instead of the signed in person.
 	// Any member may manage the team's alerts; an empty value is personal.
+	// The first cut delivers a team alert to the one address saved on it, which
+	// is the team's distribution inbox. Per-member recipients would need a
+	// channel and a token each, which is a later decision.
 	TeamID *int64 `json:"teamId"`
 
 	// Email is the address the alert should go to. An empty one stops the emails;
@@ -359,6 +362,38 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 	if userID == nil && saveEmail && address == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "An email address is required"})
 		return
+	}
+
+	// A team is held to its own count rather than to the personal count of the
+	// member saving the alert. Replacing an alert the team already has, or
+	// stopping one of its ways, takes no new place.
+	if teamID != nil {
+		watched, err := h.store.WatchedTeamServiceCount(r.Context(), *teamID)
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		already, err := h.store.TeamWatchesService(r.Context(), *teamID, serviceID)
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		adding := 1
+		if already {
+			adding = 0
+		}
+		if watched+adding > h.teamAlertLimit {
+			services := "services"
+			if h.teamAlertLimit == 1 {
+				services = "service"
+			}
+			writeJSON(w, http.StatusConflict, map[string]string{
+				"error": fmt.Sprintf(
+					"This team has reached its limit of %d %s. Remove one from the team's alerts first.",
+					h.teamAlertLimit, services),
+			})
+			return
+		}
 	}
 
 	// Someone who is not signed in gets one whole-vendor alert: components and the

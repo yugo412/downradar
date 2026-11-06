@@ -288,6 +288,32 @@ func (s *Store) TeamMembers(ctx context.Context, teamID int64) ([]TeamMember, er
 	return out, rows.Err()
 }
 
+// TeamMemberIDs is every account in a team, which is who a team alert's notice
+// goes to. Disabled accounts are left out, the same way a broadcast leaves them
+// out: they cannot sign in to read it.
+func (s *Store) TeamMemberIDs(ctx context.Context, teamID int64) ([]int64, error) {
+	rows, err := s.pool.Query(ctx, `
+		select m.user_id
+		from team_members m
+		join users u on u.id = m.user_id
+		where m.team_id = $1 and u.disabled_at is null
+		order by m.user_id`, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("teams: member ids: %w", err)
+	}
+	defer rows.Close()
+
+	out := []int64{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("teams: scan member id: %w", err)
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 // AddTeamMember adds a manager or a member. An owner is only ever made by
 // transferring ownership, so the owner role is refused here.
 func (s *Store) AddTeamMember(ctx context.Context, teamID, userID int64, role string) error {

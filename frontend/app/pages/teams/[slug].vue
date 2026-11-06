@@ -255,9 +255,15 @@ watch(teamSlug, load)
         </span>
       </div>
       <p class="mt-1 text-sm opacity-70">
-        Members and invitations for this workspace. Its own services and alerts
-        arrive next.
+        Members and invitations for this workspace, and the services and alerts
+        it owns.
       </p>
+      <div class="mt-3 flex flex-wrap gap-2">
+        <NuxtLink to="/services" class="btn btn-ghost btn-sm">Team services</NuxtLink>
+        <NuxtLink :to="`/alerts?scope=${team.id}`" class="btn btn-ghost btn-sm">
+          Team alerts
+        </NuxtLink>
+      </div>
     </header>
 
     <TeamTabs :teams="teams" :current="teamSlug" class="mt-6">

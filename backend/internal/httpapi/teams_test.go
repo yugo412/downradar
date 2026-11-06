@@ -618,3 +618,69 @@ func TestTeamOwnsServicesAndAlerts(t *testing.T) {
 		t.Errorf("the owner removed the team service = %d, want 200: %s", rec.Code, rec.Body.String())
 	}
 }
+
+// A team is held to its own alert count, not to the personal count of whoever
+// saves the alert, and the membership list carries the team's count back.
+func TestTeamAlertLimitIsTheTeamsOwn(t *testing.T) {
+	st, router, _ := testRouterWithOptions(t, func(opts *Options) {
+		opts.AlertLimitPerTeam = 1
+	})
+
+	owner := testUser(t, st, auth.RoleSubscriber)
+	member := testUser(t, st, auth.RoleSubscriber)
+	ownerCookie := sessionFor(t, st, owner)
+	memberCookie := sessionFor(t, st, member)
+
+	rec := call(t, router, http.MethodPost, "/api/v1/teams", `{"name":"Limited Team"}`, ownerCookie)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create team = %d: %s", rec.Code, rec.Body.String())
+	}
+	team := decodeTeam(t, rec.Body.Bytes()).Team
+	t.Cleanup(func() { _ = st.DeleteTeam(context.Background(), team.ID) })
+	if err := st.AddTeamMember(t.Context(), team.ID, member.ID, store.TeamRoleMember); err != nil {
+		t.Fatalf("AddTeamMember: %v", err)
+	}
+
+	first := alertVendor(t, st)
+	second := alertVendor(t, st)
+
+	rec = call(t, router, http.MethodPost, "/api/v1/vendors/"+first+"/alerts",
+		fmt.Sprintf(`{"email":"team-one@example.com","teamId":%d,"wholeService":true}`, team.ID), ownerCookie)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("first team alert = %d: %s", rec.Code, rec.Body.String())
+	}
+	rec = call(t, router, http.MethodPost, "/api/v1/vendors/"+second+"/alerts",
+		fmt.Sprintf(`{"email":"team-two@example.com","teamId":%d,"wholeService":true}`, team.ID), memberCookie)
+	if rec.Code != http.StatusConflict {
+		t.Errorf("second team alert = %d, want 409: %s", rec.Code, rec.Body.String())
+	}
+
+	// The same member's personal row is counted against their own cap, so the
+	// team's full list does not stop it.
+	rec = call(t, router, http.MethodPost, "/api/v1/vendors/"+second+"/alerts",
+		`{"email":"member@example.com","wholeService":true}`, memberCookie)
+	if rec.Code != http.StatusCreated {
+		t.Errorf("a personal alert beside the team's = %d, want 201: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = call(t, router, http.MethodGet, "/api/v1/teams", "", ownerCookie)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list teams = %d: %s", rec.Code, rec.Body.String())
+	}
+	var listed struct {
+		Teams []struct {
+			ID         int64 `json:"id"`
+			AlertLimit int   `json:"alertLimit"`
+			AlertUsed  int   `json:"alertUsed"`
+		} `json:"teams"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("decode teams: %v", err)
+	}
+	if len(listed.Teams) != 1 {
+		t.Fatalf("teams = %d, want 1", len(listed.Teams))
+	}
+	if got := listed.Teams[0]; got.ID != team.ID || got.AlertLimit != 1 || got.AlertUsed != 1 {
+		t.Errorf("team = %+v, want id %d, limit 1, used 1", got, team.ID)
+	}
+}
