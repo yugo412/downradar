@@ -125,6 +125,8 @@ export interface AdminService {
   ownerId?: number
   ownerName?: string
   ownerEmail?: string
+  teamId?: number
+  teamName?: string
   lastPolledAt?: string | null
   createdAt: string
   updatedAt: string
@@ -289,6 +291,9 @@ export interface AlertState {
 // by name, which is what the screen shows.
 export interface AccountAlert {
   id: number
+  teamId?: number
+  teamName?: string
+  teamRole?: TeamRole
   vendorSlug: string
   vendorName: string
   vendorStatus: Health
@@ -321,6 +326,8 @@ export interface FeedNotification {
 // It is read only, so it carries no actions.
 export interface StaffAlert {
   id: number
+  teamId?: number
+  teamName?: string
   subscriberName: string
   subscriberEmail: string
   guest: boolean
@@ -347,6 +354,9 @@ export interface ServicePayload {
   // Staff only: stops scheduled polls while keeping the last known state.
   paused?: boolean
   visibility?: Visibility
+  // The team that owns the row. Omitted when it stays personal, and never sent
+  // when editing an existing row: ownership is chosen when it is created.
+  teamId?: number | null
 }
 
 export type TeamRole = 'owner' | 'manager' | 'member'

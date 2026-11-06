@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AdminProfile, ServiceCreated, ServicePayload } from '~/types/api'
+import type { AdminProfile, ServiceCreated, ServicePayload, Team } from '~/types/api'
 
 definePageMeta({ middleware: 'authenticated', ssr: false })
 
@@ -9,18 +9,21 @@ const { canManageServices } = useAuth()
 
 const profiles = ref<AdminProfile[]>([])
 const categories = ref<string[]>([])
+const ownedTeams = ref<Team[]>([])
 const loading = ref(true)
 const busy = ref(false)
 const error = ref('')
 
 onMounted(async () => {
   try {
-    const [profileRes, categoryRes] = await Promise.all([
+    const [profileRes, categoryRes, teamRes] = await Promise.all([
       $fetch<{ profiles: AdminProfile[] }>('/api/v1/profiles'),
       $fetch<{ categories: string[] }>('/api/v1/categories'),
+      $fetch<{ teams: Team[] }>('/api/v1/teams'),
     ])
     profiles.value = profileRes.profiles
     categories.value = categoryRes.categories
+    ownedTeams.value = (teamRes.teams ?? []).filter((team) => team.role === 'owner')
   } catch (err) {
     error.value = apiError(err, 'Could not load the form options.')
   } finally {
@@ -72,6 +75,8 @@ async function save(payload: ServicePayload) {
         :profiles="profiles"
         :categories="categories"
         :show-visibility="true"
+        :show-team="true"
+        :teams="ownedTeams"
         :can-choose-profile="canManageServices"
         submit-label="Add service"
         :busy="busy"

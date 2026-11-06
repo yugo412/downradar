@@ -98,6 +98,7 @@ const filtered = computed(() => {
     return (
       alert.subscriberName.toLowerCase().includes(needle) ||
       alert.subscriberEmail.toLowerCase().includes(needle) ||
+      (alert.teamName ?? '').toLowerCase().includes(needle) ||
       alert.vendorName.toLowerCase().includes(needle)
     )
   })
@@ -406,8 +407,10 @@ watch(
               class="scroll-mt-20 align-top"
             >
               <td>
-                <div class="font-medium">{{ alert.guest ? 'Guest' : alert.subscriberName }}</div>
-                <div class="text-xs break-all opacity-60">{{ alert.subscriberEmail }}</div>
+                <div class="font-medium">
+                  {{ alert.teamName ? `Team: ${alert.teamName}` : alert.guest ? 'Guest' : alert.subscriberName }}
+                </div>
+                <div v-if="!alert.teamName" class="text-xs break-all opacity-60">{{ alert.subscriberEmail }}</div>
               </td>
               <td>
                 <NuxtLink :to="`/${alert.vendorSlug}`" class="link font-medium">
@@ -439,8 +442,10 @@ watch(
         >
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
-              <div class="font-medium">{{ alert.guest ? 'Guest' : alert.subscriberName }}</div>
-              <div class="text-xs break-all opacity-60">{{ alert.subscriberEmail }}</div>
+              <div class="font-medium">
+                {{ alert.teamName ? `Team: ${alert.teamName}` : alert.guest ? 'Guest' : alert.subscriberName }}
+              </div>
+              <div v-if="!alert.teamName" class="text-xs break-all opacity-60">{{ alert.subscriberEmail }}</div>
             </div>
             <span class="badge badge-sm shrink-0 whitespace-nowrap" :class="stateOf(alert).cls">
               {{ stateOf(alert).label }}

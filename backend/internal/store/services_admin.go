@@ -32,6 +32,8 @@ type AdminService struct {
 	OwnerID               *int64     `json:"ownerId,omitempty"`
 	OwnerName             string     `json:"ownerName,omitempty"`
 	OwnerEmail            string     `json:"ownerEmail,omitempty"`
+	TeamID                *int64     `json:"teamId,omitempty"`
+	TeamName              string     `json:"teamName,omitempty"`
 	LastPolledAt          *time.Time `json:"lastPolledAt,omitempty"`
 	CreatedAt             time.Time  `json:"createdAt"`
 	UpdatedAt             time.Time  `json:"updatedAt"`
@@ -46,12 +48,14 @@ const adminServiceColumns = `
 	coalesce(st.status, 'unknown'),
 	s.last_polled_at, s.created_at, s.updated_at,
 	s.owner_id, coalesce(u.name, ''), coalesce(u.email, ''),
+	s.team_id, coalesce(t.name, ''),
 	(select count(*) from components c where c.service_id = s.id),
 	exists (select 1 from status_events e where e.service_id = s.id)`
 
 const adminServiceFrom = `
 	from services s
 	left join users u on u.id = s.owner_id
+	left join teams t on t.id = s.team_id
 	left join service_state st on st.service_id = s.id`
 
 func scanAdminService(row rowScanner) (*AdminService, error) {
@@ -63,6 +67,7 @@ func scanAdminService(row rowScanner) (*AdminService, error) {
 		&a.State,
 		&a.LastPolledAt, &a.CreatedAt, &a.UpdatedAt,
 		&a.OwnerID, &a.OwnerName, &a.OwnerEmail,
+		&a.TeamID, &a.TeamName,
 		&a.Components, &a.HasHistory,
 	); err != nil {
 		return nil, err
@@ -90,7 +95,10 @@ func (s *Store) AdminListServices(ctx context.Context, filter, search string, vi
 		       or position(lower($2) in lower(s.name)) > 0
 		       or position(lower($2) in lower(s.slug)) > 0
 		       or position(lower($2) in lower(coalesce(s.url, ''))) > 0)
-		  and ($4::boolean or s.owner_id = $3::bigint)
+		  and ($4::boolean or s.owner_id = $3::bigint
+		       or (s.team_id is not null and exists (
+		            select 1 from team_members tm
+		            where tm.team_id = s.team_id and tm.user_id = $3::bigint)))
 		order by
 			case
 				when s.active and s.status = 'proposed' then 0

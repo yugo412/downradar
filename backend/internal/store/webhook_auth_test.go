@@ -42,7 +42,7 @@ func TestASigningSecretIsMadeOnceAndReadAgainOnlyByRotation(t *testing.T) {
 		t.Errorf("the secret cannot be read back as a key: %v", err)
 	}
 
-	view, err := st.UserAlert(ctx, user.ID, id)
+	view, err := st.UserAlert(ctx, user.ID, id, nil)
 	if err != nil {
 		t.Fatalf("UserAlert: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestASigningSecretIsMadeOnceAndReadAgainOnlyByRotation(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SubscribeAlert: %v", err)
 	}
-	kept, err := st.UserAlert(ctx, user.ID, id)
+	kept, err := st.UserAlert(ctx, user.ID, id, nil)
 	if err != nil {
 		t.Fatalf("UserAlert: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestASigningSecretIsMadeOnceAndReadAgainOnlyByRotation(t *testing.T) {
 	if rotated == secret {
 		t.Error("the rotation handed back the same secret")
 	}
-	after, err := st.UserAlert(ctx, user.ID, id)
+	after, err := st.UserAlert(ctx, user.ID, id, nil)
 	if err != nil {
 		t.Fatalf("UserAlert: %v", err)
 	}

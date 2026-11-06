@@ -354,7 +354,7 @@ func TestAChatCanAlwaysBeStopped(t *testing.T) {
 	}
 
 	// The chat was the only way it had, so there is nothing live left on it.
-	if _, err := st.UserAlert(context.Background(), user.ID, id); err == nil {
+	if _, err := st.UserAlert(context.Background(), user.ID, id, nil); err == nil {
 		t.Error("an alert whose only way was stopped is still there")
 	}
 }
