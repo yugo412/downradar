@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AdminProfile, AdminService, ServiceStatus } from '~/types/api'
+import type { AdminProfile, AdminService, ServiceStatus, Team } from '~/types/api'
 
 definePageMeta({ middleware: 'authenticated', ssr: false })
 
@@ -23,6 +23,25 @@ const route = useRoute()
 const router = useRouter()
 const { user, canManageServices, isAdmin } = useAuth()
 const { format: formatLocal } = useLocalTime()
+
+// A team owner manages the team's services. The roles come from the same
+// endpoint the team screens use; a failed read just leaves the personal
+// buttons in place.
+const teams = ref<Team[]>([])
+const teamRoles = computed(() => new Map(teams.value.map((team) => [team.id, team.role])))
+
+onMounted(async () => {
+  try {
+    const res = await $fetch<{ teams: Team[] }>('/api/v1/teams')
+    teams.value = res.teams ?? []
+  } catch {
+    teams.value = []
+  }
+})
+
+function isTeamOwner(service: AdminService) {
+  return Boolean(service.teamId && teamRoles.value.get(service.teamId) === 'owner')
+}
 
 // Every filter and the sort live in the query string, so a view can be shared,
 // bookmarked, or come back with the back button. Whatever the URL carries when
@@ -316,7 +335,7 @@ function ownsService(service: AdminService) {
 // Mirrors what the API enforces: the owner may always remove their own service,
 // staff follow the catalogue rules.
 function canRemove(service: AdminService) {
-  if (ownsService(service)) return true
+  if (ownsService(service) || isTeamOwner(service)) return true
   if (service.status === 'proposed') return canManageServices.value
   return isAdmin.value
 }
@@ -638,8 +657,9 @@ async function onSaved() {
                 <div class="flex justify-end">
                   <ServiceActions
                     :service="s"
-                    :can-edit="canManageServices || ownsService(s)"
+                    :can-edit="canManageServices || ownsService(s) || isTeamOwner(s)"
                     :can-manage="canManageServices"
+                    :can-pause="canManageServices || isTeamOwner(s)"
                     :can-remove="canRemove(s)"
                     :can-purge="canPurge(s)"
                     :retrying="retrying === s.slug"
@@ -722,8 +742,9 @@ async function onSaved() {
           <div class="mt-3">
             <ServiceActions
               :service="s"
-              :can-edit="canManageServices || ownsService(s)"
+              :can-edit="canManageServices || ownsService(s) || isTeamOwner(s)"
               :can-manage="canManageServices"
+              :can-pause="canManageServices || isTeamOwner(s)"
               :can-remove="canRemove(s)"
               :can-purge="canPurge(s)"
               :retrying="retrying === s.slug"

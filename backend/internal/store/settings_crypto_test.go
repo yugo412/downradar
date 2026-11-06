@@ -47,7 +47,7 @@ func TestWebhookSettingsAreSealedAtRest(t *testing.T) {
 		t.Errorf("settings envelope = %+v, want a sealed value", envelope)
 	}
 
-	view, err := st.UserAlert(ctx, user.ID, id)
+	view, err := st.UserAlert(ctx, user.ID, id, nil)
 	if err != nil {
 		t.Fatalf("UserAlert: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestLegacySettingsAreSealedOnStartup(t *testing.T) {
 		t.Errorf("settings envelope = %+v, want a sealed value", envelope)
 	}
 
-	view, err := st.UserAlert(ctx, user.ID, id)
+	view, err := st.UserAlert(ctx, user.ID, id, nil)
 	if err != nil {
 		t.Fatalf("UserAlert: %v", err)
 	}

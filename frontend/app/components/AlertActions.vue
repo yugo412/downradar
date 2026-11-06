@@ -80,7 +80,12 @@ function ask() {
   <div class="flex items-center justify-end gap-3 text-xs">
     <!-- Editing is the thing a row is most often opened for, so it stays out
          where it can be found; the rest of what a row can do waits in the menu. -->
-    <NuxtLink :to="`/alerts/${alert.vendorSlug}`" class="link">
+    <NuxtLink
+      :to="alert.teamId
+        ? `/alerts/${alert.vendorSlug}?team=${alert.teamId}`
+        : `/alerts/${alert.vendorSlug}`"
+      class="link"
+    >
       Edit
     </NuxtLink>
 

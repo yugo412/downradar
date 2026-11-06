@@ -9,6 +9,7 @@ defineProps<{
   // running the detection queue are the staff's.
   canEdit: boolean
   canManage: boolean
+  canPause: boolean
   retrying: boolean
   pausing: boolean
 }>()
@@ -30,7 +31,7 @@ const emit = defineEmits<{
 
     <button
       v-if="
-        canManage &&
+        canPause &&
         service.active &&
         (service.status === 'published' || service.status === 'no_match')
       "

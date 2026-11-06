@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AdminService, VendorDetail } from '~/types/api'
+import type { AdminService, Team, VendorDetail } from '~/types/api'
 
 definePageMeta({ middleware: 'authenticated', ssr: false })
 
@@ -7,6 +7,22 @@ const { user, canManageServices } = useAuth()
 
 const route = useRoute()
 const slug = computed(() => String(route.params.slug ?? ''))
+
+const teams = ref<Team[]>([])
+onMounted(async () => {
+  try {
+    const res = await $fetch<{ teams: Team[] }>('/api/v1/teams')
+    teams.value = res.teams ?? []
+  } catch {
+    teams.value = []
+  }
+})
+
+const isTeamOwner = computed(() => {
+  const teamID = meta.value?.service.teamId
+  if (!teamID) return false
+  return teams.value.some((team) => team.id === teamID && team.role === 'owner')
+})
 
 const { data: meta, error: metaError, refresh: refreshMeta } = useFetch<{ service: AdminService }>(
   () => `/api/v1/services/${slug.value}`,
@@ -23,8 +39,12 @@ const { data: detail, refresh: refreshDetail } = useFetch<VendorDetail>(
 const canEdit = computed(
   () =>
     canManageServices.value ||
+    isTeamOwner.value ||
     Boolean(meta.value?.service.ownerId && meta.value.service.ownerId === user.value?.id),
 )
+
+// A team owner may pause the team's service; staff always can.
+const canPause = computed(() => canManageServices.value || isTeamOwner.value)
 
 // The row carries the name, so the title can only be filled in once it has
 // arrived. Until then the page says what it is rather than leaving the tag empty.
@@ -108,6 +128,9 @@ async function onChanged() {
               <span v-if="meta.service.ownerId && canManageServices" class="badge badge-ghost badge-sm">
                 {{ meta.service.status === 'proposed' ? `suggested by ${meta.service.ownerName}` : `added by ${meta.service.ownerName}` }}
               </span>
+              <span v-if="meta.service.teamName" class="badge badge-ghost badge-sm">
+                Team: {{ meta.service.teamName }}
+              </span>
               <a
                 v-if="meta.service.url"
                 :href="meta.service.url"
@@ -123,7 +146,7 @@ async function onChanged() {
         <div class="flex flex-wrap items-center gap-2">
           <button
             v-if="
-              canManageServices &&
+              canPause &&
               meta.service.active &&
               (meta.service.status === 'published' || meta.service.status === 'no_match')
             "

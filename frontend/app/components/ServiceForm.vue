@@ -4,6 +4,7 @@ import type {
   AdminService,
   ServicePayload,
   ServiceStatus,
+  Team,
   Visibility,
 } from '~/types/api'
 
@@ -23,6 +24,10 @@ const props = withDefaults(
     canChooseProfile?: boolean
     // The address is corrected rather than kept, and it is staff's to correct.
     showSlug?: boolean
+    // The add screen lets an owner put the row in a team. Editing keeps the
+    // owner it was created with.
+    showTeam?: boolean
+    teams?: Team[]
   }>(),
   {
     initial: null,
@@ -34,6 +39,8 @@ const props = withDefaults(
     showVisibility: false,
     canChooseProfile: true,
     showSlug: false,
+    showTeam: false,
+    teams: () => [],
   },
 )
 
@@ -54,6 +61,7 @@ const category = ref(props.initial?.category ?? '')
 const logoUrl = ref(props.initial?.logoUrl ?? '')
 const aliases = ref((props.initial?.aliases ?? []).join(', '))
 const status = ref<ServiceStatus>(props.initial?.status ?? 'published')
+const teamId = ref<number | null>(props.initial?.teamId ?? null)
 // The row says who may see it, which is the answer to edit rather than a guess
 // from the owner. Only a caller that never had one, such as the add form, falls
 // back to the default: a row with an owner that says nothing is private, and a
@@ -118,6 +126,7 @@ function onSubmit() {
     // A caller who cannot choose is always private, and leaving the field out
     // is what tells the API to leave the ownership alone.
     ...(props.showVisibility ? { visibility: visibility.value } : {}),
+    ...(props.showTeam ? { teamId: teamId.value } : {}),
   })
 }
 </script>
@@ -135,6 +144,24 @@ function onSubmit() {
         required
       />
     </label>
+
+    <label v-if="showTeam && teams.length" class="form-control w-full">
+      <span class="label-text mb-1 text-sm font-medium">Owner</span>
+      <select v-model="teamId" class="select select-bordered w-full" aria-label="Service owner">
+        <option :value="null">Personal</option>
+        <option v-for="team in teams" :key="team.id" :value="team.id">
+          {{ team.name }}
+        </option>
+      </select>
+      <span class="label-text-alt mt-1 opacity-60">
+        A team service is managed by the team owner. Only teams you own are
+        listed.
+      </span>
+    </label>
+
+    <div v-else-if="initial?.teamId" class="rounded-box border border-base-300 bg-base-200 p-3 text-sm">
+      Team: <strong>{{ initial.teamName || 'the team' }}</strong>
+    </div>
 
     <label v-if="showSlug" class="form-control w-full">
       <span class="label-text mb-1 text-sm font-medium">Address</span>
