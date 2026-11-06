@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import type { AccountAlert } from '~/types/api'
+import type { AccountAlert, Team } from '~/types/api'
 
 definePageMeta({ middleware: 'authenticated', ssr: false })
 
 useSeoMeta({ title: 'Alerts', robots: 'noindex, nofollow' })
 
 const alerts = ref<AccountAlert[]>([])
+const teams = ref<Team[]>([])
 // How full the account is: the cap the API would hold it to (none for staff),
 // and how many alerts are already counting against it.
 const limit = ref<number | null>(null)
@@ -16,13 +17,30 @@ const notice = ref('')
 const busy = ref<number | null>(null)
 const deleting = ref<AccountAlert | null>(null)
 
-const atLimit = computed(() => limit.value !== null && used.value >= limit.value)
+const atLimit = computed(
+  () => scope.value === 'personal' && limit.value !== null && used.value >= limit.value,
+)
 
 onMounted(async () => {
-  await load()
+  await Promise.all([load(), loadTeams()])
   showSlackFailure()
   showDiscordFailure()
 })
+
+async function loadTeams() {
+  try {
+    const res = await $fetch<{ teams: Team[] }>('/api/v1/teams')
+    teams.value = res.teams ?? []
+  } catch {
+    teams.value = []
+  }
+  if (
+    scope.value !== 'personal' &&
+    !teams.value.some((team) => String(team.id) === scope.value)
+  ) {
+    scope.value = 'personal'
+  }
+}
 
 async function load() {
   try {
@@ -152,6 +170,10 @@ function deleteMessage(alert: AccountAlert) {
 const route = useRoute()
 const router = useRouter()
 
+// The scope is the personal rows or one team's, and it lives in the address like
+// the other filters. A team that is no longer held falls back to personal.
+const scope = ref(String(route.query.scope ?? 'personal'))
+
 // The state of a row is a different question from the health of the service it
 // watches. A row is what an account asked to be told about, and it can be
 // arriving, held back or ended. Ended is the third of those rather than something
@@ -191,9 +213,14 @@ const search = ref(searchInput.value.trim())
 // The search narrows first, so a chip carries what the cards under it would be.
 // Each tab then asks for its own state, which is what lets the lifted tabs
 // count their rows before they are opened.
+const scoped = computed(() => {
+  if (scope.value === 'personal') return alerts.value.filter((alert) => !alert.teamId)
+  return alerts.value.filter((alert) => String(alert.teamId ?? '') === scope.value)
+})
+
 const searched = computed(() => {
   const needle = search.value.trim().toLowerCase()
-  return alerts.value.filter((alert) => {
+  return scoped.value.filter((alert) => {
     if (!needle) return true
     return (
       alert.vendorName.toLowerCase().includes(needle) ||
@@ -323,7 +350,7 @@ const firstRow = computed(() => (sorted.value.length ? (currentPage.value - 1) *
 const lastRow = computed(() => Math.min(currentPage.value * PAGE_SIZE, sorted.value.length))
 
 // A filter, a search or a sort is a new list, so it starts at the top.
-watch([rowState, statusFilter, search, sortKey, sortAsc], () => {
+watch([scope, rowState, statusFilter, search, sortKey, sortAsc], () => {
   page.value = 1
 })
 
@@ -336,6 +363,7 @@ function sortState(key: SortKey) {
 // Everything Clear would put back: a state, a health, or an order.
 const clearable = computed(
   () =>
+    scope.value !== 'personal' ||
     rowState.value !== 'all' ||
     statusFilter.value.length > 0 ||
     search.value !== '' ||
@@ -363,6 +391,7 @@ function clearList() {
 // of the list.
 function syncUrl() {
   const query: Record<string, string> = {}
+  if (scope.value !== 'personal') query.scope = scope.value
   if (rowState.value !== 'all') query.filter = rowState.value
   if (statusFilter.value.length) query.state = statusFilter.value.join(',')
   if (search.value) query.q = search.value
@@ -384,7 +413,7 @@ watch(searchInput, (value) => {
 
 onBeforeUnmount(() => clearTimeout(searchTimer))
 
-watch([rowState, statusFilter, sortKey, sortAsc, currentPage], syncUrl)
+watch([scope, rowState, statusFilter, sortKey, sortAsc, currentPage], syncUrl)
 
 // Follow the URL when it changes from somewhere else, such as the back button.
 watch(
@@ -443,6 +472,16 @@ watch(
 
     <template v-else>
       <div class="mb-4 flex flex-wrap items-center gap-3">
+        <select
+          v-model="scope"
+          class="select select-bordered select-sm w-full sm:w-64"
+          aria-label="Alert workspace"
+        >
+          <option value="personal">Personal</option>
+          <option v-for="team in teams" :key="team.id" :value="String(team.id)">
+            {{ team.name }} ({{ team.role === 'owner' ? 'owner' : team.role }})
+          </option>
+        </select>
         <input
           v-model="searchInput"
           type="search"
@@ -523,6 +562,9 @@ watch(
                     <StatusBadge :status="alert.vendorStatus" size="xs" />
                   </div>
                   <p class="mt-1 text-xs opacity-70">{{ watches(alert) }}</p>
+                  <p class="mt-1 text-xs opacity-60">
+                    {{ alert.teamName ? `Team: ${alert.teamName}` : 'Personal' }}
+                  </p>
                 </td>
                 <td class="text-sm whitespace-nowrap opacity-70">{{ arrives(alert) }}</td>
                 <td class="text-sm whitespace-nowrap opacity-70">
@@ -563,6 +605,9 @@ watch(
                   <StatusBadge :status="alert.vendorStatus" size="xs" />
                 </div>
                 <p class="mt-1 text-xs opacity-70">{{ watches(alert) }}</p>
+                <p class="mt-1 text-xs opacity-60">
+                  {{ alert.teamName ? `Team: ${alert.teamName}` : 'Personal' }}
+                </p>
               </div>
               <span class="badge badge-sm shrink-0 whitespace-nowrap" :class="stateOf(alert).cls">
                 {{ stateOf(alert).label }}

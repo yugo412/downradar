@@ -20,6 +20,7 @@ import (
 // way alone, because a body is written by the sender from what it finds.
 type webhookRequest struct {
 	URL     string             `json:"url"`
+	TeamID  *int64             `json:"teamId"`
 	Method  string             `json:"method"`
 	Headers []store.AlertField `json:"headers"`
 
@@ -75,6 +76,10 @@ type ntfyRequest struct {
 }
 
 type alertRequest struct {
+	// TeamID makes the alert belong to a team instead of the signed in person.
+	// Any member may manage the team's alerts; an empty value is personal.
+	TeamID *int64 `json:"teamId"`
+
 	// Email is the address the alert should go to. An empty one stops the emails;
 	// a request that says nothing about it, which is what the bell sends, leaves
 	// the email way as it is.
@@ -328,6 +333,24 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A team alert needs a session and a membership. The row belongs to the team,
+	// not to the person who happened to save it.
+	var teamID *int64
+	if body.TeamID != nil {
+		if userID == nil {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Sign in to manage a team alert"})
+			return
+		}
+		if _, err := h.store.TeamRoleFor(r.Context(), *body.TeamID, *userID); errors.Is(err, store.ErrNotFound) {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "You are not a member of that team"})
+			return
+		} else if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		teamID = body.TeamID
+	}
+
 	calls := hook != nil && hook.URL != ""
 
 	// An empty address from somebody with no account says nothing: there is no
@@ -403,7 +426,7 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-	case role == auth.RoleSubscriber:
+	case role == auth.RoleSubscriber && teamID == nil:
 		// The cap counts vendors rather than the things watched inside one, so this
 		// asks for a single place in it unless the alert is already there: replacing
 		// one or stopping a way takes no new place.
@@ -453,7 +476,7 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 	// Each channel a save creates takes a token of its own, which is what stops
 	// that way and what a webhook is checked against. One that is already there
 	// keeps its token.
-	change := store.AlertChange{Targets: store.AlertTargets{Whole: whole, Components: componentIDs}}
+	change := store.AlertChange{TeamID: teamID, Targets: store.AlertTargets{Whole: whole, Components: componentIDs}}
 	if saveEmail {
 		token, err := auth.NewToken()
 		if err != nil {
@@ -519,12 +542,18 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		change.Ntfy, change.NtfyToken = ntfy, token
 	}
 
+	// A team-owned row has no personal owner. The team id travels in the change.
+	ownerID := userID
+	if teamID != nil {
+		ownerID = nil
+	}
+
 	secret := ""
 	var saveErr error
 	if newSecret {
-		secret, saveErr = h.store.SubscribeAlertWithSecret(r.Context(), serviceID, userID, change)
+		secret, saveErr = h.store.SubscribeAlertWithSecret(r.Context(), serviceID, ownerID, change)
 	} else {
-		saveErr = h.store.SubscribeAlert(r.Context(), serviceID, userID, change)
+		saveErr = h.store.SubscribeAlert(r.Context(), serviceID, ownerID, change)
 	}
 	if saveErr != nil {
 		switch {
@@ -562,7 +591,7 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 		"teams", teams != nil && teams.URL != "",
 		"lark", lark != nil && lark.URL != "",
 		"ntfy", ntfy != nil && ntfy.URL != "",
-		"signed_in", userID != nil, "webhook_secret", secret != "",
+		"team", teamID != nil, "signed_in", userID != nil, "webhook_secret", secret != "",
 		"whole", whole, "components", len(componentIDs))
 	writeJSON(w, http.StatusCreated, answer)
 }
@@ -781,12 +810,21 @@ func (h *handlers) testWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := h.user(r)
+	if body.TeamID != nil {
+		if _, err := h.store.TeamRoleFor(r.Context(), *body.TeamID, user.ID); errors.Is(err, store.ErrNotFound) {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "You are not a member of that team"})
+			return
+		} else if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+	}
 
 	// A signed try uses the saved secret, which the page is never handed, so a
 	// webhook without one can only be tried after it has one; pretending to sign
 	// would teach the subscriber the wrong thing about their own end.
 	if hook.Auth == store.WebhookAuthStandard {
-		saved, err := h.store.UserAlert(r.Context(), user.ID, serviceID)
+		saved, err := h.store.UserAlert(r.Context(), user.ID, serviceID, body.TeamID)
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			h.fail(w, r, err)
 			return
@@ -1205,6 +1243,7 @@ func statusOrNil(status int) *int {
 type alertPauseRequest struct {
 	Kind   string `json:"kind"`
 	Paused bool   `json:"paused"`
+	TeamID *int64 `json:"teamId"`
 }
 
 // setAlertChannelPaused stops one way of an alert arriving, or starts it again,
@@ -1221,7 +1260,7 @@ func (h *handlers) setAlertChannelPaused(w http.ResponseWriter, r *http.Request)
 		body.Kind != store.ChannelDiscord && body.Kind != store.ChannelTeams &&
 		body.Kind != store.ChannelLark && body.Kind != store.ChannelNtfy {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "kind must be email, webhook, telegram, slack, discord, teams, lark or ntfy",
+			"error": "Kind must be email, webhook, telegram, slack, discord, teams, lark or ntfy",
 		})
 		return
 	}
@@ -1236,7 +1275,19 @@ func (h *handlers) setAlertChannelPaused(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	err = h.store.SetChannelPaused(r.Context(), h.user(r).ID, serviceID, body.Kind, body.Paused)
+	var teamID *int64
+	if body.TeamID != nil {
+		if _, err := h.store.TeamRoleFor(r.Context(), *body.TeamID, h.user(r).ID); errors.Is(err, store.ErrNotFound) {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "You are not a member of that team"})
+			return
+		} else if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		teamID = body.TeamID
+	}
+
+	err = h.store.SetChannelPaused(r.Context(), h.user(r).ID, serviceID, teamID, body.Kind, body.Paused)
 	if errors.Is(err, store.ErrNotFound) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "This alert has no such way"})
 		return
@@ -1295,16 +1346,28 @@ func (h *handlers) alertTokenView(w http.ResponseWriter, r *http.Request) *store
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		writeJSON(w, http.StatusUnauthorized, map[string]string{
-			"error": "sign in to manage this alert",
+			"error": "Sign in to manage this alert",
 		})
 		return nil
 	case err != nil:
 		h.fail(w, r, err)
 		return nil
 	}
+	if view.TeamID != nil {
+		if _, err := h.store.TeamRoleFor(r.Context(), *view.TeamID, user.ID); errors.Is(err, store.ErrNotFound) {
+			writeJSON(w, http.StatusForbidden, map[string]string{
+				"error": "Only a team member can manage this alert",
+			})
+			return nil
+		} else if err != nil {
+			h.fail(w, r, err)
+			return nil
+		}
+		return view
+	}
 	if view.UserID == nil || *view.UserID != user.ID {
 		writeJSON(w, http.StatusForbidden, map[string]string{
-			"error": "only the owner can manage this alert",
+			"error": "Only the owner can manage this alert",
 		})
 		return nil
 	}
@@ -1358,6 +1421,8 @@ func (h *handlers) listStaffAlerts(w http.ResponseWriter, r *http.Request) {
 	for _, alert := range alerts {
 		views = append(views, map[string]any{
 			"id":              alert.ID,
+			"teamId":          alert.TeamID,
+			"teamName":        alert.TeamName,
 			"subscriberName":  alert.SubscriberName,
 			"subscriberEmail": alert.SubscriberEmail,
 			"guest":           alert.Guest,
@@ -1391,6 +1456,9 @@ func (h *handlers) listUserAlerts(w http.ResponseWriter, r *http.Request) {
 	for _, alert := range alerts {
 		views = append(views, map[string]any{
 			"id":           alert.ID,
+			"teamId":       alert.TeamID,
+			"teamName":     alert.TeamName,
+			"teamRole":     alert.TeamRole,
 			"vendorSlug":   alert.VendorSlug,
 			"vendorName":   alert.VendorName,
 			"vendorStatus": alert.VendorStatus,
@@ -1530,10 +1598,28 @@ func (h *handlers) getUserAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	view, err := h.store.UserAlert(r.Context(), h.user(r).ID, serviceID)
+	var teamID *int64
+	if raw := strings.TrimSpace(r.URL.Query().Get("team")); raw != "" {
+		id, parseErr := strconv.ParseInt(raw, 10, 64)
+		if parseErr != nil || id <= 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid team"})
+			return
+		}
+		if _, roleErr := h.store.TeamRoleFor(r.Context(), id, h.user(r).ID); errors.Is(roleErr, store.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "Team not found"})
+			return
+		} else if roleErr != nil {
+			h.fail(w, r, roleErr)
+			return
+		}
+		teamID = &id
+	}
+
+	view, err := h.store.UserAlert(r.Context(), h.user(r).ID, serviceID, teamID)
 	if errors.Is(err, store.ErrNotFound) {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"subscribed":      false,
+			"teamId":          teamID,
 			"calls":           calls,
 			"channelStatus":   channelStatus,
 			"telegramEnabled": h.telegramEnabled,
@@ -1550,6 +1636,9 @@ func (h *handlers) getUserAlert(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"subscribed":      true,
+		"teamId":          view.TeamID,
+		"teamName":        view.TeamName,
+		"teamRole":        view.TeamRole,
 		"email":           view.Email,
 		"paused":          view.State() == store.AlertPaused,
 		"emailPaused":     view.EmailPaused,

@@ -672,7 +672,7 @@ func TestSetUserAlertStatePausesAndResumes(t *testing.T) {
 
 	row := func(t *testing.T) AlertView {
 		t.Helper()
-		view, err := st.UserAlert(ctx, user.ID, id)
+		view, err := st.UserAlert(ctx, user.ID, id, nil)
 		if err != nil {
 			t.Fatalf("UserAlert: %v", err)
 		}
@@ -717,7 +717,7 @@ func TestSetUserAlertStatePausesAndResumes(t *testing.T) {
 	if err := st.SetUserAlertState(ctx, user.ID, row(t).ID, AlertUnsubscribed); err != nil {
 		t.Fatalf("unsubscribe: %v", err)
 	}
-	view, err := st.UserAlert(ctx, user.ID, id)
+	view, err := st.UserAlert(ctx, user.ID, id, nil)
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("UserAlert after ending = %v (%+v), want ErrNotFound", err, view)
 	}
@@ -747,7 +747,7 @@ func TestDeleteUserAlertRemovesTheRow(t *testing.T) {
 	if err := st.SubscribeAlert(ctx, id, &user.ID, EmailOnly("work@example.org", "token-delete", WholeVendor)); err != nil {
 		t.Fatalf("SubscribeAlert: %v", err)
 	}
-	view, err := st.UserAlert(ctx, user.ID, id)
+	view, err := st.UserAlert(ctx, user.ID, id, nil)
 	if err != nil {
 		t.Fatalf("UserAlert: %v", err)
 	}
@@ -780,7 +780,7 @@ func TestUserAlertFollowsTheAccountNotTheAddress(t *testing.T) {
 	if err := st.SubscribeAlert(ctx, id, nil, EmailOnly("guest@example.com", "token-guest", WholeVendor)); err != nil {
 		t.Fatalf("SubscribeAlert: %v", err)
 	}
-	if _, err := st.UserAlert(ctx, user.ID, id); !errors.Is(err, ErrNotFound) {
+	if _, err := st.UserAlert(ctx, user.ID, id, nil); !errors.Is(err, ErrNotFound) {
 		t.Errorf("UserAlert for a guest's alert = %v, want ErrNotFound", err)
 	}
 
@@ -788,7 +788,7 @@ func TestUserAlertFollowsTheAccountNotTheAddress(t *testing.T) {
 	if err := st.SubscribeAlert(ctx, id, &user.ID, EmailOnly("work@example.org", "token-work", WholeVendor)); err != nil {
 		t.Fatalf("SubscribeAlert: %v", err)
 	}
-	view, err := st.UserAlert(ctx, user.ID, id)
+	view, err := st.UserAlert(ctx, user.ID, id, nil)
 	if err != nil {
 		t.Fatalf("UserAlert: %v", err)
 	}
@@ -804,7 +804,7 @@ func TestUserAlertFollowsTheAccountNotTheAddress(t *testing.T) {
 	if stopped != 1 {
 		t.Errorf("stopped = %d, want 1", stopped)
 	}
-	if _, err := st.UserAlert(ctx, user.ID, id); !errors.Is(err, ErrNotFound) {
+	if _, err := st.UserAlert(ctx, user.ID, id, nil); !errors.Is(err, ErrNotFound) {
 		t.Errorf("UserAlert after stopping = %v, want ErrNotFound", err)
 	}
 
@@ -949,7 +949,7 @@ func TestEachChannelStopsOnItsOwn(t *testing.T) {
 		t.Errorf("pending = %d, want only the webhook's alert left", n)
 	}
 
-	view, err := st.UserAlert(ctx, user.ID, id)
+	view, err := st.UserAlert(ctx, user.ID, id, nil)
 	if err != nil {
 		t.Fatalf("UserAlert: %v", err)
 	}
@@ -965,7 +965,7 @@ func TestEachChannelStopsOnItsOwn(t *testing.T) {
 	if n := queuedFor(t, st, id); n != 0 {
 		t.Errorf("pending = %d, want nothing left waiting", n)
 	}
-	if _, err := st.UserAlert(ctx, user.ID, id); !errors.Is(err, ErrNotFound) {
+	if _, err := st.UserAlert(ctx, user.ID, id, nil); !errors.Is(err, ErrNotFound) {
 		t.Errorf("UserAlert with every channel ended = %v, want ErrNotFound", err)
 	}
 
@@ -1017,7 +1017,7 @@ func TestAComponentTargetWaitsForTheComponent(t *testing.T) {
 	}
 
 	// The bell reads back what is watched, so it can open with that box ticked.
-	view, err := st.UserAlert(ctx, user.ID, id)
+	view, err := st.UserAlert(ctx, user.ID, id, nil)
 	if err != nil {
 		t.Fatalf("UserAlert: %v", err)
 	}
@@ -1242,7 +1242,7 @@ func TestAWebhookIsASecondWayForOneAlert(t *testing.T) {
 
 	// The page reads both ways back, and the header list is what was written and
 	// nothing else: nothing is added to a webhook behind the subscriber's back.
-	view, err := st.UserAlert(ctx, user.ID, id)
+	view, err := st.UserAlert(ctx, user.ID, id, nil)
 	if err != nil {
 		t.Fatalf("UserAlert: %v", err)
 	}
@@ -1272,7 +1272,7 @@ func TestAWebhookIsASecondWayForOneAlert(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("moving the webhook: %v", err)
 	}
-	view, err = st.UserAlert(ctx, user.ID, id)
+	view, err = st.UserAlert(ctx, user.ID, id, nil)
 	if err != nil {
 		t.Fatalf("UserAlert: %v", err)
 	}
@@ -1303,7 +1303,7 @@ func TestAWebhookIsASecondWayForOneAlert(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("stopping the webhook: %v", err)
 	}
-	view, err = st.UserAlert(ctx, user.ID, id)
+	view, err = st.UserAlert(ctx, user.ID, id, nil)
 	if err != nil {
 		t.Fatalf("UserAlert: %v", err)
 	}
@@ -1327,7 +1327,7 @@ func TestAWebhookIsASecondWayForOneAlert(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("stopping the emails: %v", err)
 	}
-	if _, err := st.UserAlert(ctx, user.ID, id); !errors.Is(err, ErrNotFound) {
+	if _, err := st.UserAlert(ctx, user.ID, id, nil); !errors.Is(err, ErrNotFound) {
 		t.Errorf("UserAlert with every way stopped = %v, want ErrNotFound", err)
 	}
 	alerts, err := st.UserAlerts(ctx, user.ID)
@@ -1351,7 +1351,7 @@ func TestAWebhookIsASecondWayForOneAlert(t *testing.T) {
 		select count(*) from alert_subscriptions where user_id = $1`, user.ID); n != 1 {
 		t.Errorf("subscriptions = %d, want the one alert this account has here", n)
 	}
-	view, err = st.UserAlert(ctx, user.ID, id)
+	view, err = st.UserAlert(ctx, user.ID, id, nil)
 	if err != nil {
 		t.Fatalf("UserAlert: %v", err)
 	}
@@ -1515,7 +1515,7 @@ func TestPausingOneWayLeavesTheOther(t *testing.T) {
 	// Pausing one way drops what was waiting for it and leaves the other's.
 	queueDeliveryFor(t, st, "token-pause-mail", nil)
 	queueDeliveryFor(t, st, "token-pause-hook", nil)
-	if err := st.SetChannelPaused(ctx, user.ID, id, ChannelEmail, true); err != nil {
+	if err := st.SetChannelPaused(ctx, user.ID, id, nil, ChannelEmail, true); err != nil {
 		t.Fatalf("SetChannelPaused: %v", err)
 	}
 	if n := queuedForToken(t, st, "token-pause-mail"); n != 0 {
@@ -1525,7 +1525,7 @@ func TestPausingOneWayLeavesTheOther(t *testing.T) {
 		t.Errorf("calls waiting = %d, want the other way left alone", n)
 	}
 
-	view, err := st.UserAlert(ctx, user.ID, id)
+	view, err := st.UserAlert(ctx, user.ID, id, nil)
 	if err != nil {
 		t.Fatalf("UserAlert: %v", err)
 	}
@@ -1549,7 +1549,7 @@ func TestPausingOneWayLeavesTheOther(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("saving again: %v", err)
 	}
-	view, err = st.UserAlert(ctx, user.ID, id)
+	view, err = st.UserAlert(ctx, user.ID, id, nil)
 	if err != nil {
 		t.Fatalf("UserAlert: %v", err)
 	}
@@ -1558,7 +1558,7 @@ func TestPausingOneWayLeavesTheOther(t *testing.T) {
 	}
 
 	// Starting it again is the switch the other way, and it goes out as before.
-	if err := st.SetChannelPaused(ctx, user.ID, id, ChannelEmail, false); err != nil {
+	if err := st.SetChannelPaused(ctx, user.ID, id, nil, ChannelEmail, false); err != nil {
 		t.Fatalf("SetChannelPaused: %v", err)
 	}
 	queueDeliveryFor(t, st, "token-pause-mail", nil)
@@ -1568,7 +1568,7 @@ func TestPausingOneWayLeavesTheOther(t *testing.T) {
 
 	// Every way quiet is what the account screen calls a paused alert.
 	for _, kind := range []string{ChannelEmail, ChannelWebhook} {
-		if err := st.SetChannelPaused(ctx, user.ID, id, kind, true); err != nil {
+		if err := st.SetChannelPaused(ctx, user.ID, id, nil, kind, true); err != nil {
 			t.Fatalf("SetChannelPaused(%s): %v", kind, err)
 		}
 	}
@@ -1588,7 +1588,7 @@ func TestPausingOneWayLeavesTheOther(t *testing.T) {
 
 	// A way the alert does not have cannot be paused.
 	other := alertService(t, st, uniqueName("alert pause other"))
-	if err := st.SetChannelPaused(ctx, user.ID, other, ChannelEmail, true); !errors.Is(err, ErrNotFound) {
+	if err := st.SetChannelPaused(ctx, user.ID, other, nil, ChannelEmail, true); !errors.Is(err, ErrNotFound) {
 		t.Errorf("pausing a way that is not there = %v, want ErrNotFound", err)
 	}
 }
@@ -1708,7 +1708,7 @@ func TestAChatIsAThirdWayForOneAlert(t *testing.T) {
 		_ = st.UnsubscribeAlert(context.Background(), "token-chat-telegram")
 	})
 
-	view, err := st.UserAlert(ctx, user.ID, id)
+	view, err := st.UserAlert(ctx, user.ID, id, nil)
 	if err != nil {
 		t.Fatalf("UserAlert: %v", err)
 	}
@@ -1742,7 +1742,7 @@ func TestAChatIsAThirdWayForOneAlert(t *testing.T) {
 		`select count(*) from alert_channels where token = $1`, "token-chat-telegram"); n != 1 {
 		t.Error("the chat lost the token a message already carries")
 	}
-	again, err := st.UserAlert(ctx, user.ID, id)
+	again, err := st.UserAlert(ctx, user.ID, id, nil)
 	if err != nil {
 		t.Fatalf("UserAlert after moving the chat: %v", err)
 	}
@@ -1764,7 +1764,7 @@ func TestAChatIsAThirdWayForOneAlert(t *testing.T) {
 		where token = $1 and unsubscribed_at is not null`, "token-chat-telegram"); n != 1 {
 		t.Error("the chat way was not stopped")
 	}
-	after, err := st.UserAlert(ctx, user.ID, id)
+	after, err := st.UserAlert(ctx, user.ID, id, nil)
 	if err != nil {
 		t.Fatalf("UserAlert after stopping the chat: %v", err)
 	}
@@ -1995,7 +1995,7 @@ func TestASlackChannelIsAFourthWayForOneAlert(t *testing.T) {
 		_ = st.UnsubscribeAlert(context.Background(), "token-slack-way")
 	})
 
-	view, err := st.UserAlert(ctx, user.ID, id)
+	view, err := st.UserAlert(ctx, user.ID, id, nil)
 	if err != nil {
 		t.Fatalf("UserAlert: %v", err)
 	}
@@ -2032,7 +2032,7 @@ func TestASlackChannelIsAFourthWayForOneAlert(t *testing.T) {
 		t.Error("the saved channel was replaced with a new token instead of updated")
 	}
 
-	view, err = st.UserAlert(ctx, user.ID, id)
+	view, err = st.UserAlert(ctx, user.ID, id, nil)
 	if err != nil {
 		t.Fatalf("UserAlert after the change: %v", err)
 	}
@@ -2073,7 +2073,7 @@ func TestASlackChannelIsAFourthWayForOneAlert(t *testing.T) {
 		t.Error("the stopped channel is not marked as stopped")
 	}
 
-	view, err = st.UserAlert(ctx, user.ID, id)
+	view, err = st.UserAlert(ctx, user.ID, id, nil)
 	if err != nil {
 		t.Fatalf("UserAlert after stopping: %v", err)
 	}
@@ -2110,7 +2110,7 @@ func TestADiscordChannelIsAFifthWayForOneAlert(t *testing.T) {
 		_ = st.UnsubscribeAlert(context.Background(), "token-discord-way")
 	})
 
-	view, err := st.UserAlert(ctx, user.ID, id)
+	view, err := st.UserAlert(ctx, user.ID, id, nil)
 	if err != nil {
 		t.Fatalf("UserAlert: %v", err)
 	}
@@ -2135,7 +2135,7 @@ func TestADiscordChannelIsAFifthWayForOneAlert(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SubscribeAlert without a channel: %v", err)
 	}
-	view, err = st.UserAlert(ctx, user.ID, id)
+	view, err = st.UserAlert(ctx, user.ID, id, nil)
 	if err != nil {
 		t.Fatalf("UserAlert after the same URL: %v", err)
 	}
@@ -2165,7 +2165,7 @@ func TestADiscordChannelIsAFifthWayForOneAlert(t *testing.T) {
 		t.Error("the saved channel was replaced with a new token instead of updated")
 	}
 
-	view, err = st.UserAlert(ctx, user.ID, id)
+	view, err = st.UserAlert(ctx, user.ID, id, nil)
 	if err != nil {
 		t.Fatalf("UserAlert after the change: %v", err)
 	}
@@ -2208,7 +2208,7 @@ func TestADiscordChannelIsAFifthWayForOneAlert(t *testing.T) {
 		t.Error("the stopped channel is not marked as stopped")
 	}
 
-	view, err = st.UserAlert(ctx, user.ID, id)
+	view, err = st.UserAlert(ctx, user.ID, id, nil)
 	if err != nil {
 		t.Fatalf("UserAlert after stopping: %v", err)
 	}
@@ -2240,7 +2240,7 @@ func TestLarkWayAndLastDelivery(t *testing.T) {
 		t.Fatalf("SubscribeAlert: %v", err)
 	}
 
-	view, err := st.UserAlert(ctx, user.ID, serviceID)
+	view, err := st.UserAlert(ctx, user.ID, serviceID, nil)
 	if err != nil {
 		t.Fatalf("UserAlert: %v", err)
 	}

@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -508,5 +509,112 @@ func TestATeamInvitationCanBeAcceptedFromTheInbox(t *testing.T) {
 	}
 	if len(inbox.Invitations) != 0 {
 		t.Errorf("the accepted invitation is still in the inbox: %+v", inbox.Invitations)
+	}
+}
+
+// A team owner can put a service in a team. Every member may see it and look
+// after the team's alerts, but only the owner may edit or remove the service.
+func TestTeamOwnsServicesAndAlerts(t *testing.T) {
+	st, router, _ := testRouterWithMail(t)
+
+	owner := testUser(t, st, auth.RoleSubscriber)
+	member := testUser(t, st, auth.RoleSubscriber)
+	outsider := testUser(t, st, auth.RoleSubscriber)
+	ownerCookie := sessionFor(t, st, owner)
+	memberCookie := sessionFor(t, st, member)
+	outsiderCookie := sessionFor(t, st, outsider)
+
+	rec := call(t, router, http.MethodPost, "/api/v1/teams", `{"name":"Rows Team"}`, ownerCookie)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create team = %d: %s", rec.Code, rec.Body.String())
+	}
+	team := decodeTeam(t, rec.Body.Bytes()).Team
+	t.Cleanup(func() { _ = st.DeleteTeam(context.Background(), team.ID) })
+	if err := st.AddTeamMember(t.Context(), team.ID, member.ID, store.TeamRoleMember); err != nil {
+		t.Fatalf("AddTeamMember: %v", err)
+	}
+
+	name := fmt.Sprintf("zz-team-service-%d", time.Now().UnixNano())
+	body := fmt.Sprintf(`{"name":%q,"url":"https://status.example.invalid","visibility":"private","teamId":%d}`, name, team.ID)
+
+	// A member may not add a row to the team; its owner may.
+	if rec := call(t, router, http.MethodPost, "/api/v1/services", body, memberCookie); rec.Code != http.StatusForbidden {
+		t.Fatalf("a member added a team service = %d, want 403: %s", rec.Code, rec.Body.String())
+	}
+	rec = call(t, router, http.MethodPost, "/api/v1/services", body, ownerCookie)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("team service = %d: %s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		Slug string `json:"slug"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode service: %v", err)
+	}
+	t.Cleanup(func() { _, _ = st.DeleteService(context.Background(), created.Slug) })
+
+	if rec := call(t, router, http.MethodGet, "/api/v1/services/"+created.Slug, "", memberCookie); rec.Code != http.StatusOK {
+		t.Errorf("a team member read the service = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if rec := call(t, router, http.MethodGet, "/api/v1/services/"+created.Slug, "", outsiderCookie); rec.Code != http.StatusNotFound {
+		t.Errorf("an outsider read the private team service = %d, want 404", rec.Code)
+	}
+	if rec := call(t, router, http.MethodPatch, "/api/v1/services/"+created.Slug,
+		fmt.Sprintf(`{"name":%q}`, name+" two"), memberCookie); rec.Code != http.StatusForbidden {
+		t.Errorf("a member edited the team service = %d, want 403: %s", rec.Code, rec.Body.String())
+	}
+	if rec := call(t, router, http.MethodPatch, "/api/v1/services/"+created.Slug,
+		fmt.Sprintf(`{"name":%q}`, name+" two"), ownerCookie); rec.Code != http.StatusOK {
+		t.Errorf("the owner edited the team service = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+
+	// Any member can save and pause the team's alert, which belongs to the team
+	// rather than to whoever saved it.
+	vendor := alertVendor(t, st)
+	rec = call(t, router, http.MethodPost, "/api/v1/vendors/"+vendor+"/alerts",
+		fmt.Sprintf(`{"email":"team@example.com","teamId":%d,"wholeService":true}`, team.ID), memberCookie)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("team alert = %d: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = call(t, router, http.MethodGet, "/api/v1/auth/alerts", "", ownerCookie)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("team alert list = %d: %s", rec.Code, rec.Body.String())
+	}
+	var list struct {
+		Alerts []struct {
+			TeamID   *int64 `json:"teamId"`
+			TeamName string `json:"teamName"`
+		} `json:"alerts"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode alerts: %v", err)
+	}
+	found := false
+	for _, alert := range list.Alerts {
+		if alert.TeamID != nil && *alert.TeamID == team.ID && alert.TeamName == "Rows Team" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("team alert is missing from the owner's list: %s", rec.Body.String())
+	}
+
+	detail := "/api/v1/vendors/" + vendor + "/alerts?team=" + strconv.FormatInt(team.ID, 10)
+	if rec := call(t, router, http.MethodGet, detail, "", ownerCookie); rec.Code != http.StatusOK {
+		t.Errorf("team alert detail = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if rec := call(t, router, http.MethodGet, detail, "", outsiderCookie); rec.Code != http.StatusNotFound {
+		t.Errorf("an outsider read the team alert = %d, want 404", rec.Code)
+	}
+	if rec := call(t, router, http.MethodPost, "/api/v1/vendors/"+vendor+"/alerts/pause",
+		fmt.Sprintf(`{"kind":"email","paused":true,"teamId":%d}`, team.ID), memberCookie); rec.Code != http.StatusNoContent {
+		t.Errorf("a member paused the team alert = %d, want 204: %s", rec.Code, rec.Body.String())
+	}
+
+	// The team's owner may remove the published service the team owns. A
+	// published row is taken off the site rather than erased.
+	if rec := call(t, router, http.MethodDelete, "/api/v1/services/"+created.Slug, "", ownerCookie); rec.Code != http.StatusOK {
+		t.Errorf("the owner removed the team service = %d, want 200: %s", rec.Code, rec.Body.String())
 	}
 }

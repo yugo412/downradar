@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AlertState, AlertWebhook, VendorDetail } from '~/types/api'
+import type { AlertState, AlertWebhook, Team, VendorDetail } from '~/types/api'
 
 definePageMeta({ middleware: 'authenticated', ssr: false })
 
@@ -10,6 +10,35 @@ const { user } = useAuth()
 const route = useRoute()
 const router = useRouter()
 const slug = computed(() => String(route.params.vendor ?? ''))
+
+// Personal or one team's alert. The page edits one owner at a time; the switch
+// only lists teams the person belongs to, because any member may look after a
+// team's alerts.
+const teams = ref<Team[]>([])
+const scope = ref(String(route.query.team ?? 'personal'))
+const selectedTeam = computed(() =>
+  scope.value === 'personal' ? null : Number(scope.value),
+)
+
+async function loadTeams() {
+  try {
+    const res = await $fetch<{ teams: Team[] }>('/api/v1/teams')
+    teams.value = res.teams ?? []
+  } catch {
+    teams.value = []
+  }
+  if (scope.value !== 'personal' && !teams.value.some((team) => String(team.id) === scope.value)) {
+    scope.value = 'personal'
+  }
+}
+
+watch(scope, async (value) => {
+  const query = { ...route.query }
+  if (value === 'personal') delete query.team
+  else query.team = value
+  await router.replace({ query })
+  await load()
+})
 const origin = useRequestURL().origin
 
 const { data: vendor, error: vendorError } = await useFetch<VendorDetail>(
@@ -519,6 +548,7 @@ const sample = computed(() => {
 })
 
 onMounted(async () => {
+  await loadTeams()
   await load()
 
   const slackResult = String(route.query.slack ?? '')
@@ -545,7 +575,10 @@ onMounted(async () => {
 
 async function load() {
   try {
-    const res = await $fetch<AlertState>(`/api/v1/vendors/${slug.value}/alerts`)
+    const teamQuery = selectedTeam.value ? `?team=${selectedTeam.value}` : ''
+    const res = await $fetch<AlertState>(
+      `/api/v1/vendors/${slug.value}/alerts${teamQuery}`,
+    )
     state.value = res
     testResult.value = null
 
@@ -816,6 +849,7 @@ async function disconnectDiscord() {
 // only way one is made.
 function alertBody(generateSecret = false) {
   return {
+    teamId: selectedTeam.value,
     email: email.value.trim(),
     webhook: callsOn.value
       ? {
@@ -942,7 +976,7 @@ async function setPaused(way: Way, event: Event) {
   try {
     await $fetch(`/api/v1/vendors/${slug.value}/alerts/pause`, {
       method: 'POST',
-      body: { kind: way, paused: !on },
+      body: { kind: way, paused: !on, teamId: selectedTeam.value },
     })
     if (way === 'email') current.emailPaused = !on
     else if (way === 'webhook') current.webhookPaused = !on
@@ -976,6 +1010,7 @@ async function tryWebhook() {
       {
         method: 'POST',
         body: {
+          teamId: selectedTeam.value,
           url: hook.value.url.trim(),
           method: hook.value.method,
           headers: hook.value.headers,
@@ -1182,7 +1217,10 @@ async function copySample() {
 // list under the button is read back rather than added to by hand.
 async function refreshCalls() {
   try {
-    const res = await $fetch<AlertState>(`/api/v1/vendors/${slug.value}/alerts`)
+    const teamQuery = selectedTeam.value ? `?team=${selectedTeam.value}` : ''
+    const res = await $fetch<AlertState>(
+      `/api/v1/vendors/${slug.value}/alerts${teamQuery}`,
+    )
     if (state.value) state.value.calls = res.calls ?? []
     callPage.value = 1
   } catch {
@@ -1207,6 +1245,18 @@ async function refreshCalls() {
         <h1 class="text-2xl font-bold tracking-tight">
           Alerts for {{ vendor.name }}
         </h1>
+        <div class="mt-3 flex flex-wrap items-center gap-2">
+          <span class="text-sm opacity-70">Editing</span>
+          <select v-model="scope" class="select select-bordered select-sm w-full sm:w-72" aria-label="Alert owner">
+            <option value="personal">Personal alert</option>
+            <option v-for="team in teams" :key="team.id" :value="String(team.id)">
+              {{ team.name }} ({{ team.role }})
+            </option>
+          </select>
+          <span v-if="state?.teamName" class="badge badge-ghost badge-sm">
+            Team: {{ state.teamName }}
+          </span>
+        </div>
         <p class="mt-1 text-sm opacity-70">
           One alert per service, delivered by email, webhook, Telegram, Slack,
           Discord, Teams, Lark, ntfy or a mix of them. Email, Telegram, Slack,

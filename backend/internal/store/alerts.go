@@ -77,8 +77,14 @@ func AlertStateValid(state string) bool {
 // doing. Its state comes from its channels, since a live one keeps it active,
 // and it carries VendorStatus so a row says more than the vendor's name.
 type AlertView struct {
-	ID             int64      `json:"id"`
-	UserID         *int64     `json:"-"`
+	ID     int64  `json:"id"`
+	UserID *int64 `json:"-"`
+	// TeamID and TeamName say the alert belongs to a team rather than a person.
+	// TeamRole is the requesting member's role, filled by the reads asked for on
+	// somebody's behalf.
+	TeamID         *int64     `json:"teamId,omitempty"`
+	TeamName       string     `json:"teamName,omitempty"`
+	TeamRole       string     `json:"teamRole,omitempty"`
 	VendorSlug     string     `json:"vendorSlug"`
 	VendorName     string     `json:"vendorName"`
 	VendorStatus   string     `json:"vendorStatus,omitempty"`
@@ -160,7 +166,8 @@ type StaffAlertView struct {
 // again. A row shows its channel kinds, its email address and what it watches.
 func (s *Store) UserAlerts(ctx context.Context, userID int64) ([]AlertView, error) {
 	rows, err := s.pool.Query(ctx, `
-		select a.id, v.slug, v.name, coalesce(ss.status, 'unknown'),
+		select a.id, a.team_id, coalesce(t.name, ''), coalesce(tm.role, ''),
+		       v.slug, v.name, coalesce(ss.status, 'unknown'),
 		       coalesce(ch.address, ''), a.created_at,
 		       case when ch.total > 0 and ch.ended < ch.total and ch.live = 0
 		            then ch.last_paused end,
@@ -169,6 +176,8 @@ func (s *Store) UserAlerts(ctx context.Context, userID int64) ([]AlertView, erro
 		       w.whole, w.components, ch.email_paused, ch.webhook_paused, ch.kinds
 		from alert_subscriptions a
 		join services v on v.id = a.service_id
+		left join teams t on t.id = a.team_id
+		left join team_members tm on tm.team_id = a.team_id and tm.user_id = $1
 		left join service_state ss on ss.service_id = v.id
 		left join lateral (
 			select count(*) filter (where t2.component_id is null) > 0 as whole,
@@ -198,7 +207,7 @@ func (s *Store) UserAlerts(ctx context.Context, userID int64) ([]AlertView, erro
 			from alert_channels c
 			where c.subscription_id = a.id
 		) ch on true
-		where a.user_id = $1
+		where a.user_id = $1 or tm.user_id is not null
 		order by a.id desc`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("alerts: list for user %d: %w", userID, err)
@@ -208,7 +217,8 @@ func (s *Store) UserAlerts(ctx context.Context, userID int64) ([]AlertView, erro
 	var out []AlertView
 	for rows.Next() {
 		var v AlertView
-		if err := rows.Scan(&v.ID, &v.VendorSlug, &v.VendorName, &v.VendorStatus,
+		if err := rows.Scan(&v.ID, &v.TeamID, &v.TeamName, &v.TeamRole,
+			&v.VendorSlug, &v.VendorName, &v.VendorStatus,
 			&v.Email, &v.CreatedAt, &v.PausedAt, &v.UnsubscribedAt,
 			&v.WholeService, &v.Components, &v.EmailPaused, &v.WebhookPaused,
 			&v.Channels); err != nil {
@@ -224,7 +234,8 @@ func (s *Store) UserAlerts(ctx context.Context, userID int64) ([]AlertView, erro
 // the address they subscribed with stands in for their name.
 func (s *Store) StaffAlerts(ctx context.Context) ([]StaffAlertView, error) {
 	rows, err := s.pool.Query(ctx, `
-		select a.id, v.slug, v.name, coalesce(ss.status, 'unknown'),
+		select a.id, a.team_id, coalesce(t.name, ''),
+		       v.slug, v.name, coalesce(ss.status, 'unknown'),
 		       a.created_at,
 		       case when ch.total > 0 and ch.ended < ch.total and ch.live = 0
 		            then ch.last_paused end,
@@ -235,6 +246,7 @@ func (s *Store) StaffAlerts(ctx context.Context) ([]StaffAlertView, error) {
 		       a.user_id is null
 		from alert_subscriptions a
 		left join users u on u.id = a.user_id
+		left join teams t on t.id = a.team_id
 		join services v on v.id = a.service_id
 		left join service_state ss on ss.service_id = v.id
 		left join lateral (
@@ -270,7 +282,8 @@ func (s *Store) StaffAlerts(ctx context.Context) ([]StaffAlertView, error) {
 	var out []StaffAlertView
 	for rows.Next() {
 		var v StaffAlertView
-		if err := rows.Scan(&v.ID, &v.VendorSlug, &v.VendorName, &v.VendorStatus,
+		if err := rows.Scan(&v.ID, &v.TeamID, &v.TeamName,
+			&v.VendorSlug, &v.VendorName, &v.VendorStatus,
 			&v.CreatedAt, &v.PausedAt, &v.UnsubscribedAt,
 			&v.WholeService, &v.Components, &v.Channels,
 			&v.SubscriberName, &v.SubscriberEmail, &v.Guest); err != nil {
@@ -323,7 +336,10 @@ func (s *Store) SetUserAlertState(ctx context.Context, userID, id int64, state s
 	var mine int64
 	err = tx.QueryRow(ctx, `
 		update alert_subscriptions set updated_at = now()
-		where id = $1 and user_id = $2
+		where id = $1 and (user_id = $2
+		       or (team_id is not null and exists (
+		            select 1 from team_members tm
+		            where tm.team_id = alert_subscriptions.team_id and tm.user_id = $2)))
 		returning id`, id, userID).Scan(&mine)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
@@ -361,7 +377,11 @@ func (s *Store) SetUserAlertState(ctx context.Context, userID, id int64, state s
 // what it watched and how it arrived. An unsubscribe link keeps its row instead.
 func (s *Store) DeleteUserAlert(ctx context.Context, userID, id int64) error {
 	tag, err := s.pool.Exec(ctx,
-		`delete from alert_subscriptions where id = $1 and user_id = $2`, id, userID)
+		`delete from alert_subscriptions
+		 where id = $1 and (user_id = $2
+		   or (team_id is not null and exists (
+		        select 1 from team_members tm
+		        where tm.team_id = alert_subscriptions.team_id and tm.user_id = $2)))`, id, userID)
 	if err != nil {
 		return fmt.Errorf("alerts: delete %d: %w", id, err)
 	}
@@ -374,14 +394,16 @@ func (s *Store) DeleteUserAlert(ctx context.Context, userID, id int64) error {
 // SetChannelPaused stops one way of an alert arriving while keeping the address
 // or URL, so starting it again is one press. What was waiting is dropped; the
 // subscription itself is untouched, unlike pausing from the account screen.
-func (s *Store) SetChannelPaused(ctx context.Context, userID, serviceID int64, kind string, paused bool) error {
+func (s *Store) SetChannelPaused(ctx context.Context, userID, serviceID int64, teamID *int64, kind string, paused bool) error {
 	var moved int
 	err := s.pool.QueryRow(ctx, `
 		with mine as (
 			select c.id
 			from alert_channels c
 			join alert_subscriptions a on a.id = c.subscription_id
-			where a.user_id = $1 and a.service_id = $2
+			where a.service_id = $2
+			  and (($5::bigint is null and a.user_id = $1)
+			       or ($5::bigint is not null and a.team_id = $5))
 			  and c.kind = $3 and c.unsubscribed_at is null
 		), moved as (
 			update alert_channels
@@ -393,7 +415,7 @@ func (s *Store) SetChannelPaused(ctx context.Context, userID, serviceID int64, k
 			delete from alert_deliveries
 			where $4 and sent_at is null and channel_id in (select id from mine)
 		)
-		select count(*) from moved`, userID, serviceID, kind, paused).Scan(&moved)
+		select count(*) from moved`, userID, serviceID, kind, paused, teamID).Scan(&moved)
 	if err != nil {
 		return fmt.Errorf("alerts: pause the %s way of service %d: %w", kind, serviceID, err)
 	}
@@ -1833,13 +1855,14 @@ func (s *Store) AlertByToken(ctx context.Context, token string) (*AlertView, err
 	var view AlertView
 	err := s.pool.QueryRow(ctx, `
 		select v.slug, v.name, c.address, c.kind, c.created_at,
-		       c.paused_at, c.unsubscribed_at, a.user_id
+		       c.paused_at, c.unsubscribed_at, a.user_id, a.team_id
 		from alert_channels c
 		join alert_subscriptions a on a.id = c.subscription_id
 		join services v on v.id = a.service_id
 		where c.token = $1`, token,
 	).Scan(&view.VendorSlug, &view.VendorName, &view.Email, &view.Kind,
-		&view.CreatedAt, &view.PausedAt, &view.UnsubscribedAt, &view.UserID)
+		&view.CreatedAt, &view.PausedAt, &view.UnsubscribedAt, &view.UserID,
+		&view.TeamID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -1886,7 +1909,7 @@ func (s *Store) UnsubscribeAlert(ctx context.Context, token string) error {
 // UserAlert returns the alert a signed in person holds on one vendor, or
 // ErrNotFound. It follows the account link rather than the address, counts a
 // paused one, and says what is watched so the bell opens with its boxes ticked.
-func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertView, error) {
+func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64, teamID *int64) (*AlertView, error) {
 	var view AlertView
 	var webhookAddress string
 	var webhookSettings []byte
@@ -1896,7 +1919,8 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 	var larkRaw []byte
 	var ntfyRaw []byte
 	err := s.pool.QueryRow(ctx, `
-		select a.id, v.slug, v.name, coalesce(ch.address, ''), a.created_at,
+		select a.id, a.team_id, coalesce(t.name, ''), coalesce(tm.role, ''),
+		       v.slug, v.name, coalesce(ch.address, ''), a.created_at,
 		       case when ch.total > 0 and ch.ended < ch.total and ch.live = 0
 		            then ch.last_paused end,
 		       case when ch.total > 0 and ch.ended = ch.total
@@ -1913,6 +1937,8 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 		       ch.discord_paused, ch.lark_paused, ch.ntfy_paused, ch.teams_paused
 		from alert_subscriptions a
 		join services v on v.id = a.service_id
+		left join teams t on t.id = a.team_id
+		left join team_members tm on tm.team_id = a.team_id and tm.user_id = $1
 		left join lateral (
 			select count(*) filter (where t2.component_id is null) > 0 as whole,
 			       coalesce(array_agg(cm.source_id order by cm.position, cm.source_id)
@@ -1974,15 +2000,17 @@ func (s *Store) UserAlert(ctx context.Context, userID, serviceID int64) (*AlertV
 			from alert_channels c
 			where c.subscription_id = a.id
 		) ch on true
-		where a.user_id = $1
-		  and a.service_id = $2
+		where a.service_id = $2
+		  and (($3::bigint is null and a.user_id = $1)
+		       or ($3::bigint is not null and a.team_id = $3))
 		  and exists (
 			select 1 from alert_channels c
 			where c.subscription_id = a.id and c.unsubscribed_at is null
 		  )
 		order by a.id
-		limit 1`, userID, serviceID,
-	).Scan(&view.ID, &view.VendorSlug, &view.VendorName, &view.Email,
+		limit 1`, userID, serviceID, teamID,
+	).Scan(&view.ID, &view.TeamID, &view.TeamName, &view.TeamRole,
+		&view.VendorSlug, &view.VendorName, &view.Email,
 		&view.CreatedAt, &view.PausedAt, &view.UnsubscribedAt,
 		&view.WholeService, &view.ComponentIDs,
 		&webhookAddress, &webhookSettings,

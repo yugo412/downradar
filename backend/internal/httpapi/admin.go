@@ -43,6 +43,7 @@ type servicePayload struct {
 	Active     *bool     `json:"active"`
 	Paused     *bool     `json:"paused"`
 	Visibility *string   `json:"visibility"`
+	TeamID     *int64    `json:"teamId"`
 }
 
 func decodeServicePayload(w http.ResponseWriter, r *http.Request) (*servicePayload, bool) {
@@ -218,11 +219,29 @@ func (h *handlers) findVisibleService(w http.ResponseWriter, r *http.Request) *s
 		h.fail(w, r, err)
 		return nil
 	}
-	if !staffOrOwner(h.viewer(r), current.OwnerID) {
+	if !staffOrOwner(h.viewer(r), current.OwnerID) && !h.teamMember(r, current.TeamID) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Service not found"})
 		return nil
 	}
 	return current
+}
+
+// teamMember says whether the caller belongs to the team that owns a row.
+func (h *handlers) teamMember(r *http.Request, teamID *int64) bool {
+	if teamID == nil || h.user(r) == nil {
+		return false
+	}
+	_, err := h.store.TeamRoleFor(r.Context(), *teamID, h.user(r).ID)
+	return err == nil
+}
+
+// teamOwner says whether the caller is the owner of the team that owns a row.
+func (h *handlers) teamOwner(r *http.Request, teamID *int64) bool {
+	if teamID == nil || h.user(r) == nil {
+		return false
+	}
+	role, err := h.store.TeamRoleFor(r.Context(), *teamID, h.user(r).ID)
+	return err == nil && role == store.TeamRoleOwner
 }
 
 // myServices is the dashboard's own list: the caller's published services in the
@@ -285,7 +304,7 @@ func (h *handlers) pollLog(w http.ResponseWriter, r *http.Request) {
 	if current == nil {
 		return
 	}
-	if !staffOrOwner(h.viewer(r), current.OwnerID) {
+	if !staffOrOwner(h.viewer(r), current.OwnerID) && !h.teamOwner(r, current.TeamID) {
 		writeJSON(w, http.StatusForbidden, map[string]string{
 			"error": "Only an admin, a moderator or the owner can read the fetch log",
 		})
@@ -332,7 +351,7 @@ func (h *handlers) retryDetection(w http.ResponseWriter, r *http.Request) {
 	if current == nil {
 		return
 	}
-	if !staffOrOwner(h.viewer(r), current.OwnerID) {
+	if !staffOrOwner(h.viewer(r), current.OwnerID) && !h.teamOwner(r, current.TeamID) {
 		writeJSON(w, http.StatusForbidden, map[string]string{
 			"error": "Only an admin, a moderator or the owner can retry detection",
 		})
@@ -490,10 +509,20 @@ func (h *handlers) createService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Whoever added a row keeps it: a private service is only theirs to see, and
-	// a public one is still theirs to look after.
+	// A team-owned row belongs to the team. Its owner is the team owner, and the
+	// role table is what decides whether this caller may put it there.
+	teamID := body.TeamID
+	if teamID != nil && !h.teamOwner(r, teamID) {
+		writeJSON(w, http.StatusForbidden, map[string]string{
+			"error": "Only the team owner can add a service to that team",
+		})
+		return
+	}
+
+	// Whoever added a personal row keeps it: a private service is only theirs to
+	// see, and a public one is still theirs to look after.
 	var ownerID *int64
-	if visibility == visibilityPrivate || !staff {
+	if teamID == nil && (visibility == visibilityPrivate || !staff) {
 		ownerID = &user.ID
 	}
 
@@ -511,6 +540,7 @@ func (h *handlers) createService(w http.ResponseWriter, r *http.Request) {
 		Status:                status,
 		Visibility:            visibility,
 		OwnerID:               ownerID,
+		TeamID:                teamID,
 	})
 	if err != nil {
 		h.fail(w, r, err)
@@ -547,6 +577,13 @@ func (h *handlers) updateService(w http.ResponseWriter, r *http.Request) {
 
 	user := h.user(r)
 	staff := auth.CanManageServices(user.Role)
+	teamOwner := current.TeamID != nil && h.teamOwner(r, current.TeamID)
+	if current.TeamID != nil && !staff && !teamOwner {
+		writeJSON(w, http.StatusForbidden, map[string]string{
+			"error": "Only the team owner can edit this service",
+		})
+		return
+	}
 
 	// A subscriber edits the service they added: name, page, logo, category, aliases
 	// and visibility. The address, adapter, endpoint, stage, active flag and
@@ -557,7 +594,9 @@ func (h *handlers) updateService(w http.ResponseWriter, r *http.Request) {
 		body.Endpoint = nil
 		body.Status = nil
 		body.Active = nil
-		body.Paused = nil
+		if !teamOwner {
+			body.Paused = nil
+		}
 	}
 
 	// The row has to stay valid as a whole, so the patch is merged onto the
@@ -710,7 +749,7 @@ func (h *handlers) updateService(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		patch.Visibility = &visibility
-		if staff && visibility == visibilityPrivate {
+		if staff && visibility == visibilityPrivate && current.TeamID == nil {
 			patch.SetOwner = true
 			patch.OwnerID = &user.ID
 		}
@@ -743,8 +782,8 @@ func (h *handlers) updateService(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"service": updated})
 }
 
-func (h *handlers) canDeleteService(current *store.AdminService, user *store.User, viewer store.Viewer) bool {
-	if viewer.Owns(current.OwnerID) {
+func (h *handlers) canDeleteService(r *http.Request, current *store.AdminService, user *store.User, viewer store.Viewer) bool {
+	if viewer.Owns(current.OwnerID) || h.teamOwner(r, current.TeamID) {
 		return true
 	}
 	if current.Status == string(store.StatusProposed) {
@@ -770,7 +809,7 @@ func (h *handlers) deleteService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.canDeleteService(current, user, h.viewer(r)) {
+	if !h.canDeleteService(r, current, user, h.viewer(r)) {
 		writeJSON(w, http.StatusForbidden, map[string]string{
 			"error": "Only an admin can remove a published service that is not yours",
 		})
