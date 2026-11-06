@@ -9,7 +9,7 @@ definePageMeta({ ssr: false })
 useSeoMeta({ title: 'Join a team', robots: 'noindex, nofollow' })
 
 const route = useRoute()
-const { user, loaded, signOut } = useAuth()
+const { user, loaded, signOut, load: loadAuth } = useAuth()
 
 const token = computed(() => String(route.query.token ?? ''))
 const invitation = ref<TeamInvitationView | null>(null)
@@ -18,6 +18,12 @@ const error = ref('')
 const joining = ref(false)
 const joinError = ref('')
 const joined = ref<Team | null>(null)
+
+const name = ref('')
+const password = ref('')
+const confirm = ref('')
+const registering = ref(false)
+const registerError = ref('')
 
 const roleLabel: Record<string, string> = {
   owner: 'owner',
@@ -70,6 +76,32 @@ async function join() {
   }
 }
 
+async function registerAccount() {
+  if (!invitation.value) return
+  registerError.value = ''
+  if (password.value !== confirm.value) {
+    registerError.value = 'The passwords do not match.'
+    return
+  }
+
+  registering.value = true
+  try {
+    const res = await $fetch<{ team: Team }>(
+      `/api/v1/teams/invitations/${encodeURIComponent(token.value)}/register`,
+      {
+        method: 'POST',
+        body: { name: name.value.trim(), password: password.value },
+      },
+    )
+    await loadAuth()
+    await navigateTo(`/teams/${res.team.slug}`)
+  } catch (err) {
+    registerError.value = apiError(err, 'Could not create the account.')
+  } finally {
+    registering.value = false
+  }
+}
+
 async function switchAccount() {
   await signOut()
   await navigateTo(`/login?next=${encodeURIComponent(next.value)}`)
@@ -106,15 +138,66 @@ onMounted(load)
         </div>
 
         <div v-else-if="!user" class="mt-5">
-          <p class="text-sm opacity-70">
-            Sign in as <strong>{{ invitation.email }}</strong> to accept it.
-          </p>
-          <NuxtLink
-            :to="`/login?next=${encodeURIComponent(next)}`"
-            class="btn btn-primary btn-sm mt-3"
-          >
-            Sign in to join
-          </NuxtLink>
+          <template v-if="invitation.hasAccount">
+            <p class="text-sm opacity-70">
+              Sign in as <strong>{{ invitation.email }}</strong> to accept it.
+            </p>
+            <NuxtLink
+              :to="`/login?next=${encodeURIComponent(next)}`"
+              class="btn btn-primary btn-sm mt-3"
+            >
+              Sign in to join
+            </NuxtLink>
+          </template>
+
+          <template v-else>
+            <p class="text-sm opacity-70">
+              Create an account for <strong>{{ invitation.email }}</strong> and
+              join at the same time.
+            </p>
+            <form class="mt-3 flex flex-col gap-3" @submit.prevent="registerAccount">
+              <label class="form-control w-full">
+                <span class="label-text mb-1 text-sm font-medium">Your name</span>
+                <input
+                  v-model="name"
+                  type="text"
+                  class="input input-bordered w-full"
+                  autocomplete="name"
+                  maxlength="80"
+                  required
+                />
+              </label>
+              <PasswordInput
+                v-model="password"
+                label="Password"
+                secret="password"
+                autocomplete="new-password"
+                minlength="8"
+                required
+              />
+              <PasswordInput
+                v-model="confirm"
+                label="Confirm password"
+                secret="password"
+                autocomplete="new-password"
+                minlength="8"
+                required
+              />
+              <button type="submit" class="btn btn-primary btn-sm" :disabled="registering">
+                <span v-if="registering" class="loading loading-spinner loading-xs" />
+                Create account and join
+              </button>
+            </form>
+            <p v-if="registerError" role="alert" class="mt-3 text-sm text-error">
+              {{ registerError }}
+            </p>
+            <p class="mt-3 text-sm opacity-70">
+              Already have an account?
+              <NuxtLink :to="`/login?next=${encodeURIComponent(next)}`" class="link">
+                Sign in
+              </NuxtLink>
+            </p>
+          </template>
         </div>
 
         <div v-else-if="!sameAddress" class="mt-5">

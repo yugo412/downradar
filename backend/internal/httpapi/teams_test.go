@@ -299,24 +299,96 @@ func TestTeamInvitationsCanBeResentAndRevoked(t *testing.T) {
 	}
 }
 
-func TestAnInvitationNeedsAnExistingAccount(t *testing.T) {
-	st, router, _ := testRouterWithMail(t)
+// An invitation can go to an address with no account. The link proves the
+// address, so it creates a verified account and spends the invitation at once.
+func TestAnInvitationCanMakeAnAccount(t *testing.T) {
+	st, router, spy := testRouterWithMail(t)
 	owner := testUser(t, st, auth.RoleSubscriber)
 	cookie := sessionFor(t, st, owner)
 
-	rec := call(t, router, http.MethodPost, "/api/v1/teams", `{"name":"Existing"}`, cookie)
+	rec := call(t, router, http.MethodPost, "/api/v1/teams", `{"name":"New Address"}`, cookie)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create team = %d: %s", rec.Code, rec.Body.String())
 	}
 	created := decodeTeam(t, rec.Body.Bytes())
-	teamID := created.Team.ID
-	teamSlug := created.Team.Slug
-	t.Cleanup(func() { _ = st.DeleteTeam(context.Background(), teamID) })
+	t.Cleanup(func() { _ = st.DeleteTeam(context.Background(), created.Team.ID) })
 
-	rec = call(t, router, http.MethodPost, teamPath(teamSlug)+"/invitations",
-		`{"email":"nobody-`+strconv.FormatInt(time.Now().UnixNano(), 10)+`@example.com","role":"member"}`, cookie)
-	if rec.Code != http.StatusUnprocessableEntity {
-		t.Errorf("an invitation to an unknown address = %d, want 422: %s", rec.Code, rec.Body.String())
+	email := "new-person-" + strconv.FormatInt(time.Now().UnixNano(), 10) + "@example.com"
+	t.Cleanup(func() { dropUser(t, st, email) })
+
+	rec = call(t, router, http.MethodPost, teamPath(created.Team.Slug)+"/invitations",
+		`{"email":"`+email+`","role":"member"}`, cookie)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("invite = %d: %s", rec.Code, rec.Body.String())
+	}
+	sent := spy.sent()
+	if len(sent) != 1 || sent[0].to != email {
+		t.Fatalf("mail = %+v, want one to the new address", sent)
+	}
+	token := tokenFrom(t, sent[0].body)
+
+	// The public view tells the join page to ask for a new account.
+	rec = call(t, router, http.MethodGet, "/api/v1/teams/invitations/"+token, "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("public invitation = %d: %s", rec.Code, rec.Body.String())
+	}
+	var view struct {
+		Invitation store.TeamInvitationView `json:"invitation"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &view); err != nil {
+		t.Fatalf("decode invitation: %v", err)
+	}
+	if view.Invitation.HasAccount {
+		t.Error("the invitation says an account exists before one was made")
+	}
+
+	rec = call(t, router, http.MethodPost,
+		"/api/v1/teams/invitations/"+token+"/register",
+		`{"name":"New Person","password":"a good password"}`, "")
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("register from invitation = %d: %s", rec.Code, rec.Body.String())
+	}
+	var answer struct {
+		User store.User `json:"user"`
+		Team store.Team `json:"team"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &answer); err != nil {
+		t.Fatalf("decode registration: %v", err)
+	}
+	if answer.User.Email != email || answer.Team.Slug != created.Team.Slug {
+		t.Errorf("answer = %+v, want the new account and team", answer)
+	}
+
+	var newCookie string
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == "dr_session" {
+			newCookie = "dr_session=" + c.Value
+		}
+	}
+	if newCookie == "" {
+		t.Fatal("registration did not sign the account in")
+	}
+	if rec := call(t, router, http.MethodGet, "/api/v1/auth/me", "", newCookie); rec.Code != http.StatusOK {
+		t.Errorf("the new session = %d, want it signed in", rec.Code)
+	}
+
+	user, err := st.UserByEmail(t.Context(), email)
+	if err != nil {
+		t.Fatalf("UserByEmail: %v", err)
+	}
+	if !user.Verified() {
+		t.Error("the invited account was not marked verified")
+	}
+	if role, _ := st.TeamRoleFor(t.Context(), created.Team.ID, user.ID); role != store.TeamRoleMember {
+		t.Errorf("role = %q, want member", role)
+	}
+
+	// The invitation was spent, so the same link cannot make another account.
+	rec = call(t, router, http.MethodPost,
+		"/api/v1/teams/invitations/"+token+"/register",
+		`{"name":"Another Person","password":"another password"}`, "")
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("the spent invitation made another account = %d, want 404", rec.Code)
 	}
 }
 

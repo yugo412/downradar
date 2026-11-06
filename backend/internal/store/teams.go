@@ -90,6 +90,9 @@ type TeamInvitationView struct {
 	TeamInvitation
 	TeamName      string `json:"teamName"`
 	InvitedByName string `json:"invitedByName,omitempty"`
+	// HasAccount says whether the invited address already has an account, so
+	// the join page knows whether to ask it to sign in or to create one.
+	HasAccount bool `json:"hasAccount,omitempty"`
 }
 
 type TeamInvitationInput struct {
@@ -582,7 +585,8 @@ func (s *Store) TeamInvitationByToken(ctx context.Context, tokenHash string) (*T
 	var view TeamInvitationView
 	err := s.pool.QueryRow(ctx, `
 		select i.id, i.team_id, i.email, i.role, i.transfer, i.invited_by,
-		       i.expires_at, i.accepted_at, i.created_at, t.name, coalesce(u.name, '')
+		       i.expires_at, i.accepted_at, i.created_at, t.name, coalesce(u.name, ''),
+		       exists (select 1 from users e where lower(e.email) = lower(i.email))
 		from team_invitations i
 		join teams t on t.id = i.team_id
 		left join users u on u.id = i.invited_by
@@ -590,7 +594,7 @@ func (s *Store) TeamInvitationByToken(ctx context.Context, tokenHash string) (*T
 		tokenHash,
 	).Scan(&view.ID, &view.TeamID, &view.Email, &view.Role, &view.Transfer,
 		&view.InvitedBy, &view.ExpiresAt, &view.AcceptedAt, &view.CreatedAt,
-		&view.TeamName, &view.InvitedByName)
+		&view.TeamName, &view.InvitedByName, &view.HasAccount)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
