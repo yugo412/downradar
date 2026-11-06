@@ -312,12 +312,21 @@ pending. The invitee also finds it under Pending invitations on
 `/teams`, where the signed in session is proof of the address and no token has to
 travel. Owners can change a member's role, while a manager can add and
 remove members but cannot make or remove another manager. A manager or member
-cannot change the team's settings, and the owner is not removed from this
-screen: ownership transfer arrives with the owner-deletion flow.
+cannot change the team's settings.
 
 The personal/team switch at the top of the team screens is where the team area
-begins. At this stage a team has members and roles; owning services and alerts
-follows in the next step.
+begins. A team can own services and alerts: its owner adds a service to it, the
+row is private to its members, and only the owner edits or removes it. Any
+member can save and look after the team's alerts. A team alert goes to the one
+address saved on it, while every member also sees the change in their own
+notification feed. A team has its own alert limit, `ALERT_LIMIT_PER_TEAM`, so
+one member's personal count does not decide what the team may watch.
+
+A team always has an owner. An owner who deletes their account first deletes
+each team with everything it owns, or hands it to an existing manager or member.
+A new address can receive an owner invitation instead; the account deletion
+waits until it is accepted, and an expired invitation can be replaced or the
+team deleted. Staff recovery for an abandoned team is not part of this flow.
 
 Signing in does not need the password: `/login` asks for an address and mails a
 one-use link that expires in fifteen minutes. Following it also confirms the

@@ -431,6 +431,7 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	mux.HandleFunc("GET /api/v1/teams/{team}", h.requireAuth(h.getTeam))
 	mux.HandleFunc("PATCH /api/v1/teams/{team}", h.requireAuth(h.updateTeam))
 	mux.HandleFunc("DELETE /api/v1/teams/{team}", h.requireAuth(h.deleteTeam))
+	mux.HandleFunc("POST /api/v1/teams/{team}/transfer", h.requireAuth(h.transferTeam))
 	mux.HandleFunc("POST /api/v1/teams/{team}/invitations", h.requireAuth(h.inviteToTeam))
 	mux.HandleFunc("POST /api/v1/teams/{team}/invitations/{invite}/resend", h.requireAuth(h.resendTeamInvitation))
 	mux.HandleFunc("DELETE /api/v1/teams/{team}/invitations/{invite}", h.requireAuth(h.revokeTeamInvitation))

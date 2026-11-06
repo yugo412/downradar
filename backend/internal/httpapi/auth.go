@@ -428,6 +428,28 @@ func (h *handlers) deleteAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A team cannot be left without an owner, and deleting the only one would
+	// do exactly that. The account screen offers the two ways out first: delete
+	// the team, or hand it to somebody who has accepted it.
+	teams, err := h.store.TeamsForUser(r.Context(), current.ID)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	owned := []string{}
+	for _, team := range teams {
+		if team.Role == store.TeamRoleOwner {
+			owned = append(owned, team.Name)
+		}
+	}
+	if len(owned) > 0 {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error": "Delete or transfer the teams you own before deleting this account",
+			"teams": owned,
+		})
+		return
+	}
+
 	if err := h.store.DeleteUser(r.Context(), current.ID); err != nil {
 		h.fail(w, r, err)
 		return
