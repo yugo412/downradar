@@ -8,8 +8,8 @@ semantic versioning.
 
 ### Added
 
-- Team workspaces: create a team, invite an existing account, and manage its
-  members, roles and pending invitations from the account menu.
+- Team workspaces: create a team, invite an existing account or a new address,
+  and manage its members, roles and pending invitations from the account menu.
 
 ## [0.8.0]
 
