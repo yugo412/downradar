@@ -874,7 +874,14 @@ func (h *handlers) testWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, _ := h.notifier.TestWebhook(r.Context(), serviceID, *hook)
-	if err := h.store.LogWebhookCall(r.Context(), &user.ID, serviceID, nil, store.WebhookCall{
+
+	// A try belongs to the owner the page was editing: the team for a team
+	// alert, and the person otherwise.
+	var logUserID *int64
+	if body.TeamID == nil {
+		logUserID = &user.ID
+	}
+	if err := h.store.LogWebhookCall(r.Context(), logUserID, body.TeamID, serviceID, nil, store.WebhookCall{
 		Kind:     store.CallTest,
 		URL:      hook.URL,
 		Method:   hook.Method,
@@ -1618,21 +1625,9 @@ func (h *handlers) getUserAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The calls are read whether or not there is an alert: a webhook can be tried
-	// from the page before anything is saved, and what it answered is worth
-	// showing the next time the page opens. The page shows them twenty at a time,
-	// so it reads everything the store keeps.
-	calls, err := h.store.WebhookCalls(r.Context(), h.user(r).ID, serviceID, store.WebhookCallsKept)
-	if err != nil {
-		h.fail(w, r, err)
-		return
-	}
-	channelStatus, err := h.store.ChannelDeliveryStatuses(r.Context(), h.user(r).ID, serviceID)
-	if err != nil {
-		h.fail(w, r, err)
-		return
-	}
-
+	// The owner is resolved first: the calls and the channel results belong to
+	// a person or a team, and a team alert's log is the team's, not the member's
+	// who opened the page.
 	var teamID *int64
 	if raw := strings.TrimSpace(r.URL.Query().Get("team")); raw != "" {
 		id, parseErr := strconv.ParseInt(raw, 10, 64)
@@ -1648,6 +1643,21 @@ func (h *handlers) getUserAlert(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		teamID = &id
+	}
+
+	// The calls are read whether or not there is an alert: a webhook can be tried
+	// from the page before anything is saved, and what it answered is worth
+	// showing the next time the page opens. The page shows them twenty at a time,
+	// so it reads everything the store keeps.
+	calls, err := h.store.WebhookCalls(r.Context(), h.user(r).ID, teamID, serviceID, store.WebhookCallsKept)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	channelStatus, err := h.store.ChannelDeliveryStatuses(r.Context(), h.user(r).ID, teamID, serviceID)
+	if err != nil {
+		h.fail(w, r, err)
+		return
 	}
 
 	view, err := h.store.UserAlert(r.Context(), h.user(r).ID, serviceID, teamID)

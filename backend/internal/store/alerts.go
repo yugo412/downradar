@@ -453,14 +453,18 @@ func (s *Store) RecordChannelAttempt(ctx context.Context, channelID int64, messa
 }
 
 // ChannelDeliveryStatuses reads the last result of every live channel of one
-// alert, so the page can show it beside the channel that sent it.
-func (s *Store) ChannelDeliveryStatuses(ctx context.Context, userID, serviceID int64) ([]ChannelDeliveryStatus, error) {
+// alert, so the page can show it beside the channel that sent it. A team alert
+// is read through its team, not the member who happened to open the page.
+func (s *Store) ChannelDeliveryStatuses(ctx context.Context, userID int64, teamID *int64, serviceID int64) ([]ChannelDeliveryStatus, error) {
 	rows, err := s.pool.Query(ctx, `
 		select c.kind, c.last_attempt_at, c.last_success_at, coalesce(c.last_error, '')
 		from alert_channels c
 		join alert_subscriptions a on a.id = c.subscription_id
-		where a.user_id = $1 and a.service_id = $2 and c.unsubscribed_at is null
-		order by c.kind`, userID, serviceID)
+		where a.service_id = $3
+		  and (($2::bigint is null and a.user_id = $1)
+		       or ($2::bigint is not null and a.team_id = $2))
+		  and c.unsubscribed_at is null
+		order by c.kind`, userID, teamID, serviceID)
 	if err != nil {
 		return nil, fmt.Errorf("alerts: channel status for user %d: %w", userID, err)
 	}
@@ -2331,19 +2335,19 @@ type WebhookCall struct {
 // is called every day does not grow a table nobody reads.
 const WebhookCallsKept = 50
 
-// LogWebhookCall writes one call down. A subscription with no owner has nobody to
-// show a log to, so nothing is written for it rather than a row that no screen
-// can reach.
-func (s *Store) LogWebhookCall(ctx context.Context, userID *int64, serviceID int64, channelID *int64, call WebhookCall) error {
-	if userID == nil {
+// LogWebhookCall writes one call down. It belongs to a person or a team; a
+// subscription with neither has nobody to show a log to, so nothing is written
+// for it rather than a row that no screen can reach.
+func (s *Store) LogWebhookCall(ctx context.Context, userID, teamID *int64, serviceID int64, channelID *int64, call WebhookCall) error {
+	if userID == nil && teamID == nil {
 		return nil
 	}
 
 	if _, err := s.pool.Exec(ctx, `
 		insert into alert_webhook_calls
-			(user_id, service_id, channel_id, kind, url, method, status, response, error)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-		*userID, serviceID, channelID, call.Kind, call.URL, call.Method,
+			(user_id, team_id, service_id, channel_id, kind, url, method, status, response, error)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		userID, teamID, serviceID, channelID, call.Kind, call.URL, call.Method,
 		call.Status, call.Response, call.Error); err != nil {
 		return fmt.Errorf("alerts: record a webhook call: %w", err)
 	}
@@ -2352,23 +2356,28 @@ func (s *Store) LogWebhookCall(ctx context.Context, userID *int64, serviceID int
 		delete from alert_webhook_calls
 		where id in (
 			select id from alert_webhook_calls
-			where user_id = $1 and service_id = $2
+			where service_id = $3
+			  and (($1::bigint is not null and user_id = $1)
+			       or ($2::bigint is not null and team_id = $2))
 			order by id desc
-			offset $3)`, *userID, serviceID, WebhookCallsKept); err != nil {
+			offset $4)`, userID, teamID, serviceID, WebhookCallsKept); err != nil {
 		return fmt.Errorf("alerts: trim webhook calls: %w", err)
 	}
 	return nil
 }
 
 // WebhookCalls reads the last calls of one alert, newest first, which is what the
-// page shows beside its webhook.
-func (s *Store) WebhookCalls(ctx context.Context, userID, serviceID int64, limit int) ([]WebhookCall, error) {
+// page shows beside its webhook. A team alert's calls are read through its team
+// rather than through the member who opened the page.
+func (s *Store) WebhookCalls(ctx context.Context, userID int64, teamID *int64, serviceID int64, limit int) ([]WebhookCall, error) {
 	rows, err := s.pool.Query(ctx, `
 		select id, kind, url, method, status, response, error, created_at
 		from alert_webhook_calls
-		where user_id = $1 and service_id = $2
+		where service_id = $3
+		  and (($2::bigint is null and user_id = $1)
+		       or ($2::bigint is not null and team_id = $2))
 		order by id desc
-		limit $3`, userID, serviceID, limit)
+		limit $4`, userID, teamID, serviceID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("alerts: webhook calls of service %d: %w", serviceID, err)
 	}

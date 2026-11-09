@@ -600,9 +600,44 @@ func TestTeamOwnsServicesAndAlerts(t *testing.T) {
 		t.Errorf("team alert is missing from the owner's list: %s", rec.Body.String())
 	}
 
+	// A webhook call made for the team is read through the team, and it does
+	// not show up as a personal call to the member who made it.
+	serviceID, _, err := st.PublicService(t.Context(), vendor)
+	if err != nil {
+		t.Fatalf("PublicService: %v", err)
+	}
+	if err := st.LogWebhookCall(t.Context(), nil, &team.ID, serviceID, nil, store.WebhookCall{
+		Kind: store.CallTest, URL: "https://hooks.example.invalid/team", Method: http.MethodPost,
+	}); err != nil {
+		t.Fatalf("LogWebhookCall: %v", err)
+	}
+
 	detail := "/api/v1/vendors/" + vendor + "/alerts?team=" + strconv.FormatInt(team.ID, 10)
-	if rec := call(t, router, http.MethodGet, detail, "", ownerCookie); rec.Code != http.StatusOK {
+	rec = call(t, router, http.MethodGet, detail, "", ownerCookie)
+	if rec.Code != http.StatusOK {
 		t.Errorf("team alert detail = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var teamDetail struct {
+		Calls []store.WebhookCall `json:"calls"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &teamDetail); err != nil {
+		t.Fatalf("decode team alert detail: %v", err)
+	}
+	if len(teamDetail.Calls) != 1 {
+		t.Errorf("team calls = %d, want the call made for the team", len(teamDetail.Calls))
+	}
+	rec = call(t, router, http.MethodGet, "/api/v1/vendors/"+vendor+"/alerts", "", memberCookie)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("personal alert detail = %d: %s", rec.Code, rec.Body.String())
+	}
+	var personalDetail struct {
+		Calls []store.WebhookCall `json:"calls"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &personalDetail); err != nil {
+		t.Fatalf("decode personal alert detail: %v", err)
+	}
+	if len(personalDetail.Calls) != 0 {
+		t.Errorf("personal calls = %d, want none of the team's", len(personalDetail.Calls))
 	}
 	if rec := call(t, router, http.MethodGet, detail, "", outsiderCookie); rec.Code != http.StatusNotFound {
 		t.Errorf("an outsider read the team alert = %d, want 404", rec.Code)

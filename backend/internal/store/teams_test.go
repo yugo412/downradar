@@ -346,3 +346,78 @@ func TestATeamCannotTakeTheJoinPageAddress(t *testing.T) {
 		t.Errorf("slug = %q, want an address that is not the join page", team.Slug)
 	}
 }
+
+// A team alert's webhook calls and channel results belong to the team, so every
+// member reads them there and a personal alert on the same vendor does not mix
+// with them.
+func TestTeamWebhookCallsBelongToTheTeam(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+
+	owner := newTestUser(t, st, "subscriber")
+	team, err := st.CreateTeam(ctx, owner.ID, uniqueName("Calls"))
+	if err != nil {
+		t.Fatalf("CreateTeam: %v", err)
+	}
+	t.Cleanup(func() { _ = st.DeleteTeam(context.Background(), team.ID) })
+
+	serviceID := testService(t, st, uniqueName("team calls"))
+	email := "team-calls@example.com"
+	if err := st.SubscribeAlert(ctx, serviceID, nil, AlertChange{
+		TeamID: &team.ID, Email: &email, EmailToken: uniqueName("team-token"), Targets: WholeVendor,
+	}); err != nil {
+		t.Fatalf("SubscribeAlert: %v", err)
+	}
+
+	view, err := st.UserAlert(ctx, owner.ID, serviceID, &team.ID)
+	if err != nil {
+		t.Fatalf("UserAlert: %v", err)
+	}
+	var channelID int64
+	if err := st.pool.QueryRow(ctx, `
+		select id from alert_channels where subscription_id = $1 and kind = 'email'`,
+		view.ID).Scan(&channelID); err != nil {
+		t.Fatalf("read the team channel: %v", err)
+	}
+
+	status := 200
+	if err := st.LogWebhookCall(ctx, nil, &team.ID, serviceID, &channelID, WebhookCall{
+		Kind: CallTest, URL: "https://hooks.example.invalid/team", Method: "POST",
+		Status: &status, Response: "team answer",
+	}); err != nil {
+		t.Fatalf("LogWebhookCall: %v", err)
+	}
+
+	calls, err := st.WebhookCalls(ctx, owner.ID, &team.ID, serviceID, 10)
+	if err != nil {
+		t.Fatalf("WebhookCalls for the team: %v", err)
+	}
+	if len(calls) != 1 || calls[0].Response != "team answer" {
+		t.Errorf("team calls = %+v, want the call written for the team", calls)
+	}
+	personal, err := st.WebhookCalls(ctx, owner.ID, nil, serviceID, 10)
+	if err != nil {
+		t.Fatalf("WebhookCalls for the person: %v", err)
+	}
+	if len(personal) != 0 {
+		t.Errorf("personal calls = %+v, want none of the team's", personal)
+	}
+
+	if err := st.RecordChannelAttempt(ctx, channelID, "team channel refused"); err != nil {
+		t.Fatalf("RecordChannelAttempt: %v", err)
+	}
+	statuses, err := st.ChannelDeliveryStatuses(ctx, owner.ID, &team.ID, serviceID)
+	if err != nil {
+		t.Fatalf("ChannelDeliveryStatuses for the team: %v", err)
+	}
+	if len(statuses) != 1 || statuses[0].Error == "" {
+		t.Errorf("team statuses = %+v, want the failed attempt", statuses)
+	}
+	personalStatuses, err := st.ChannelDeliveryStatuses(ctx, owner.ID, nil, serviceID)
+	if err != nil {
+		t.Fatalf("ChannelDeliveryStatuses for the person: %v", err)
+	}
+	if len(personalStatuses) != 0 {
+		t.Errorf("personal statuses = %+v, want none of the team's", personalStatuses)
+	}
+}

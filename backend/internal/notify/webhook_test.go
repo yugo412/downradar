@@ -471,7 +471,7 @@ func TestADrainWritesDownTheCallItMade(t *testing.T) {
 		t.Fatalf("drain: %v", err)
 	}
 
-	logged, err := st.WebhookCalls(ctx, user.ID, serviceID, 10)
+	logged, err := st.WebhookCalls(ctx, user.ID, nil, serviceID, 10)
 	if err != nil {
 		t.Fatalf("WebhookCalls: %v", err)
 	}
@@ -519,7 +519,7 @@ func TestADrainWritesDownTheCallItMade(t *testing.T) {
 		t.Fatalf("second drain: %v", err)
 	}
 
-	logged, err = st.WebhookCalls(ctx, user.ID, serviceID, 10)
+	logged, err = st.WebhookCalls(ctx, user.ID, nil, serviceID, 10)
 	if err != nil {
 		t.Fatalf("WebhookCalls: %v", err)
 	}
