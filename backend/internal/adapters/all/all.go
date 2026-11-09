@@ -25,6 +25,7 @@ import (
 	_ "downradar.info/backend/internal/adapters/sorryapp"
 	_ "downradar.info/backend/internal/adapters/statuscake"
 	_ "downradar.info/backend/internal/adapters/statusio"
+	_ "downradar.info/backend/internal/adapters/statusiq"
 	_ "downradar.info/backend/internal/adapters/statuspage"
 	_ "downradar.info/backend/internal/adapters/uptimerobot"
 	_ "downradar.info/backend/internal/adapters/xai"
