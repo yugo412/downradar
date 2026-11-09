@@ -544,6 +544,12 @@ func (h *handlers) listVendors(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handlers) getVendor(w http.ResponseWriter, r *http.Request) {
+	// An alert link lands here, and the reader compares what the message said
+	// with what the page shows now. A public cache would answer with a minute
+	// old state, so this one response is never stored, on the server or in the
+	// browser.
+	w.Header().Set("Cache-Control", "no-store")
+
 	// The public endpoint always asks as the public, so a private service is not
 	// reachable here no matter who is signed in.
 	detail, err := h.store.GetVendor(r.Context(), r.PathValue("slug"), store.Public())
