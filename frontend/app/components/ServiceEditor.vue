@@ -6,17 +6,21 @@ const props = withDefaults(
     slug: string
     presetStatus?: ServiceStatus
     heading?: string
+    // The vendor page's quick edit is the only sheet that offers removal; the
+    // services list and detail screens already have their own row actions.
+    showRemove?: boolean
   }>(),
-  { presetStatus: undefined, heading: '' },
+  { presetStatus: undefined, heading: '', showRemove: false },
 )
 
 const emit = defineEmits<{
   close: []
   saved: [service: AdminService]
   changed: [service: AdminService]
+  removed: []
 }>()
 
-const { canManageServices } = useAuth()
+const { canManageServices, isAdmin } = useAuth()
 
 const profiles = ref<AdminProfile[]>([])
 const categories = ref<string[]>([])
@@ -36,6 +40,42 @@ const canPause = computed(
     Boolean(service.value?.active) &&
     (service.value?.status === 'published' || service.value?.status === 'no_match'),
 )
+
+// Removing is an admin's alone, and the button only appears where the sheet was
+// asked to carry it. The confirmation says what happens to the row first.
+const confirmingRemove = ref(false)
+const removeBusy = ref(false)
+const removeError = ref('')
+
+const removeMessage = computed(() => {
+  const current = service.value
+  if (!current) return ''
+  if (current.status === 'proposed') {
+    return `${current.name} was only a suggestion, so it is deleted for good. Nothing else is affected.`
+  }
+  return `${current.name} is taken off the site and stops being polled. Its history is kept, and it can be restored from the Removed filter.`
+})
+
+function cancelRemove() {
+  confirmingRemove.value = false
+  removeError.value = ''
+}
+
+async function removeService() {
+  if (!service.value) return
+
+  removeBusy.value = true
+  removeError.value = ''
+  try {
+    await $fetch(`/api/v1/services/${props.slug}`, { method: 'DELETE' })
+    confirmingRemove.value = false
+    emit('removed')
+  } catch (err) {
+    removeError.value = apiError(err, 'Could not remove the service.')
+  } finally {
+    removeBusy.value = false
+  }
+}
 
 async function togglePause() {
   if (!service.value) return
@@ -174,8 +214,38 @@ async function save(payload: ServicePayload) {
             @submit="save"
             @cancel="emit('close')"
           />
+
+          <div
+            v-if="showRemove && isAdmin && service"
+            class="mt-6 border-t border-base-300 pt-5"
+          >
+            <h3 class="text-sm font-semibold text-error">Remove service</h3>
+            <p class="mt-1 text-sm opacity-70">
+              Take {{ service.name }} off the site and stop checking it. Its
+              history is kept, so it can be restored from the Removed filter.
+            </p>
+            <button
+              type="button"
+              class="btn btn-error btn-sm mt-3"
+              :disabled="busy || pausing || removeBusy"
+              @click="confirmingRemove = true"
+            >
+              Remove service
+            </button>
+          </div>
         </template>
       </div>
     </div>
+
+    <ConfirmDialog
+      v-if="confirmingRemove"
+      heading="Remove this service?"
+      :message="removeMessage"
+      confirm-label="Remove service"
+      :busy="removeBusy"
+      :error="removeError"
+      @cancel="cancelRemove"
+      @confirm="removeService"
+    />
   </div>
 </template>
