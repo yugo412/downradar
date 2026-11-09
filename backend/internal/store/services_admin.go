@@ -170,6 +170,9 @@ type NewService struct {
 	// before the column meant.
 	Visibility string
 	OwnerID    *int64
+	// TeamID makes the row belong to a team instead of a person. The two are
+	// exclusive; an empty team leaves the row personal.
+	TeamID *int64
 }
 
 // A vendor saved before its profile is known has no cadence of its own yet, so
@@ -187,6 +190,9 @@ func (s *Store) CreateService(ctx context.Context, in NewService) (string, error
 	slug, err := s.uniqueSlug(ctx, Slugify(in.Name))
 	if err != nil {
 		return "", err
+	}
+	if in.OwnerID != nil && in.TeamID != nil {
+		return "", errors.New("services: a row belongs to one owner")
 	}
 
 	aliases := in.Aliases
@@ -220,11 +226,11 @@ func (s *Store) CreateService(ctx context.Context, in NewService) (string, error
 		insert into services (slug, name, url, category, logo_url, profile, endpoint,
 		                      aliases, include_components, allow_shared_page, active,
 		                      poll_interval_seconds, active_interval_seconds, status,
-		                      visibility, owner_id, updated_at)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, '{}', false, true, $9, $10, $11, $12, $13, now())`,
+		                      visibility, owner_id, team_id, updated_at)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, '{}', false, true, $9, $10, $11, $12, $13, $14, now())`,
 		slug, in.Name, nullify(in.URL), nullify(in.Category), nullify(in.LogoURL),
 		nullify(in.Profile), nullify(in.Endpoint), aliases,
-		pollSeconds, activeSeconds, status, visibility, in.OwnerID,
+		pollSeconds, activeSeconds, status, visibility, in.OwnerID, in.TeamID,
 	); err != nil {
 		return "", fmt.Errorf("services: create %s: %w", slug, err)
 	}

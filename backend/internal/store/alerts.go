@@ -625,6 +625,10 @@ func parseWebhookSettings(raw []byte, address string) (AlertWebhook, error) {
 // it should watch. A named way replaces what was there, nil leaves it alone, and
 // an empty address or a webhook with no URL stops that way.
 type AlertChange struct {
+	// TeamID makes the subscription belong to a team instead of a person. A row
+	// belongs to one or the other, never both; an empty value keeps it personal.
+	TeamID *int64
+
 	// Email is the address the alert should go to. EmailToken is for the channel
 	// a save creates; a channel that is already there keeps the token it has, so
 	// a link in a message already sent still reaches it.
@@ -783,20 +787,23 @@ func (s *Store) subscribeAlert(ctx context.Context, serviceID int64, userID *int
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	subscriptionID, err := alertSubscription(ctx, tx, serviceID, userID, change.Email)
+	subscriptionID, err := alertSubscription(ctx, tx, serviceID, userID, change.TeamID, change.Email)
 	switch {
 	case err == nil:
 		if _, err := tx.Exec(ctx, `
 			update alert_subscriptions
-			set user_id = coalesce($2, user_id), updated_at = now()
-			where id = $1`, subscriptionID, userID); err != nil {
+			set user_id = coalesce($2, user_id),
+			    team_id = coalesce($3, team_id),
+			    updated_at = now()
+			where id = $1`, subscriptionID, userID, change.TeamID); err != nil {
 			return "", fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
 		}
 
 	case errors.Is(err, pgx.ErrNoRows):
 		if err := tx.QueryRow(ctx,
-			`insert into alert_subscriptions (user_id, service_id) values ($1, $2) returning id`,
-			userID, serviceID).Scan(&subscriptionID); err != nil {
+			`insert into alert_subscriptions (user_id, team_id, service_id)
+			 values ($1, $2, $3) returning id`,
+			userID, change.TeamID, serviceID).Scan(&subscriptionID); err != nil {
 			return "", fmt.Errorf("alerts: subscribe on service %d: %w", serviceID, err)
 		}
 
@@ -858,10 +865,11 @@ func (s *Store) subscribeAlert(ctx context.Context, serviceID int64, userID *int
 	return secret, nil
 }
 
-// alertSubscription is the row a save belongs on: the account's alert on this
-// vendor if there is one, otherwise the address's. Both count whatever their
-// channels are doing, because a paused or stopped way is still being changed.
-func alertSubscription(ctx context.Context, tx pgx.Tx, serviceID int64, userID *int64, email *string) (int64, error) {
+// alertSubscription is the row a save belongs on: the team's alert on this
+// vendor when a team is given, otherwise the account's, otherwise the address's.
+// All count whatever their channels are doing, because a paused or stopped way
+// is still being changed.
+func alertSubscription(ctx context.Context, tx pgx.Tx, serviceID int64, userID, teamID *int64, email *string) (int64, error) {
 	address := ""
 	if email != nil {
 		address = *email
@@ -872,12 +880,20 @@ func alertSubscription(ctx context.Context, tx pgx.Tx, serviceID int64, userID *
 		select a.id
 		from alert_subscriptions a
 		where a.service_id = $1
-		  and ((a.user_id is not null and a.user_id = $2)
-		       or ($3 <> '' and exists (
-				select 1 from alert_channels c
-				where c.subscription_id = a.id and c.kind = 'email' and c.address = $3)))
-		order by (a.user_id is not null and a.user_id = $2) desc, a.id
-		limit 1`, serviceID, userID, address).Scan(&id)
+		  and (($2::bigint is not null and (
+					a.team_id = $2
+					or (a.team_id is null and a.user_id is null and $4 <> '' and exists (
+						select 1 from alert_channels c
+						where c.subscription_id = a.id and c.kind = 'email' and c.address = $4))))
+		       or ($2::bigint is null and (
+					a.user_id = $3
+					or ($4 <> '' and exists (
+						select 1 from alert_channels c
+						where c.subscription_id = a.id and c.kind = 'email' and c.address = $4)))))
+		order by (a.team_id is not null and a.team_id = $2) desc,
+		         (a.user_id is not null and a.user_id = $3) desc,
+		         a.id
+		limit 1`, serviceID, teamID, userID, address).Scan(&id)
 	if err != nil {
 		return 0, err
 	}
