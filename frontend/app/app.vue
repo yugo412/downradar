@@ -69,6 +69,7 @@ const serviceLinks = [
   { label: 'Add service', to: '/services/new' },
   { label: 'List services', to: '/services' },
   { label: 'All alerts', to: '/alerts/all' },
+  { label: 'Profiles', to: '/services/profiles' },
 ]
 
 const toolLinks = [{ label: 'Broadcast notification', to: '/tools' }]

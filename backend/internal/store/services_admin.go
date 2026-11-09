@@ -384,3 +384,28 @@ func (s *Store) PurgeService(ctx context.Context, slug string) error {
 	}
 	return nil
 }
+
+// ProfileUsage counts the services that run on each profile. A profile nobody
+// uses is absent rather than zero, so the caller fills in the zero.
+func (s *Store) ProfileUsage(ctx context.Context) (map[string]int, error) {
+	rows, err := s.pool.Query(ctx, `
+		select profile, count(*)
+		from services
+		where profile <> ''
+		group by profile`)
+	if err != nil {
+		return nil, fmt.Errorf("services: profile usage: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string]int)
+	for rows.Next() {
+		var profile string
+		var count int
+		if err := rows.Scan(&profile, &count); err != nil {
+			return nil, fmt.Errorf("services: scan profile usage: %w", err)
+		}
+		out[profile] = count
+	}
+	return out, rows.Err()
+}

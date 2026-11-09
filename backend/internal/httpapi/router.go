@@ -324,6 +324,10 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	// is no route to pause, edit or delete another subscriber's alert.
 	mux.HandleFunc("GET /api/v1/staff/alerts", h.requireStaff(h.listStaffAlerts))
 
+	// The profiles page reads what services.yaml declares and how many services
+	// run on each profile. Staff only: the picker itself is enough for a subscriber.
+	mux.HandleFunc("GET /api/v1/staff/profiles", h.requireStaff(h.listStaffProfiles))
+
 	mux.HandleFunc("POST /api/v1/auth/login",
 		h.authEndpoint(h.limited(h.loginLimiter, false,
 			"Too many sign in attempts, please try again later", h.login)))
