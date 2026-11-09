@@ -1,0 +1,163 @@
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "active_incident_details": [
+      {
+        "enc_incident_id": "active-api-outage",
+        "incident_type": 1,
+        "incident_title": "API outage",
+        "incident_began_at": "2026-11-09T01:00:00+0000",
+        "incident_severity_id": 6,
+        "incident_severity": "Major Outage",
+        "incident_affected_components": [
+          {"display_name": "API", "is_group": false}
+        ],
+        "incident_status_updates": [
+          {
+            "incident_status_id": 10,
+            "incident_status": "Acknowledged",
+            "incident_status_desc": "We are looking into it.",
+            "status_updated_at": "2026-11-09T01:05:00+0000"
+          }
+        ]
+      }
+    ],
+    "current_status": [
+      {
+        "enc_component_id": "api",
+        "display_name": "API",
+        "is_group": false,
+        "component_status": 6,
+        "last_polled_time": "2026-11-09T01:10:00+0000"
+      },
+      {
+        "enc_componentgroup_id": "blue-ring",
+        "componentgroup_display_name": "Blue Ring",
+        "componentgroup_status": 6,
+        "is_group": true,
+        "componentgroup_components": [
+          {
+            "enc_component_id": "d-hanis",
+            "display_name": "D Hanis",
+            "enc_componentgroup_id": "blue-ring",
+            "is_group": false,
+            "component_status": 6,
+            "last_polled_time": "2026-11-09T01:10:00+0000"
+          },
+          {
+            "enc_component_id": "carrizo",
+            "display_name": "Carrizo Springs",
+            "enc_componentgroup_id": "blue-ring",
+            "is_group": false,
+            "component_status": 1,
+            "last_polled_time": "2026-11-09T01:10:00+0000"
+          }
+        ]
+      },
+      {
+        "enc_component_id": "docs",
+        "display_name": "Docs",
+        "is_group": false,
+        "component_status": 4,
+        "last_polled_time": "2026-11-09T01:10:00+0000"
+      },
+      {
+        "enc_component_id": "search",
+        "display_name": "Search",
+        "is_group": false,
+        "component_status": 3,
+        "last_polled_time": "2026-11-09T01:10:00+0000"
+      },
+      {
+        "enc_component_id": "info",
+        "display_name": "Release notes",
+        "is_group": false,
+        "component_status": 2,
+        "last_polled_time": "2026-11-09T01:10:00+0000"
+      }
+    ],
+    "maintenance_details": [
+      {
+        "maintenance_title": "Nightly backup",
+        "maintenance_desc": "<p>The database is backed up.</p>",
+        "maintenance_status": "V",
+        "timezone": "Etc/UTC",
+        "maintenance_affected_components": [
+          {"display_name": "Docs", "is_group": false}
+        ],
+        "maintenance_will_begin_at": "2026-11-10T03:00:00+0000",
+        "maintenance_will_end_at": "2026-11-10T04:00:00+0000",
+        "enc_maintenance_id": "upcoming-backup"
+      }
+    ],
+    "resolved_incident_details": [
+      {
+        "grp_by_date": "2026-11-08T00:00:00+0000",
+        "grp_by_incidents_count": 2,
+        "grp_by_incidents_list": [
+          {
+            "enc_inc_id": "resolved-build",
+            "incident_type": 1,
+            "incident_title": "Build service degraded",
+            "incident_began_at": "2026-11-08T09:15:00+0000",
+            "incident_ended_at": "2026-11-08T10:30:00+0000",
+            "incident_severity_id": 5,
+            "incident_severity": "Partial Outage",
+            "incident_affected_components": [
+              {"display_name": "Build service", "is_group": false}
+            ],
+            "incident_status_updates": [
+              {
+                "incident_status_id": 14,
+                "incident_status": "Resolved",
+                "incident_status_desc": "Builds are going through again.",
+                "status_updated_at": "2026-11-08T10:30:00+0000"
+              },
+              {
+                "incident_status_id": 11,
+                "incident_status": "Investigating",
+                "incident_status_desc": "Some builds are slow.",
+                "status_updated_at": "2026-11-08T09:15:00+0000"
+              }
+            ]
+          },
+          {
+            "enc_inc_id": "resolved-maintenance",
+            "incident_type": 2,
+            "incident_title": "Weekly maintenance",
+            "incident_began_at": "2026-11-08T05:00:00+0000",
+            "incident_ended_at": "2026-11-08T06:00:00+0000",
+            "incident_severity_id": 4,
+            "incident_severity": "Under Maintenance",
+            "incident_affected_components": [
+              {"display_name": "API", "is_group": false}
+            ],
+            "incident_status_updates": [
+              {
+                "incident_status_id": 24,
+                "incident_status": "Completed",
+                "incident_status_desc": "Maintenance completed.",
+                "status_updated_at": "2026-11-08T06:00:00+0000"
+              },
+              {
+                "incident_status_id": 22,
+                "incident_status": "In Progress",
+                "incident_status_desc": "Maintenance started.",
+                "status_updated_at": "2026-11-08T05:00:00+0000"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "status_history_details": {},
+    "statuspage_details": {
+      "statuspage_display_name": "Example Status",
+      "company_name": "Example",
+      "statuspage_url": "https://status.example.com",
+      "enc_statuspage_id": "test-page-id=",
+      "status": 1
+    }
+  }
+}

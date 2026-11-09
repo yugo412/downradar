@@ -38,6 +38,7 @@ detect:
   - hund
   - instatus
   - cstate
+  - statusiq
   - sorryapp
   - pagerduty
   - betterstack
@@ -150,6 +151,16 @@ profiles:
     kind: cstate
     description: Pages built with cState, read from the JSON the page publishes.
     endpoint: /index.json
+    poll_interval_seconds: 300
+    active_interval_seconds: 60
+
+  # StatusIQ is Site24x7's status page product: the page carries an encoded id
+  # in its inline config, and the components, incidents and maintenance come
+  # from a JSON API under /sp/api. Nothing is configured per vendor.
+  statusiq:
+    kind: statusiq
+    description: Pages built with StatusIQ, read from the page and its JSON API.
+    endpoint: /sp/api/
     poll_interval_seconds: 300
     active_interval_seconds: 60
 
