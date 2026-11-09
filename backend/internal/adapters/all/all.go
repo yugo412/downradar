@@ -7,6 +7,7 @@ import (
 	_ "downradar.info/backend/internal/adapters/auth0"
 	_ "downradar.info/backend/internal/adapters/betterstack"
 	_ "downradar.info/backend/internal/adapters/cronjob"
+	_ "downradar.info/backend/internal/adapters/cstate"
 	_ "downradar.info/backend/internal/adapters/flashduty"
 	_ "downradar.info/backend/internal/adapters/hund"
 	_ "downradar.info/backend/internal/adapters/indodax"

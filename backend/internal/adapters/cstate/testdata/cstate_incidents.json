@@ -1,0 +1,95 @@
+{
+  "is": "index",
+  "cStateVersion": "6.0.2",
+  "apiVersion": "2.0",
+  "title": "Example Status",
+  "baseURL": "https://status.example.com/",
+  "description": "An example cState page with open issues.",
+  "summaryStatus": "down",
+  "categories": [
+    {"name": "North Coast", "description": "The main servers.", "hideTitle": false, "closedByDefault": false},
+    {"name": "Uncategorized", "hideTitle": true, "closedByDefault": false}
+  ],
+  "pinnedIssues": [],
+  "systems": [
+    {
+      "name": "API",
+      "description": "The backend service.",
+      "category": "North Coast",
+      "status": "down",
+      "unresolvedIssues": [
+        {
+          "is": "issue",
+          "title": "API outage",
+          "createdAt": "2026-11-08 09:15:00 +0000 UTC",
+          "lastMod": "2026-11-08 09:40:00 +0000 UTC",
+          "permalink": "https://status.example.com/issues/2026-11-08-api-outage/",
+          "severity": "down",
+          "resolved": false,
+          "informational": false,
+          "resolvedAt": "",
+          "affected": ["API", "Website"],
+          "filename": "2026-11-08-api-outage.md"
+        }
+      ]
+    },
+    {
+      "name": "Website",
+      "description": "The public site.",
+      "category": "North Coast",
+      "status": "disrupted",
+      "unresolvedIssues": [
+        {
+          "is": "issue",
+          "title": "API outage",
+          "createdAt": "2026-11-08 09:15:00 +0000 UTC",
+          "lastMod": "2026-11-08 09:40:00 +0000 UTC",
+          "permalink": "https://status.example.com/issues/2026-11-08-api-outage/",
+          "severity": "down",
+          "resolved": false,
+          "informational": false,
+          "resolvedAt": "",
+          "affected": ["API", "Website"],
+          "filename": "2026-11-08-api-outage.md"
+        },
+        {
+          "is": "issue",
+          "title": "Slow builds",
+          "createdAt": "2026-11-08 10:00:00 +0300 +0300",
+          "lastMod": "2026-11-08 10:20:00 +0300 +0300",
+          "permalink": "/issues/2026-11-08-slow-builds/",
+          "severity": "disrupted",
+          "resolved": false,
+          "informational": false,
+          "resolvedAt": "",
+          "affected": ["Website"],
+          "filename": "2026-11-08-slow-builds.md"
+        }
+      ]
+    },
+    {
+      "name": "Docs",
+      "description": "Documentation.",
+      "category": "Uncategorized",
+      "status": "notice",
+      "unresolvedIssues": [
+        {
+          "is": "issue",
+          "title": "Scheduled maintenance",
+          "createdAt": "2026-11-08 11:30:00 +0000 UTC",
+          "lastMod": "2026-11-08 11:30:00 +0000 UTC",
+          "permalink": "https://status.example.com/issues/2026-11-08-maintenance/",
+          "severity": "notice",
+          "resolved": false,
+          "informational": false,
+          "resolvedAt": "",
+          "affected": ["Docs"],
+          "filename": "2026-11-08-maintenance.md"
+        }
+      ]
+    }
+  ],
+  "buildDate": "2026-11-08",
+  "buildTime": "12:00",
+  "buildTimezone": "UTC"
+}

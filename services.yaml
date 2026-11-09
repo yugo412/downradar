@@ -37,6 +37,7 @@ detect:
   - statusio
   - hund
   - instatus
+  - cstate
   - sorryapp
   - pagerduty
   - betterstack
@@ -139,6 +140,16 @@ profiles:
     kind: instatus
     description: Pages hosted by Instatus, read from the API the page publishes.
     endpoint: /v3/
+    poll_interval_seconds: 300
+    active_interval_seconds: 60
+
+  # cState is a static status page generator: every site publishes the same
+  # JSON document at /index.json, with the overall state, the systems and the
+  # issues still open. Nothing is configured per vendor.
+  cstate:
+    kind: cstate
+    description: Pages built with cState, read from the JSON the page publishes.
+    endpoint: /index.json
     poll_interval_seconds: 300
     active_interval_seconds: 60
 
