@@ -6,7 +6,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -599,4 +601,100 @@ func TestListUsersFiltersAndSearches(t *testing.T) {
 			t.Errorf("searching %% returned %d of %d accounts, so it acted as a wildcard", len(wildcard), len(all))
 		}
 	})
+}
+
+// isolatedUserStore gives a test a schema with no accounts, so the first-user
+// question is answered by the test rather than by whatever the shared database
+// already holds.
+func isolatedUserStore(t *testing.T) *Store {
+	t.Helper()
+
+	admin := integrationStore(t)
+	ctx := context.Background()
+	schema := fmt.Sprintf("zz_users_%d", time.Now().UnixNano())
+	if _, err := admin.pool.Exec(ctx, `create schema `+schema); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = admin.pool.Exec(context.Background(), `drop schema `+schema+` cascade`)
+	})
+
+	dsn := os.Getenv("DATABASE_URL")
+	separator := "?"
+	if strings.Contains(dsn, "?") {
+		separator = "&"
+	}
+	st, err := New(ctx, dsn+separator+"search_path="+schema, Options{AppKey: testAppKey})
+	if err != nil {
+		t.Fatalf("connect to isolated schema: %v", err)
+	}
+	t.Cleanup(st.Close)
+
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatalf("migrate isolated schema: %v", err)
+	}
+	return st
+}
+
+func TestTheFirstAccountBecomesTheAdmin(t *testing.T) {
+	st := isolatedUserStore(t)
+	ctx := context.Background()
+
+	first, err := st.RegisterUser(ctx, uniqueTestEmail(), "First Person", "hash")
+	if err != nil {
+		t.Fatalf("RegisterUser: %v", err)
+	}
+	if first.Role != "admin" {
+		t.Errorf("first role = %q, want admin on a fresh install", first.Role)
+	}
+	if first.Verified() {
+		t.Error("the first account starts out verified")
+	}
+
+	second, err := st.RegisterUser(ctx, uniqueTestEmail(), "Second Person", "hash")
+	if err != nil {
+		t.Fatalf("RegisterUser: %v", err)
+	}
+	if second.Role != "subscriber" {
+		t.Errorf("second role = %q, want subscriber", second.Role)
+	}
+}
+
+func TestOnlyOneOfTwoFirstRegistrationsBecomesTheAdmin(t *testing.T) {
+	st := isolatedUserStore(t)
+	ctx := context.Background()
+
+	roles := make([]string, 2)
+	failures := make([]error, 2)
+	var wg sync.WaitGroup
+	for i := range roles {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			user, err := st.RegisterUser(ctx,
+				fmt.Sprintf("zz-first-%d-%d@example.com", time.Now().UnixNano(), i),
+				"First Person", "hash")
+			if err != nil {
+				failures[i] = err
+				return
+			}
+			roles[i] = user.Role
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range failures {
+		if err != nil {
+			t.Fatalf("registration %d: %v", i, err)
+		}
+	}
+	admins := 0
+	for _, role := range roles {
+		if role == "admin" {
+			admins++
+		}
+	}
+	if admins != 1 {
+		t.Errorf("roles = %v, want exactly one admin", roles)
+	}
 }

@@ -87,14 +87,54 @@ func (s *Store) CreateUser(ctx context.Context, email, name, role, passwordHash 
 		returning `+userColumns, email, name, role, passwordHash)
 }
 
-// RegisterUser makes an account from the site itself. It is always a subscriber
-// and its address is not yet proved: a visitor does not choose the role, and the
-// address is only theirs once they follow the link sent to it.
+// firstAccountLock serializes the question of whether this install has any
+// account yet. Two registrations arriving together would both see an empty
+// table, and both would become the admin without it.
+const firstAccountLock int64 = 519682077
+
+// RegisterUser makes an account from the site itself. The first account on a
+// fresh install becomes the admin, so the site can be set up without the shell;
+// every later account is a subscriber. The address is not proved yet: a visitor
+// does not choose the role, and the address is only theirs once they follow the
+// link sent to it.
 func (s *Store) RegisterUser(ctx context.Context, email, name, passwordHash string) (*User, error) {
-	return s.createUser(ctx, email, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("users: register begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, firstAccountLock); err != nil {
+		return nil, fmt.Errorf("users: register lock: %w", err)
+	}
+
+	var first bool
+	if err := tx.QueryRow(ctx, `select not exists (select 1 from users)`).Scan(&first); err != nil {
+		return nil, fmt.Errorf("users: register check: %w", err)
+	}
+	role := "subscriber"
+	if first {
+		role = "admin"
+	}
+
+	u, err := scanUser(tx.QueryRow(ctx, `
 		insert into users as u (email, name, role, password_hash)
-		values ($1, $2, 'subscriber', $3)
-		returning `+userColumns, email, name, passwordHash)
+		values ($1, $2, $3, $4)
+		returning `+userColumns, email, name, role, passwordHash))
+	if isUniqueViolation(err) {
+		return nil, ErrEmailTaken
+	}
+	if err != nil {
+		return nil, fmt.Errorf("users: register %s: %w", email, err)
+	}
+
+	if err := s.insertDefaultLimits(ctx, tx, u.ID); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("users: register commit: %w", err)
+	}
+	return u, nil
 }
 
 // createUser inserts an account and the limits it starts with in one
