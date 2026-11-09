@@ -152,7 +152,10 @@ func (s *Store) OwnedVendors(ctx context.Context, userID int64) ([]VendorSummary
 			join component_state cs on cs.component_id = c.id
 			where c.service_id = s.id and c.active
 		) agg on true
-		where s.active and s.status = 'published' and s.owner_id = $1
+		where s.active and s.status = 'published'
+		  and (s.owner_id = $1 or (s.team_id is not null and exists (
+		        select 1 from team_members tm
+		        where tm.team_id = s.team_id and tm.user_id = $1)))
 		order by s.name`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("read: owned vendors: %w", err)
@@ -182,6 +185,9 @@ func (s *Store) GetVendor(ctx context.Context, slug string, viewer Viewer) (*Ven
 		where s.slug = $1 and s.active and s.status = 'published'
 		  and (s.visibility = 'public'
 		       or ($2::bigint > 0 and s.owner_id = $2)
+		       or ($2::bigint > 0 and s.team_id is not null and exists (
+		            select 1 from team_members tm
+		            where tm.team_id = s.team_id and tm.user_id = $2))
 		       or $3::boolean)`, slug, viewer.UserID, viewer.IsStaff,
 	).Scan(&serviceID, &v.Slug, &v.Name, &v.URL, &v.Category, &v.LogoURL, &v.Status, &v.ChangedAt, &v.LastPolledAt, &v.Paused,
 		&summaryText, &summaryAt, &summaryModel, &summaryHash)

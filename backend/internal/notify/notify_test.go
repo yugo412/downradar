@@ -336,7 +336,7 @@ func TestDrainLeavesPausedAlertsOutOfTheFeed(t *testing.T) {
 	title := fmt.Sprintf("%s is now %s", name, badgeFor("major").Label)
 	t.Cleanup(func() { removeNotification(t, title) })
 
-	if err := st.SetChannelPaused(context.Background(), user.ID, id, store.ChannelEmail, true); err != nil {
+	if err := st.SetChannelPaused(context.Background(), user.ID, id, nil, store.ChannelEmail, true); err != nil {
 		t.Fatalf("SetChannelPaused: %v", err)
 	}
 
