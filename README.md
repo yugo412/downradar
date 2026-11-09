@@ -351,8 +351,10 @@ own rate limit so one visitor cannot fill the inbox.
 
 ## Staff sign in
 
-Staff sign in is not advertised. The form is at `/login`, and an administrator is
-still made from the shell:
+Staff sign in is not advertised. The form is at `/login`. On a fresh install the
+first account registered from the site is made the admin, so the site can be set
+up without the shell; every later registration is a subscriber. Another admin, or
+an admin on an install that already has accounts, is made from the shell:
 
 ```bash
 cd backend

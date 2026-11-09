@@ -46,9 +46,9 @@ func profileTestCatalog() catalog.Catalog {
 	}
 }
 
-// isolatedProfileRouter gives the count test a schema of its own, so a service
-// added by another package at the same time cannot change the count.
-func isolatedProfileRouter(t *testing.T, tune func(*Options)) (*store.Store, http.Handler) {
+// isolatedRouter gives a test a schema of its own, so rows added by another
+// package at the same time cannot change what it reads.
+func isolatedRouter(t *testing.T, tune func(*Options)) (*store.Store, http.Handler) {
 	t.Helper()
 
 	dsn := os.Getenv("DATABASE_URL")
@@ -97,7 +97,7 @@ func createProfileService(t *testing.T, st *store.Store, profile string) {
 }
 
 func TestStaffProfilesCountsTheServicesOnEachProfile(t *testing.T) {
-	st, router := isolatedProfileRouter(t, func(o *Options) {
+	st, router := isolatedRouter(t, func(o *Options) {
 		o.Catalog = profileTestCatalog()
 	})
 
@@ -157,7 +157,7 @@ func TestStaffProfilesCountsTheServicesOnEachProfile(t *testing.T) {
 }
 
 func TestStaffProfilesIsStaffOnly(t *testing.T) {
-	st, router := isolatedProfileRouter(t, func(o *Options) {
+	st, router := isolatedRouter(t, func(o *Options) {
 		o.Catalog = profileTestCatalog()
 	})
 

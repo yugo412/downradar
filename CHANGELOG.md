@@ -10,6 +10,8 @@ semantic versioning.
 
 - Staff can hide a component from a vendor page without turning the row off,
   filter the list to the hidden ones, and show them again.
+- The first account registered on a fresh install is made the admin, so the site
+  can be set up without the shell.
 
 ## [0.8.0]
 

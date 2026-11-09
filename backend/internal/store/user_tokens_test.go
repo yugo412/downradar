@@ -7,9 +7,21 @@ import (
 	"time"
 )
 
-func TestRegisterUserIsASubscriberAndUnverified(t *testing.T) {
+func TestRegisterUserOnAnInstallWithAccountsIsASubscriber(t *testing.T) {
 	st := integrationStore(t)
 	ctx := context.Background()
+
+	// An account made from the shell first, so this is not a fresh install and
+	// the next registration is not the first one.
+	handmade := uniqueTestEmail()
+	t.Cleanup(func() { dropTestUser(context.Background(), st, handmade) })
+	admin, err := st.CreateUser(ctx, handmade, "Made By Hand", "admin", "hash")
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	if !admin.Verified() {
+		t.Error("an account made from the shell starts out unverified")
+	}
 
 	email := uniqueTestEmail()
 	t.Cleanup(func() { dropTestUser(context.Background(), st, email) })
@@ -23,18 +35,6 @@ func TestRegisterUserIsASubscriberAndUnverified(t *testing.T) {
 	}
 	if user.Verified() {
 		t.Error("an account registered from the site starts out verified")
-	}
-
-	// An account made from the shell is trusted: whoever ran the command can
-	// already do anything on the server.
-	handmade := uniqueTestEmail()
-	t.Cleanup(func() { dropTestUser(context.Background(), st, handmade) })
-	admin, err := st.CreateUser(ctx, handmade, "Made By Hand", "admin", "hash")
-	if err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
-	if !admin.Verified() {
-		t.Error("an account made from the shell starts out unverified")
 	}
 }
 
