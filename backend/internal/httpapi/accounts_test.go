@@ -36,6 +36,10 @@ func TestRegisterMakesASubscriberAndSendsAConfirmation(t *testing.T) {
 	email := uniqueEmail()
 	t.Cleanup(func() { dropUser(t, st, email) })
 
+	// The install already has an account, so this registration is not the first
+	// one and does not take the admin role.
+	testUser(t, st, auth.RoleAdmin)
+
 	rec := call(t, router, http.MethodPost, "/api/v1/auth/register",
 		`{"name":"New Person","email":"`+email+`","password":"a good password"}`, "")
 	if rec.Code != http.StatusCreated {
@@ -83,6 +87,34 @@ func TestRegisterMakesASubscriberAndSendsAConfirmation(t *testing.T) {
 	rec = call(t, router, http.MethodPost, "/api/v1/auth/verify", `{"token":"`+token+`"}`, "")
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("second verify status = %d, want 400", rec.Code)
+	}
+}
+
+func TestTheFirstRegistrationOnAFreshInstallMakesTheAdmin(t *testing.T) {
+	_, router := isolatedRouter(t, nil)
+
+	register := func(email string) string {
+		rec := call(t, router, http.MethodPost, "/api/v1/auth/register",
+			`{"name":"New Person","email":"`+email+`","password":"a good password"}`, "")
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("register %s = %d, want 201: %s", email, rec.Code, rec.Body.String())
+		}
+		var body struct {
+			User struct {
+				Role string `json:"role"`
+			} `json:"user"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		return body.User.Role
+	}
+
+	if role := register(uniqueEmail()); role != "admin" {
+		t.Errorf("first role = %q, want admin on a fresh install", role)
+	}
+	if role := register(uniqueEmail()); role != "subscriber" {
+		t.Errorf("second role = %q, want subscriber", role)
 	}
 }
 
