@@ -47,6 +47,20 @@ export default defineNuxtConfig({
     pageCacheSeconds > 0
       ? {
           '/**': { swr: pageCacheSeconds },
+          // The home page is the one a crawler sweeps, so it keeps the shared
+          // cache even though the rule below also matches it.
+          '/': { swr: pageCacheSeconds },
+          // A vendor page is opened from an alert link, where the reader wants
+          // the status at that moment. A shared cache would hand them the state
+          // from up to a minute ago and make them refresh to see the change, so
+          // this page is rendered per request and the browser keeps none of it.
+          // `cache: false` is what turns the cache off; `swr: false` alone is
+          // not enough in this version of Nitro.
+          '/:vendor': {
+            swr: false,
+            cache: false,
+            headers: { 'cache-control': 'no-store' },
+          },
           // The management and account screens are per visitor, so a cached
           // shell would be handed to the wrong one. They also render on the
           // client only, which keeps any session out of the cached HTML.
