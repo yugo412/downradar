@@ -1394,7 +1394,7 @@ func TestTryingAWebhookFromThePage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PublicService: %v", err)
 	}
-	logged, err := st.WebhookCalls(ctx, subscriber.ID, serviceID, 10)
+	logged, err := st.WebhookCalls(ctx, subscriber.ID, nil, serviceID, 10)
 	if err != nil {
 		t.Fatalf("WebhookCalls: %v", err)
 	}

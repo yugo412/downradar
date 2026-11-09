@@ -453,14 +453,18 @@ func (s *Store) RecordChannelAttempt(ctx context.Context, channelID int64, messa
 }
 
 // ChannelDeliveryStatuses reads the last result of every live channel of one
-// alert, so the page can show it beside the channel that sent it.
-func (s *Store) ChannelDeliveryStatuses(ctx context.Context, userID, serviceID int64) ([]ChannelDeliveryStatus, error) {
+// alert, so the page can show it beside the channel that sent it. A team alert
+// is read through its team, not the member who happened to open the page.
+func (s *Store) ChannelDeliveryStatuses(ctx context.Context, userID int64, teamID *int64, serviceID int64) ([]ChannelDeliveryStatus, error) {
 	rows, err := s.pool.Query(ctx, `
 		select c.kind, c.last_attempt_at, c.last_success_at, coalesce(c.last_error, '')
 		from alert_channels c
 		join alert_subscriptions a on a.id = c.subscription_id
-		where a.user_id = $1 and a.service_id = $2 and c.unsubscribed_at is null
-		order by c.kind`, userID, serviceID)
+		where a.service_id = $3
+		  and (($2::bigint is null and a.user_id = $1)
+		       or ($2::bigint is not null and a.team_id = $2))
+		  and c.unsubscribed_at is null
+		order by c.kind`, userID, teamID, serviceID)
 	if err != nil {
 		return nil, fmt.Errorf("alerts: channel status for user %d: %w", userID, err)
 	}
@@ -502,7 +506,10 @@ type PendingAlert struct {
 	// UserID is the account the subscription belongs to, which is who a webhook
 	// call is recorded for so the page can show what happened. It is nil for a
 	// subscription whose owner is gone, which has nobody to show a log to.
-	UserID        *int64
+	UserID *int64
+	// TeamID is set when the subscription belongs to a team. Its notice goes to
+	// every member's feed rather than to one person's.
+	TeamID        *int64
 	VendorName    string
 	VendorSlug    string
 	ComponentName string
@@ -781,6 +788,26 @@ func (s *Store) UserWatchesService(ctx context.Context, userID, serviceID int64)
 		userID, serviceID).Scan(&watching)
 	if err != nil {
 		return false, fmt.Errorf("alerts: account on service %d: %w", serviceID, err)
+	}
+	return watching, nil
+}
+
+// TeamWatchesService is the same check for a team, which is what tells a save
+// that it is replacing an existing team alert rather than taking a new place in
+// the team's count.
+func (s *Store) TeamWatchesService(ctx context.Context, teamID, serviceID int64) (bool, error) {
+	var watching bool
+	err := s.pool.QueryRow(ctx, `
+		select exists (
+			select 1
+			from alert_subscriptions a
+			where a.team_id = $1 and a.service_id = $2
+			  and exists (
+				select 1 from alert_channels c
+				where c.subscription_id = a.id and c.unsubscribed_at is null))`,
+		teamID, serviceID).Scan(&watching)
+	if err != nil {
+		return false, fmt.Errorf("alerts: team on service %d: %w", serviceID, err)
 	}
 	return watching, nil
 }
@@ -1846,6 +1873,27 @@ func (s *Store) WatchedServiceCount(ctx context.Context, userID int64) (int, err
 	return count, nil
 }
 
+// WatchedTeamServiceCount counts the vendors a team is watching, with the same
+// rule the personal count uses: one per vendor that can still be delivered and
+// is still on the site.
+func (s *Store) WatchedTeamServiceCount(ctx context.Context, teamID int64) (int, error) {
+	var count int
+	err := s.pool.QueryRow(ctx, `
+		select count(*)
+		from alert_subscriptions a
+		join services v on v.id = a.service_id
+		where a.team_id = $1
+		  and v.active and v.status = 'published' and v.visibility = 'public'
+		  and exists (
+			select 1 from alert_channels c
+			where c.subscription_id = a.id and c.unsubscribed_at is null
+		  )`, teamID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("alerts: watched services for team %d: %w", teamID, err)
+	}
+	return count, nil
+}
+
 // AlertByToken resolves the token in an unsubscribe link. The link belongs to a
 // channel, so this is what the page says it is about rather than everything the
 // person has. UserID is the account that owns the subscription, which is nil for
@@ -2134,7 +2182,7 @@ func (s *Store) PendingAlerts(ctx context.Context, maxAttempts, limit int) ([]Pe
 	rows, err := s.pool.Query(ctx, `
 		select d.id, c.id, a.id, c.kind, c.address, c.settings, d.service_id,
 		       coalesce(d.component_id, 0), s.name, s.slug,
-		       coalesce(cm.name, ''), c.token, a.user_id,
+		       coalesce(cm.name, ''), c.token, a.user_id, a.team_id,
 		       d.from_status, d.to_status, d.changed_at, d.attempts,
 		       coalesce(sm.summary, ''), sm.generated_at
 		from alert_deliveries d
@@ -2160,7 +2208,7 @@ func (s *Store) PendingAlerts(ctx context.Context, maxAttempts, limit int) ([]Pe
 		var settings []byte
 		if err := rows.Scan(&p.ID, &p.ChannelID, &p.SubscriptionID, &p.Kind, &address, &settings, &p.ServiceID,
 			&p.ComponentID, &p.VendorName, &p.VendorSlug, &p.ComponentName, &p.Token, &p.UserID,
-			&p.FromStatus, &p.ToStatus, &p.ChangedAt, &p.Attempts,
+			&p.TeamID, &p.FromStatus, &p.ToStatus, &p.ChangedAt, &p.Attempts,
 			&p.GeneratedSummary, &p.SummaryGeneratedAt); err != nil {
 			return nil, fmt.Errorf("alerts: scan pending: %w", err)
 		}
@@ -2287,19 +2335,19 @@ type WebhookCall struct {
 // is called every day does not grow a table nobody reads.
 const WebhookCallsKept = 50
 
-// LogWebhookCall writes one call down. A subscription with no owner has nobody to
-// show a log to, so nothing is written for it rather than a row that no screen
-// can reach.
-func (s *Store) LogWebhookCall(ctx context.Context, userID *int64, serviceID int64, channelID *int64, call WebhookCall) error {
-	if userID == nil {
+// LogWebhookCall writes one call down. It belongs to a person or a team; a
+// subscription with neither has nobody to show a log to, so nothing is written
+// for it rather than a row that no screen can reach.
+func (s *Store) LogWebhookCall(ctx context.Context, userID, teamID *int64, serviceID int64, channelID *int64, call WebhookCall) error {
+	if userID == nil && teamID == nil {
 		return nil
 	}
 
 	if _, err := s.pool.Exec(ctx, `
 		insert into alert_webhook_calls
-			(user_id, service_id, channel_id, kind, url, method, status, response, error)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-		*userID, serviceID, channelID, call.Kind, call.URL, call.Method,
+			(user_id, team_id, service_id, channel_id, kind, url, method, status, response, error)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		userID, teamID, serviceID, channelID, call.Kind, call.URL, call.Method,
 		call.Status, call.Response, call.Error); err != nil {
 		return fmt.Errorf("alerts: record a webhook call: %w", err)
 	}
@@ -2308,23 +2356,28 @@ func (s *Store) LogWebhookCall(ctx context.Context, userID *int64, serviceID int
 		delete from alert_webhook_calls
 		where id in (
 			select id from alert_webhook_calls
-			where user_id = $1 and service_id = $2
+			where service_id = $3
+			  and (($1::bigint is not null and user_id = $1)
+			       or ($2::bigint is not null and team_id = $2))
 			order by id desc
-			offset $3)`, *userID, serviceID, WebhookCallsKept); err != nil {
+			offset $4)`, userID, teamID, serviceID, WebhookCallsKept); err != nil {
 		return fmt.Errorf("alerts: trim webhook calls: %w", err)
 	}
 	return nil
 }
 
 // WebhookCalls reads the last calls of one alert, newest first, which is what the
-// page shows beside its webhook.
-func (s *Store) WebhookCalls(ctx context.Context, userID, serviceID int64, limit int) ([]WebhookCall, error) {
+// page shows beside its webhook. A team alert's calls are read through its team
+// rather than through the member who opened the page.
+func (s *Store) WebhookCalls(ctx context.Context, userID int64, teamID *int64, serviceID int64, limit int) ([]WebhookCall, error) {
 	rows, err := s.pool.Query(ctx, `
 		select id, kind, url, method, status, response, error, created_at
 		from alert_webhook_calls
-		where user_id = $1 and service_id = $2
+		where service_id = $3
+		  and (($2::bigint is null and user_id = $1)
+		       or ($2::bigint is not null and team_id = $2))
 		order by id desc
-		limit $3`, userID, serviceID, limit)
+		limit $4`, userID, teamID, serviceID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("alerts: webhook calls of service %d: %w", serviceID, err)
 	}

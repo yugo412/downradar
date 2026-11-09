@@ -78,6 +78,9 @@ type ntfyRequest struct {
 type alertRequest struct {
 	// TeamID makes the alert belong to a team instead of the signed in person.
 	// Any member may manage the team's alerts; an empty value is personal.
+	// The first cut delivers a team alert to the one address saved on it, which
+	// is the team's distribution inbox. Per-member recipients would need a
+	// channel and a token each, which is a later decision.
 	TeamID *int64 `json:"teamId"`
 
 	// Email is the address the alert should go to. An empty one stops the emails;
@@ -359,6 +362,38 @@ func (h *handlers) subscribeAlert(w http.ResponseWriter, r *http.Request) {
 	if userID == nil && saveEmail && address == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "An email address is required"})
 		return
+	}
+
+	// A team is held to its own count rather than to the personal count of the
+	// member saving the alert. Replacing an alert the team already has, or
+	// stopping one of its ways, takes no new place.
+	if teamID != nil {
+		watched, err := h.store.WatchedTeamServiceCount(r.Context(), *teamID)
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		already, err := h.store.TeamWatchesService(r.Context(), *teamID, serviceID)
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		adding := 1
+		if already {
+			adding = 0
+		}
+		if watched+adding > h.teamAlertLimit {
+			services := "services"
+			if h.teamAlertLimit == 1 {
+				services = "service"
+			}
+			writeJSON(w, http.StatusConflict, map[string]string{
+				"error": fmt.Sprintf(
+					"This team has reached its limit of %d %s. Remove one from the team's alerts first.",
+					h.teamAlertLimit, services),
+			})
+			return
+		}
 	}
 
 	// Someone who is not signed in gets one whole-vendor alert: components and the
@@ -839,7 +874,14 @@ func (h *handlers) testWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, _ := h.notifier.TestWebhook(r.Context(), serviceID, *hook)
-	if err := h.store.LogWebhookCall(r.Context(), &user.ID, serviceID, nil, store.WebhookCall{
+
+	// A try belongs to the owner the page was editing: the team for a team
+	// alert, and the person otherwise.
+	var logUserID *int64
+	if body.TeamID == nil {
+		logUserID = &user.ID
+	}
+	if err := h.store.LogWebhookCall(r.Context(), logUserID, body.TeamID, serviceID, nil, store.WebhookCall{
 		Kind:     store.CallTest,
 		URL:      hook.URL,
 		Method:   hook.Method,
@@ -1583,21 +1625,9 @@ func (h *handlers) getUserAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The calls are read whether or not there is an alert: a webhook can be tried
-	// from the page before anything is saved, and what it answered is worth
-	// showing the next time the page opens. The page shows them twenty at a time,
-	// so it reads everything the store keeps.
-	calls, err := h.store.WebhookCalls(r.Context(), h.user(r).ID, serviceID, store.WebhookCallsKept)
-	if err != nil {
-		h.fail(w, r, err)
-		return
-	}
-	channelStatus, err := h.store.ChannelDeliveryStatuses(r.Context(), h.user(r).ID, serviceID)
-	if err != nil {
-		h.fail(w, r, err)
-		return
-	}
-
+	// The owner is resolved first: the calls and the channel results belong to
+	// a person or a team, and a team alert's log is the team's, not the member's
+	// who opened the page.
 	var teamID *int64
 	if raw := strings.TrimSpace(r.URL.Query().Get("team")); raw != "" {
 		id, parseErr := strconv.ParseInt(raw, 10, 64)
@@ -1613,6 +1643,21 @@ func (h *handlers) getUserAlert(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		teamID = &id
+	}
+
+	// The calls are read whether or not there is an alert: a webhook can be tried
+	// from the page before anything is saved, and what it answered is worth
+	// showing the next time the page opens. The page shows them twenty at a time,
+	// so it reads everything the store keeps.
+	calls, err := h.store.WebhookCalls(r.Context(), h.user(r).ID, teamID, serviceID, store.WebhookCallsKept)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	channelStatus, err := h.store.ChannelDeliveryStatuses(r.Context(), h.user(r).ID, teamID, serviceID)
+	if err != nil {
+		h.fail(w, r, err)
+		return
 	}
 
 	view, err := h.store.UserAlert(r.Context(), h.user(r).ID, serviceID, teamID)

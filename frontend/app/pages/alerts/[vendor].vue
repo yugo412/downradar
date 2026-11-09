@@ -1388,6 +1388,10 @@ async function refreshCalls() {
                 An email each time one of the things you pick below changes, in
                 either direction. Every email carries a link that stops them.
               </p>
+              <p v-if="selectedTeam" class="mt-1 text-sm opacity-70">
+                A team alert emails this one address. Every member also sees the
+                change in their own feed.
+              </p>
 
               <input
                 v-model="email"

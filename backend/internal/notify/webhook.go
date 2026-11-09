@@ -143,7 +143,7 @@ func (n *Notifier) sendWebhook(ctx context.Context, alert store.PendingAlert) er
 	}
 
 	result, err := n.webhookCall(ctx, hook, body, data, webhookMessageID(alert))
-	n.recordCall(ctx, alert.UserID, alert.ServiceID, &alert.ChannelID, store.CallDelivery, hook, result)
+	n.recordCall(ctx, alert.UserID, alert.TeamID, alert.ServiceID, &alert.ChannelID, store.CallDelivery, hook, result)
 	return err
 }
 
@@ -207,8 +207,8 @@ func (n *Notifier) webhookCall(ctx context.Context, hook store.AlertWebhook, bod
 // recordCall writes one call down where the page can show it. A failure to write
 // it is logged rather than returned: whether the call itself arrived is what the
 // delivery is judged on, and the log is there to be read afterwards.
-func (n *Notifier) recordCall(ctx context.Context, userID *int64, serviceID int64, channelID *int64, kind string, hook store.AlertWebhook, result WebhookResult) {
-	err := n.store.LogWebhookCall(ctx, userID, serviceID, channelID, store.WebhookCall{
+func (n *Notifier) recordCall(ctx context.Context, userID, teamID *int64, serviceID int64, channelID *int64, kind string, hook store.AlertWebhook, result WebhookResult) {
+	err := n.store.LogWebhookCall(ctx, userID, teamID, serviceID, channelID, store.WebhookCall{
 		Kind:     kind,
 		URL:      hook.URL,
 		Method:   webhookMethod(hook),

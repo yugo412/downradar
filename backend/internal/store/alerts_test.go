@@ -1610,7 +1610,7 @@ func TestWebhookCallsAreKept(t *testing.T) {
 	written := WebhookCallsKept + 3
 	for i := 0; i < written; i++ {
 		status := 200
-		if err := st.LogWebhookCall(ctx, &user.ID, id, nil, WebhookCall{
+		if err := st.LogWebhookCall(ctx, &user.ID, nil, id, nil, WebhookCall{
 			Kind:     CallTest,
 			URL:      "https://hooks.example.invalid/log",
 			Method:   "POST",
@@ -1628,7 +1628,7 @@ func TestWebhookCallsAreKept(t *testing.T) {
 		t.Errorf("calls kept = %d, want the newest %d", kept, WebhookCallsKept)
 	}
 
-	calls, err := st.WebhookCalls(ctx, user.ID, id, 10)
+	calls, err := st.WebhookCalls(ctx, user.ID, nil, id, 10)
 	if err != nil {
 		t.Fatalf("WebhookCalls: %v", err)
 	}
@@ -1645,7 +1645,7 @@ func TestWebhookCallsAreKept(t *testing.T) {
 	// A subscription with nobody behind it has nobody to show a log to, so
 	// nothing is written for it.
 	before := countRows(t, st, `select count(*) from alert_webhook_calls where service_id = $1`, id)
-	if err := st.LogWebhookCall(ctx, nil, id, nil, WebhookCall{
+	if err := st.LogWebhookCall(ctx, nil, nil, id, nil, WebhookCall{
 		Kind: CallDelivery, URL: "https://hooks.example.invalid/log", Method: "POST",
 	}); err != nil {
 		t.Fatalf("LogWebhookCall with no owner: %v", err)
@@ -2258,7 +2258,7 @@ func TestLarkWayAndLastDelivery(t *testing.T) {
 	if err := st.RecordChannelAttempt(ctx, channelID, "lark answered code 19021: sign match fail"); err != nil {
 		t.Fatalf("RecordChannelAttempt: %v", err)
 	}
-	statuses, err := st.ChannelDeliveryStatuses(ctx, user.ID, serviceID)
+	statuses, err := st.ChannelDeliveryStatuses(ctx, user.ID, nil, serviceID)
 	if err != nil {
 		t.Fatalf("ChannelDeliveryStatuses: %v", err)
 	}
@@ -2272,7 +2272,7 @@ func TestLarkWayAndLastDelivery(t *testing.T) {
 	if err := st.RecordChannelAttempt(ctx, channelID, ""); err != nil {
 		t.Fatalf("RecordChannelAttempt success: %v", err)
 	}
-	statuses, err = st.ChannelDeliveryStatuses(ctx, user.ID, serviceID)
+	statuses, err = st.ChannelDeliveryStatuses(ctx, user.ID, nil, serviceID)
 	if err != nil {
 		t.Fatalf("ChannelDeliveryStatuses after success: %v", err)
 	}
