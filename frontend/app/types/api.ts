@@ -383,4 +383,5 @@ export interface TeamInvitation {
 export interface TeamInvitationView extends TeamInvitation {
   teamName: string
   invitedByName?: string
+  hasAccount?: boolean
 }

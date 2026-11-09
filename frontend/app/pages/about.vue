@@ -60,7 +60,8 @@ useSeoMeta({
           </li>
           <li>
             <strong>Work with a team.</strong> A signed in account can create a team from the account
-            menu, invite people who already have an account, and decide what each member may do.
+            menu, invite people whether or not they have an account yet, and decide what each member
+            may do.
           </li>
           <li>
             <strong>Keep up with what you follow.</strong> A signed in account has a bell in the header
