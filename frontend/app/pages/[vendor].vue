@@ -35,6 +35,13 @@ async function onChanged() {
   await refresh()
 }
 
+// A removed service stops having a page to come back to, so the reader lands on
+// the list where it can be restored from the Removed filter.
+async function onRemoved() {
+  editing.value = false
+  await navigateTo('/services')
+}
+
 useHead({ titleTemplate: null })
 
 if (vendor.value) {
@@ -143,9 +150,11 @@ if (vendor.value) {
         <ServiceEditor
           v-if="editing && canManageServices"
           :slug="vendor.slug"
+          show-remove
           @close="editing = false"
           @saved="onSaved"
           @changed="onChanged"
+          @removed="onRemoved"
         />
       </ClientOnly>
     </template>
