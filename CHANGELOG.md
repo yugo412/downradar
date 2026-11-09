@@ -4,6 +4,13 @@ All notable changes to DownRadar are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases use
 semantic versioning.
 
+## [0.9.0]
+
+### Added
+
+- Team workspaces: create a team, invite an existing account, and manage its
+  members, roles and pending invitations from the account menu.
+
 ## [0.8.0]
 
 ### Added
