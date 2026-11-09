@@ -18,6 +18,8 @@ export interface ComponentStatus {
   position: number
   status: Health
   changedAt?: string | null
+  // Staff-only: the public page never carries a hidden component.
+  hidden?: boolean
 }
 
 export interface StatusEvent {

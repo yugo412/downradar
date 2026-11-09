@@ -412,6 +412,8 @@ func NewRouter(st *store.Store, log *slog.Logger, opts Options) http.Handler {
 	mux.HandleFunc("DELETE /api/v1/services/{slug}", h.requireAuth(h.deleteService))
 	mux.HandleFunc("GET /api/v1/services/{slug}/status", h.requireAuth(h.serviceStatus))
 	mux.HandleFunc("GET /api/v1/services/{slug}/polls", h.requireAuth(h.pollLog))
+	mux.HandleFunc("GET /api/v1/services/{slug}/components", h.requireStaff(h.listComponents))
+	mux.HandleFunc("PATCH /api/v1/services/{slug}/components", h.requireStaff(h.setComponentHidden))
 	mux.HandleFunc("PATCH /api/v1/services/{slug}", h.requireAuth(h.updateService))
 	mux.HandleFunc("POST /api/v1/services/{slug}/detect",
 		h.requireStaff(h.limited(h.readLimiter, true,

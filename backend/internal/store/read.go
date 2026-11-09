@@ -41,6 +41,8 @@ type ComponentView struct {
 	Position  int        `json:"position"`
 	Status    string     `json:"status"`
 	ChangedAt *time.Time `json:"changedAt,omitempty"`
+	// Hidden is staff-only: the public list never contains a hidden component.
+	Hidden bool `json:"hidden,omitempty"`
 }
 
 type EventView struct {
@@ -103,7 +105,7 @@ func (s *Store) ListVendors(ctx context.Context) ([]VendorSummary, error) {
 			       count(*) filter (where cs.status <> 'ok') as degraded
 			from components c
 			join component_state cs on cs.component_id = c.id
-			where c.service_id = s.id and c.active
+			where c.service_id = s.id and c.active and not c.hidden
 		) agg on true
 		where s.active and s.status = 'published' and s.visibility = 'public'
 		order by s.name`)
@@ -150,7 +152,7 @@ func (s *Store) OwnedVendors(ctx context.Context, userID int64) ([]VendorSummary
 			       count(*) filter (where cs.status <> 'ok') as degraded
 			from components c
 			join component_state cs on cs.component_id = c.id
-			where c.service_id = s.id and c.active
+			where c.service_id = s.id and c.active and not c.hidden
 		) agg on true
 		where s.active and s.status = 'published' and s.owner_id = $1
 		order by s.name`, userID)
@@ -209,7 +211,7 @@ func (s *Store) GetVendor(ctx context.Context, slug string, viewer Viewer) (*Ven
 		       coalesce(cs.status, 'unknown'), cs.changed_at
 		from components c
 		left join component_state cs on cs.component_id = c.id
-		where c.service_id = $1 and c.active
+		where c.service_id = $1 and c.active and not c.hidden
 		order by c.position, c.name`, serviceID)
 	if err != nil {
 		return nil, fmt.Errorf("read: components %s: %w", slug, err)
@@ -238,6 +240,7 @@ func (s *Store) GetVendor(ctx context.Context, slug string, viewer Viewer) (*Ven
 		from status_events e
 		left join components c on c.id = e.component_id
 		where e.service_id = $1
+		  and (e.component_id is null or not coalesce(c.hidden, false))
 		order by e.changed_at desc
 		limit 30`, serviceID)
 	if err != nil {
@@ -347,6 +350,7 @@ func (s *Store) RecentChanges(ctx context.Context, limit int) ([]ChangeView, err
 		left join components c on c.id = e.component_id
 		where v.active and v.status = 'published' and v.owner_id is null
 		  and e.previous_status is not null
+		  and (e.component_id is null or not coalesce(c.hidden, false))
 		order by e.changed_at desc, e.id desc
 		limit $1`, limit)
 	if err != nil {
