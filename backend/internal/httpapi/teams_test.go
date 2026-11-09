@@ -719,3 +719,112 @@ func TestTeamAlertLimitIsTheTeamsOwn(t *testing.T) {
 		t.Errorf("team = %+v, want id %d, limit 1, used 1", got, team.ID)
 	}
 }
+
+// An owner who is leaving hands the team to a member first. While they still
+// own it, account deletion is refused.
+func TestAnOwnerHandsTheTeamOnBeforeDeletingTheAccount(t *testing.T) {
+	st, router, _ := testRouterWithMail(t)
+
+	owner := testUserWithPassword(t, st, auth.RoleSubscriber, "owner password")
+	member := testUser(t, st, auth.RoleSubscriber)
+	ownerCookie := sessionFor(t, st, owner)
+	memberCookie := sessionFor(t, st, member)
+
+	rec := call(t, router, http.MethodPost, "/api/v1/teams", `{"name":"Handover"}`, ownerCookie)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create team = %d: %s", rec.Code, rec.Body.String())
+	}
+	team := decodeTeam(t, rec.Body.Bytes()).Team
+	t.Cleanup(func() { _ = st.DeleteTeam(context.Background(), team.ID) })
+	if err := st.AddTeamMember(t.Context(), team.ID, member.ID, store.TeamRoleMember); err != nil {
+		t.Fatalf("AddTeamMember: %v", err)
+	}
+
+	rec = call(t, router, http.MethodDelete, "/api/v1/auth/account", `{"password":"owner password"}`, ownerCookie)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("deleting an owner's account = %d, want 409: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Handover") {
+		t.Errorf("the refusal does not name the team: %s", rec.Body.String())
+	}
+
+	rec = call(t, router, http.MethodPost, teamPath(team.Slug)+"/transfer",
+		fmt.Sprintf(`{"userId":%d}`, member.ID), ownerCookie)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("transfer to a member = %d: %s", rec.Code, rec.Body.String())
+	}
+	if role, err := st.TeamRoleFor(t.Context(), team.ID, owner.ID); err != nil || role != store.TeamRoleManager {
+		t.Errorf("the old owner's role = %q (%v), want manager", role, err)
+	}
+	if role, err := st.TeamRoleFor(t.Context(), team.ID, member.ID); err != nil || role != store.TeamRoleOwner {
+		t.Errorf("the new owner's role = %q (%v), want owner", role, err)
+	}
+
+	rec = call(t, router, http.MethodGet, teamPath(team.Slug), "", memberCookie)
+	if rec.Code != http.StatusOK {
+		t.Errorf("the new owner reading the team = %d: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = call(t, router, http.MethodDelete, "/api/v1/auth/account", `{"password":"owner password"}`, ownerCookie)
+	if rec.Code != http.StatusOK {
+		t.Errorf("the old owner deleting the account = %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// The other way out is an invitation to a new address. It is an owner
+// invitation, so accepting it steps the old owner down, and asking again
+// replaces the pending link.
+func TestAnOwnerInvitesANewAddressToTakeTheTeam(t *testing.T) {
+	st, router, spy := testRouterWithMail(t)
+
+	owner := testUserWithPassword(t, st, auth.RoleSubscriber, "owner password")
+	ownerCookie := sessionFor(t, st, owner)
+
+	rec := call(t, router, http.MethodPost, "/api/v1/teams", `{"name":"New Owner Team"}`, ownerCookie)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create team = %d: %s", rec.Code, rec.Body.String())
+	}
+	team := decodeTeam(t, rec.Body.Bytes()).Team
+	t.Cleanup(func() { _ = st.DeleteTeam(context.Background(), team.ID) })
+
+	address := fmt.Sprintf("zz-next-owner-%d@example.com", time.Now().UnixNano())
+	rec = call(t, router, http.MethodPost, teamPath(team.Slug)+"/transfer",
+		fmt.Sprintf(`{"email":%q}`, address), ownerCookie)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("transfer invitation = %d: %s", rec.Code, rec.Body.String())
+	}
+	invite := decodeInvite(t, rec.Body.Bytes())
+	if invite.Invitation.Role != store.TeamRoleOwner || !invite.Invitation.Transfer {
+		t.Errorf("invitation = %+v, want an owner transfer", invite.Invitation)
+	}
+	if !invite.Sent {
+		t.Error("the transfer invitation did not go out")
+	}
+
+	// The owner still runs the team until the invitation is accepted.
+	if rec := call(t, router, http.MethodDelete, "/api/v1/auth/account", `{"password":"owner password"}`, ownerCookie); rec.Code != http.StatusConflict {
+		t.Errorf("deleting before the invitation is accepted = %d, want 409", rec.Code)
+	}
+
+	rec = call(t, router, http.MethodPost, teamPath(team.Slug)+"/transfer",
+		fmt.Sprintf(`{"email":%q}`, address), ownerCookie)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("replacing the transfer invitation = %d: %s", rec.Code, rec.Body.String())
+	}
+	replaced := decodeInvite(t, rec.Body.Bytes())
+	if replaced.Invitation.ID == invite.Invitation.ID {
+		t.Error("the replacement kept the old invitation")
+	}
+	if got := len(spy.sent()); got < 2 {
+		t.Errorf("messages sent = %d, want the invitation and its replacement", got)
+	}
+
+	// The other choice is deleting the team and everything it owns.
+	if rec := call(t, router, http.MethodDelete, teamPath(team.Slug), "", ownerCookie); rec.Code != http.StatusNoContent {
+		t.Errorf("deleting the team = %d, want 204: %s", rec.Code, rec.Body.String())
+	}
+	rec = call(t, router, http.MethodDelete, "/api/v1/auth/account", `{"password":"owner password"}`, ownerCookie)
+	if rec.Code != http.StatusOK {
+		t.Errorf("deleting the account after the team = %d: %s", rec.Code, rec.Body.String())
+	}
+}

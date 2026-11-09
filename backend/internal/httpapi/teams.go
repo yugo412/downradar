@@ -32,6 +32,14 @@ type teamMemberRequest struct {
 	Role string `json:"role"`
 }
 
+// teamTransferRequest is the two ways an owner hands a team on: to somebody who
+// is already a manager or member, or to an address that receives an invitation
+// and becomes the owner when it accepts.
+type teamTransferRequest struct {
+	UserID *int64 `json:"userId"`
+	Email  string `json:"email"`
+}
+
 type teamInviteRegisterRequest struct {
 	Name     string `json:"name"`
 	Password string `json:"password"`
@@ -239,7 +247,7 @@ func (h *handlers) notifyTeamInvite(ctx context.Context, inviter, invitee *store
 		Audience:   store.AudienceSubscribers,
 		Recipients: []int64{invitee.ID},
 		Title:      fmt.Sprintf("You were invited to join %s", team.Name),
-		Body: fmt.Sprintf("%s invited you to join %s as a %s. Open Teams to accept it, or use the link in your email.",
+		Body: fmt.Sprintf("%s invited you to join %s as the %s. Open Teams to accept it, or use the link in your email.",
 			inviter.Name, team.Name, invitation.Role),
 		CreatedBy: &inviter.ID,
 		DedupeKey: fmt.Sprintf("team-invite:%d", invitation.ID),
@@ -341,6 +349,111 @@ func (h *handlers) inviteToTeam(w http.ResponseWriter, r *http.Request) {
 	sent := h.sendTeamInvite(r.Context(), invitation, name, h.user(r).Name, team.Name, token)
 	if sent && invitee != nil {
 		h.notifyTeamInvite(r.Context(), h.user(r), invitee, team, invitation)
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"invitation": invitation, "sent": sent})
+}
+
+// transferTeam hands ownership on. An existing manager or member takes it at
+// once; an address that has no account yet is invited as the owner, and the old
+// owner keeps the team until the invitation is accepted. The account deletion
+// screen is what needs this: a person cannot leave a team without an owner.
+func (h *handlers) transferTeam(w http.ResponseWriter, r *http.Request) {
+	team, ok := h.teamAccess(w, r)
+	if !ok {
+		return
+	}
+	if team.Role != store.TeamRoleOwner {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Only the team owner can transfer it"})
+		return
+	}
+
+	var body teamTransferRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
+		return
+	}
+	owner := h.user(r)
+
+	if body.UserID != nil {
+		// The old owner steps down to manager; the team keeps an owner at every
+		// moment, which is what the partial unique index enforces.
+		err := h.store.TransferTeamOwnership(r.Context(), team.ID, owner.ID, *body.UserID, store.TeamRoleManager)
+		switch {
+		case errors.Is(err, store.ErrTeamOwner):
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "That member cannot take the team over"})
+		case errors.Is(err, store.ErrNotFound):
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "Member not found"})
+		case err != nil:
+			h.fail(w, r, err)
+		default:
+			h.log.Info("team ownership transferred", "team", team.Name,
+				"from", owner.Email, "to", *body.UserID)
+			writeJSON(w, http.StatusOK, map[string]bool{"transferred": true})
+		}
+		return
+	}
+
+	email := auth.NormalizeEmail(body.Email)
+	if !auth.ValidEmail(email) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Choose a member or enter an email address",
+		})
+		return
+	}
+	if strings.EqualFold(email, owner.Email) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "That is your own address",
+		})
+		return
+	}
+	if auth.OnReservedDomain(email) {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
+			"error": "That account could not be created",
+		})
+		return
+	}
+	if h.accountMailer == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "Invitations cannot be sent right now",
+		})
+		return
+	}
+
+	// An existing account is found only so the notice and the greeting can name
+	// the person; a new address makes its account from the link.
+	var invitee *store.User
+	if found, err := h.store.UserByEmail(r.Context(), email); err == nil {
+		invitee = found
+	} else if !errors.Is(err, store.ErrNotFound) {
+		h.fail(w, r, err)
+		return
+	}
+	name := "there"
+	if invitee != nil {
+		name = invitee.Name
+	}
+
+	token, err := auth.NewToken()
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	invitation, err := h.store.CreateTeamInvitation(r.Context(), store.TeamInvitationInput{
+		TeamID:    team.ID,
+		Email:     email,
+		Role:      store.TeamRoleOwner,
+		InvitedBy: owner.ID,
+		ExpiresAt: time.Now().Add(teamInviteTTL),
+		Transfer:  true,
+	}, auth.HashToken(token))
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	sent := h.sendTeamInvite(r.Context(), invitation, name, owner.Name, team.Name, token)
+	if sent && invitee != nil {
+		h.notifyTeamInvite(r.Context(), owner, invitee, team, invitation)
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"invitation": invitation, "sent": sent})
 }

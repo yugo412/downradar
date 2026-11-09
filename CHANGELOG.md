@@ -10,6 +10,23 @@ semantic versioning.
 
 - Team workspaces: create a team, invite an existing account or a new address,
   and manage its members, roles and pending invitations from the account menu.
+- Teams can own services and alerts. A team service is private to its members
+  and only the owner edits or removes it; any member looks after the team's
+  alerts, which email one team address and appear in every member's feed. A
+  team has its own alert limit.
+- An owner who deletes their account first deletes each team or hands it to an
+  existing member or a new address, and the account stays until the handover is
+  accepted.
+- cState status pages, read from the JSON the page publishes.
+- StatusIQ status pages, read from the page and the JSON API it calls.
+- A staff Profiles page listing every adapter profile with the number of
+  services it reads.
+
+### Fixed
+
+- A vendor page opened from an alert shows the status at that moment instead of
+  a snapshot from up to a minute before; the page and its API are no longer
+  cached.
 
 ## [0.8.0]
 
@@ -17,8 +34,6 @@ semantic versioning.
 
 - Hund.io status pages, read from the page itself.
 - Instatus status pages, read from the API the page publishes.
-- cState status pages, read from the JSON the page publishes.
-- StatusIQ status pages, read from the page and the JSON API it calls.
 - xAI status pages, read from the JSON their page calls.
 - Microsoft Teams alerts, using Workflows webhooks.
 - An Alert tab on vendor pages, showing the signed-in visitor's alert and the
