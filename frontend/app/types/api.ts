@@ -157,6 +157,13 @@ export interface AdminProfile {
   visible: boolean
 }
 
+// StaffProfile is a profile as the staff page sees it: what it declares, whether
+// detection tries it, and how many services run on it.
+export interface StaffProfile extends AdminProfile {
+  services: number
+  detect: boolean
+}
+
 export interface ServiceCreated {
   slug: string
   status: ServiceStatus

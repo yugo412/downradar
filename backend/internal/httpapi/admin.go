@@ -98,6 +98,39 @@ func (h *handlers) listProfiles(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"profiles": out})
 }
 
+// staffProfileView is one profile as the profiles page sees it: what the file
+// declares, whether detection tries it, and how many services run on it.
+type staffProfileView struct {
+	profileView
+	Services int  `json:"services"`
+	Detect   bool `json:"detect"`
+}
+
+func (h *handlers) listStaffProfiles(w http.ResponseWriter, r *http.Request) {
+	usage, err := h.store.ProfileUsage(r.Context())
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	detect := make(map[string]bool, len(h.catalog.Detect))
+	for _, name := range h.catalog.Detect {
+		detect[name] = true
+	}
+
+	out := make([]staffProfileView, 0, len(h.catalog.Profiles))
+	for name, p := range h.catalog.Profiles {
+		out = append(out, staffProfileView{
+			profileView: profileViewOf(name, p),
+			Services:    usage[name],
+			Detect:      detect[name],
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+
+	writeJSON(w, http.StatusOK, map[string]any{"profiles": out})
+}
+
 // noMatchMessage is what a caller is told when the queue ran out of profiles. It
 // names both ways forward, because from here it is not possible to tell a wrong
 // url from a platform that has no adapter yet.
